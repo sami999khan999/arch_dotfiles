@@ -52,7 +52,12 @@ head_ "config  ->  ~/.config"
 link_children "$REPO/config" "$HOME/.config"
 
 head_ "assets  ->  ~/.local/share"
-link_children "$REPO/local/share" "$HOME/.local/share"
+# icons/ themes/ fonts/ are SHARED namespaces - packages install into them too.
+# Link the individual themes inside, never the directory itself.
+for group in "$REPO"/local/share/*; do
+  [[ -d "$group" ]] || continue
+  link_children "$group" "$HOME/.local/share/$(basename "$group")"
+done
 
 head_ "cursors ->  ~/.icons"
 link_children "$REPO/icons" "$HOME/.icons"

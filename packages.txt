@@ -71,10 +71,12 @@ hdparm
 hwdetect
 hwinfo
 hyprland
+imv
 inetutils
 intel-ucode
 iwd
 jfsutils
+kdegraphics-thumbnailers
 kitty
 less
 lib32-nvidia-580xx-utils
@@ -103,6 +105,7 @@ mesa-utils
 micro
 mkinitcpio
 modemmanager
+mpv
 mtools
 nano
 nano-syntax-highlighting

@@ -1,0 +1,11 @@
+# Noctalia regenerates these from the wallpaper on every theme change
+config/gtk-4.0/noctalia.css
+config/gtk-4.0/thumbnail.png
+config/btop/themes/noctalia*
+config/kitty/noctalia*
+config/alacritty/noctalia*
+
+# runtime / state, not configuration
+config/fish/fish_variables
+*.log
+*.bak

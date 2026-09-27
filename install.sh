@@ -79,6 +79,9 @@ for group in "$REPO"/local/share/*; do
   link_children "$group" "$HOME/.local/share/$(basename "$group")"
 done
 
+head_ "scripts ->  ~/.local/bin"
+link_children "$REPO/local/bin" "$HOME/.local/bin"
+
 head_ "cursors ->  ~/.icons"
 link_children "$REPO/icons" "$HOME/.icons"
 

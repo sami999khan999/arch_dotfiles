@@ -58,6 +58,7 @@ fastfetch
 ffmpegthumbnailer
 fsarchiver
 git
+github-cli
 glances
 grim
 grub

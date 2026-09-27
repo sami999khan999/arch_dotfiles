@@ -8,7 +8,7 @@ CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.c
 Install CachyOS with Hyprland, then:
 
 ```bash
-git clone <this-repo> ~/dotfiles
+git clone https://github.com/sami999khan999/arch_dotfiles.git ~/dotfiles
 cd ~/dotfiles
 ./install.sh --dry-run --packages   # preview, changes nothing
 ./install.sh --packages             # packages + /etc files + symlinks
@@ -77,6 +77,16 @@ cycles them. Helper scripts (power menu, toggles, screenshots) are in
 `config/hypr/scripts/`.
 
 Noctalia is still installed but no longer autostarted.
+
+## Syncing between PCs
+
+```bash
+dotsync                  # save local changes, pull the other PC's, push, relink
+dotsync "what changed"   # same, with your own commit message
+```
+
+Run it after changing something, and before starting on the other PC.
+`dotsync` lives in `local/bin/` and is linked into `~/.local/bin`.
 
 ## App hotkeys (AutoHotkey-style)
 

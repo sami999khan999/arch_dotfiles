@@ -1,8 +1,8 @@
-/* Omarchy's classic waybar style — Kanagawa Dragon */
-@define-color foreground #c5c9c5;
-@define-color background #181616;
-@define-color accent #c4746e;
-@define-color alert #E46876;
+/* Omarchy's classic waybar style — Tokyo Night */
+@define-color foreground #a9b1d6;
+@define-color background #1a1b26;
+@define-color accent #7aa2f7;
+@define-color alert #f7768e;
 
 * {
   background-color: @background;

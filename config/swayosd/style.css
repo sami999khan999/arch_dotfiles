@@ -1,9 +1,9 @@
-/* Omarchy swayosd — Kanagawa Dragon */
-@define-color background-color #181616;
-@define-color border-color #393836;
-@define-color label #c5c9c5;
-@define-color image #c5c9c5;
-@define-color progress #C34043;
+/* Omarchy swayosd — Tokyo Night */
+@define-color background-color #1a1b26;
+@define-color border-color #414868;
+@define-color label #a9b1d6;
+@define-color image #a9b1d6;
+@define-color progress #7aa2f7;
 
 window {
   border-radius: 0;

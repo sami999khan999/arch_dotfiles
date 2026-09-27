@@ -1,10 +1,10 @@
--- Kanagawa Dragon (https://github.com/rebelot/kanagawa.nvim)
+-- Tokyo Night (Omarchy theme palette)
 
-THEME_ACCENT     = "rgba(C34043ff)" -- autumn red
-THEME_BACKGROUND = "rgba(181616ff)"
-THEME_FOREGROUND = "rgba(c5c9c5ff)"
-THEME_MUTED      = "rgba(393836aa)"
-THEME_EMBER      = "rgba(43242Bff)" -- winter red
-THEME_DARK_RED   = "rgba(43242Bff)"
-THEME_BORDER     = "rgba(393836ff)" -- dragonBlack5
-THEME_BORDER_DIM = "rgba(1D1C19ff)" -- dragonBlack2
+THEME_ACCENT     = "rgba(7aa2f7ff)"
+THEME_BACKGROUND = "rgba(1a1b26ff)"
+THEME_FOREGROUND = "rgba(a9b1d6ff)"
+THEME_MUTED      = "rgba(565f89ff)"
+THEME_MAGENTA    = "rgba(bb9af7ff)"
+THEME_CYAN       = "rgba(0db9d7ff)"
+THEME_BORDER     = "rgba(414868ff)" -- terminal black
+THEME_BORDER_DIM = "rgba(292e42ff)"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# keys.py — shortcut viewer (Kanagawa Dragon). Reads binds.lua and apps.conf live, so it never goes stale.
-#   ↑↓ / j k / wheel  scroll     PgUp PgDn  page     /  search     Esc  clear search / quit     q  quit
+# keys.py — shortcut viewer (Tokyo Night). Reads binds.lua and apps.conf live, so it never goes stale.
+#   type  search (every word must match)     ↑↓ / wheel  scroll     PgUp PgDn  page     Esc  clear / close
 # A bind shows its trailing "-- comment" as its description when it has one.
 import os, re, sys, shutil, termios, tty, select
 
@@ -8,7 +8,7 @@ HYPR = os.path.expanduser("~/.config/hypr")
 BINDS, APPS = f"{HYPR}/config/binds.lua", f"{HYPR}/apps.conf"
 
 def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT, KEY, TRACK = rgb("#c5c9c5"), rgb("#737c73"), rgb("#c4746e"), rgb("#c4b28a"), rgb("#393836")
+FG, DIM, ACCENT, KEY, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#7aa2f7"), rgb("#e0af68"), rgb("#292e42")
 BOLD, RESET = "\033[1m", "\033[0m"
 
 # ---- describing actions ------------------------------------------------------------------------
@@ -182,22 +182,27 @@ def sections():
 # ---- drawing -----------------------------------------------------------------------------------
 def build(query):
     rows = []
-    q = query.lower()
+    words = query.lower().split()
     for title, items in sections():
-        hits = [(k, d) for k, d in items if q in k.lower() or q in d.lower()]
+        hits = [(k, d) for k, d in items if all(w in f"{k} {d}".lower() for w in words)]
         if not hits: continue
         if rows: rows.append(("", ""))
         rows.append(("#", title))
         rows.extend(hits)
     return rows
 
-def render(rows, top, query, searching):
+def render(rows, top, query):
     cols, height = shutil.get_terminal_size()
     w = min(cols - 4, 90)
     pad = " " * max((cols - w) // 2, 0)
     kw = min(max((len(k) for k, _ in rows if k and k != "#"), default=10) + 2, w // 2)
-    body = height - 5
-    out = [pad + f"{FG}{BOLD}Shortcuts{RESET}", ""]
+    body = height - 7
+    box = f"{query}{FG}▏{RESET}" if query else f"{FG}▏{RESET}{DIM}type to search…{RESET}"
+    out = [pad + f"{FG}{BOLD}Shortcuts{RESET}", "",
+           pad + f"{ACCENT}\uf002{RESET}  {FG}{box}",
+           pad + f"{TRACK}{'─' * w}{RESET}", ""]
+    if not rows:
+        out.append(pad + f"{DIM}No shortcut matches “{query}”{RESET}")
     for key, desc in rows[top:top + body]:
         if key == "#":
             out.append(pad + f"{ACCENT}{BOLD}{desc}{RESET} {TRACK}{'─' * (w - len(desc) - 1)}{RESET}")
@@ -205,14 +210,9 @@ def render(rows, top, query, searching):
             out.append(pad + f"{KEY}{key:<{kw}}{RESET}{FG}{desc[:w - kw]}{RESET}")
         else:
             out.append("")
-    out += [""] * (body - len(rows[top:top + body]))
-    out.append("")
-    if searching or query:
-        foot = f"{ACCENT}/{RESET}{FG}{query}{'▏' if searching else ''}{RESET}   {DIM}esc clear{RESET}"
-    else:
-        more = f"  {top + 1}–{min(top + body, len(rows))} of {len(rows)}" if len(rows) > body else ""
-        foot = f"{DIM}↑↓ scroll   / search   q close{more}{RESET}"
-    out.append(pad + foot)
+    out += [""] * (body - max(len(rows[top:top + body]), 0 if rows else 1))
+    more = f"   {top + 1}–{min(top + body, len(rows))} of {len(rows)}" if len(rows) > body else ""
+    out.append(pad + f"{DIM}↑↓ scroll   esc {'clear' if query else 'close'}{more}{RESET}")
     sys.stdout.write("\033[H\033[2J" + "\n".join(out))
     sys.stdout.flush()
     return body
@@ -234,30 +234,26 @@ def main():
     old = termios.tcgetattr(fd)
     tty.setcbreak(fd)
     sys.stdout.write("\033[?1049h\033[?25l\033[?1000h\033[?1006h")  # alt screen, no cursor, mouse wheel
-    query, searching, top = "", False, 0
+    query, top = "", 0
     try:
         while True:
             rows = build(query)
-            body = render(rows, top, query, searching)
+            body = render(rows, top, query)
             k = read_key(fd)
             last = max(len(rows) - body, 0)
-            if searching:
-                if k == "ESC":        query, searching = "", False
-                elif k in ("\n", "\r"): searching = False
-                elif k in ("\x7f", "\b"): query = query[:-1]
-                elif k and k.isprintable() and len(k) == 1: query += k
-                top = 0
-                continue
-            if k in ("q", "ESC"):
-                if query: query, top = "", 0; continue
-                break
-            elif k == "/":            searching = True
-            elif k in ("DOWN", "j"):  top = min(top + 1, last)
-            elif k in ("UP", "k"):    top = max(top - 1, 0)
-            elif k in ("PGDN", " "):  top = min(top + body, last)
-            elif k == "PGUP":         top = max(top - body, 0)
-            elif k in ("HOME", "g"):  top = 0
-            elif k in ("END", "G"):   top = last
+            if k == "ESC":
+                if not query: break
+                query, top = "", 0
+            elif k in ("\x7f", "\b"):  query, top = query[:-1], 0
+            elif k == "\x15":          query, top = "", 0          # Ctrl+U
+            elif k == "DOWN":          top = min(top + 1, last)
+            elif k == "UP":            top = max(top - 1, 0)
+            elif k == "PGDN":          top = min(top + body, last)
+            elif k == "PGUP":          top = max(top - body, 0)
+            elif k == "HOME":          top = 0
+            elif k == "END":           top = last
+            elif len(k) == 1 and k.isprintable():
+                query, top = query + k, 0
     except KeyboardInterrupt:
         pass
     finally:

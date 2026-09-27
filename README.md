@@ -1,7 +1,7 @@
 # dotfiles
 
 CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
-(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Kanagawa Dragon.
+(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Tokyo Night.
 
 ## Bootstrap a new machine
 
@@ -45,20 +45,17 @@ packages (`/usr/share/themes`, `/usr/share/icons`), so `packages.txt` matters as
 much as the files. The exception is **Bibata-Modern-Ice**, which was hand-placed
 and belongs to no package — it is committed here because nothing else restores it.
 
-## Theme: Kanagawa Dragon, hand-applied
+## Theme: Tokyo Night, hand-applied
 
-[Kanagawa Dragon](https://github.com/rebelot/kanagawa.nvim) — picked to match the
-Bloodborne wallpaper. Terminal colors are the upstream ports; everything else
-is written directly into each app. Nothing generates them:
+Colors come from Omarchy's `themes/tokyo-night/colors.toml` and are written
+directly into each app. Nothing generates them:
 
 | Role | Color |
 |---|---|
-| background / surface | `#181616` / `#1D1C19` / `#282727` |
-| text / dim | `#c5c9c5` / `#737c73`, highlight text `#C8C093` |
-| window & popup borders | `#393836` focused, `#1D1C19` unfocused |
-| selection / highlight bg | `#43242B` (winter red) |
-| accent as text | `#c4746e` (dragon red) |
-| secondary | `#b6927b` orange, `#87a987` green, `#c4b28a` yellow |
+| background / surface | `#1a1b26` / `#24283b` / `#292e42` |
+| text / dim | `#a9b1d6`, bright `#c0caf5` / `#565f89` |
+| accent | `#7aa2f7` blue, `#bb9af7` magenta |
+| window & popup borders | `#414868` focused, `#292e42` unfocused |
 
 | App | File |
 |---|---|
@@ -68,8 +65,8 @@ is written directly into each app. Nothing generates them:
 | mako | `config/mako/config` |
 | hyprlock | `config/hypr/hyprlock.conf` |
 | sysmon | `config/hypr/scripts/sysmon.py` |
-| kitty, alacritty, btop | `themes/kanagawa-dragon.*` in each |
-| GTK 3/4, Qt | `gtk-*/kanagawa-dragon.css`, `qt6ct/colors/kanagawa-dragon.conf` |
+| kitty, alacritty, btop | `themes/tokyo-night.*` in each |
+| GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
 | KDE apps (Dolphin) | `config/kdeglobals` |
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
@@ -104,7 +101,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 ## Shortcut list
 
 `Super + K` (or the keyboard icon in waybar) opens a floating list of every
-shortcut, read live from `binds.lua` and `apps.conf`. `/` searches, `q` closes.
+shortcut, read live from `binds.lua` and `apps.conf`. Type to search, Esc closes.
 A bind's description comes from a built-in table in `scripts/keys.py`; to label
 a new bind yourself, end its line with a comment:
 

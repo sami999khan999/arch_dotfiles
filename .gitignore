@@ -2,7 +2,7 @@
 config/gtk-4.0/noctalia.css
 config/gtk-4.0/thumbnail.png
 config/qt6ct/colors/*
-!config/qt6ct/colors/kanagawa-dragon.conf
+!config/qt6ct/colors/tokyo-night.conf
 config/qt5ct/colors/
 config/btop/themes/noctalia*
 config/kitty/noctalia*

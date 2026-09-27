@@ -78,6 +78,19 @@ cycles them. Helper scripts (power menu, toggles, screenshots) are in
 
 Noctalia is still installed but no longer autostarted.
 
+## App hotkeys (AutoHotkey-style)
+
+`config/hypr/apps.conf` maps keys to apps, one per line:
+
+```
+SUPER + B    | google-chrome     | google-chrome-stable
+```
+
+The key jumps to that app's window on any workspace, cycles through its windows
+on repeat presses, and launches it if nothing is open. Find a window's class with
+`hyprctl clients | grep class`, then `hyprctl reload`. Loaded by
+`config/hypr/config/apps.lua`, run by `scripts/focus-or-launch.sh`.
+
 ## Launcher and default apps
 
 - `local/share/applications/*.desktop` hide apps from Walker (`NoDisplay=true`).

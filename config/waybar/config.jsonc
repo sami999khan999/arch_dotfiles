@@ -50,7 +50,7 @@
   "cpu": {
     "interval": 5,
     "format": "󰍛",
-    "on-click": "uwsm app -- kitty --class=TUI.float -e btop"
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/sysmon.py"
   },
   "clock": {
     "format": "{:L%A %H:%M}",
@@ -74,7 +74,7 @@
     "tooltip-format-disconnected": "Disconnected",
     "interval": 3,
     "spacing": 1,
-    "on-click": "uwsm app -- kitty --class=TUI.float -e nmtui"
+    "on-click": "~/.config/hypr/scripts/tui.sh nmtui"
   },
   "battery": {
     "format": "{capacity}% {icon}",
@@ -124,11 +124,11 @@
     "format-connected": "󰂱",
     "format-no-controller": "",
     "tooltip-format": "Devices connected: {num_connections}",
-    "on-click": "uwsm app -- kitty --class=TUI.float -e bluetui"
+    "on-click": "~/.config/hypr/scripts/tui.sh bluetui"
   },
   "pulseaudio": {
     "format": "{icon}",
-    "on-click": "uwsm app -- kitty --class=TUI.float -e wiremix",
+    "on-click": "~/.config/hypr/scripts/tui.sh wiremix",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",
     "scroll-step": 5,

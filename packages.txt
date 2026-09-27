@@ -56,11 +56,9 @@ exfatprogs
 f2fs-tools
 fastfetch
 ffmpegthumbnailer
-firefox
 fsarchiver
 git
 glances
-google-chrome
 grim
 grub
 grub-btrfs-support

@@ -8,7 +8,9 @@ mapfile -t walls < <(find -L "$dir" -maxdepth 1 -type f \( -name "*.jpg" -o -nam
 current=$(cat "$state" 2>/dev/null)
 
 case "${1:-restore}" in
-  restore) [[ -f "$current" ]] || current="${walls[0]}" ;;
+  restore)
+    [[ -f "$current" ]] || current="$dir/6-bloodborne.jpg" # default on a fresh machine
+    [[ -f "$current" ]] || current="${walls[0]}" ;;
   next)
     next="${walls[0]}"
     for i in "${!walls[@]}"; do

@@ -5,11 +5,31 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP="$HOME/.config-backup-$(date +%Y%m%d-%H%M%S)"
-DRY=0
-[[ "${1:-}" == "--dry-run" ]] && DRY=1
+DRY=0 PKGS=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)  DRY=1 ;;
+    --packages) PKGS=1 ;;   # also install packages + root-owned system files
+    *) echo "usage: $0 [--dry-run] [--packages]" >&2; exit 1 ;;
+  esac
+done
 
 say()  { printf '  %s\n' "$*"; }
 head_() { printf '\n== %s\n' "$*"; }
+
+if (( PKGS )); then
+  head_ "packages"
+  if (( DRY )); then
+    say "would install $(wc -l < "$REPO/packages.txt") pacman + $(wc -l < "$REPO/packages-aur.txt") AUR packages"
+    say "would copy system/ files into /etc"
+  else
+    sudo pacman -S --needed - < "$REPO/packages.txt"
+    paru -S --needed - < "$REPO/packages-aur.txt"
+    sudo install -Dm644 "$REPO/system/disable_ondevice_ai.json" \
+      /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
+    fc-cache -f >/dev/null
+  fi
+fi
 
 # link <source-in-repo> <destination-in-home>
 link() {
@@ -76,9 +96,6 @@ fi
 
 cat <<'EOF'
 
-Done. Remaining manual steps:
-  1. Install packages:   sudo pacman -S --needed - < packages.txt
-  2. System files need root (see system/):
-       sudo cp system/disable_ondevice_ai.json /etc/opt/chrome/policies/managed/
-  3. Log out and back in so Hyprland and Noctalia reload.
+Done. Log out and back in so Hyprland reloads.
+(Without --packages, install them with: ./install.sh --packages)
 EOF

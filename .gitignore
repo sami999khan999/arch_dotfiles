@@ -13,3 +13,4 @@ config/fish/fish_variables
 *.log
 *.bak
 *.tbcache
+__pycache__/

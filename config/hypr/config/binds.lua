@@ -11,9 +11,9 @@ local function bind(keys, action, opts)
     hl.bind(keys, action, opts)
 end
 
--- Launch a TUI in a floating terminal window
+-- Toggle a TUI in a floating terminal window (second press closes it)
 local function tui(cmd)
-    return launch .. TERMINAL .. " --class=TUI.float -e " .. cmd
+    return scripts .. "tui.sh " .. cmd
 end
 
 -- AZERTY-safe: digits are bound by physical keycode. 1..9 => 10..18, 0 => 19
@@ -28,12 +28,12 @@ end
 bind("SUPER + RETURN",               launch .. TERMINAL)
 bind("SUPER + SHIFT + RETURN",       launch .. BROWSER)
 bind("SUPER + SHIFT + B",            launch .. BROWSER)
-bind("SUPER + SHIFT + ALT + B",      launch .. BROWSER .. " --private-window")
+bind("SUPER + SHIFT + ALT + B",      launch .. BROWSER .. " --incognito")
 bind("SUPER + SHIFT + F",            launch .. FILE_MANAGER)
 bind("SUPER + SHIFT + N",            launch .. EDITOR)
 bind("SUPER + CTRL + Q",             launch .. CALCULATOR)
 bind("XF86Calculator",               launch .. CALCULATOR)
-bind("SUPER + CTRL + T",             tui("btop"))
+bind("SUPER + CTRL + T",             tui(scripts .. "sysmon.py"))
 bind("CTRL + SHIFT + Escape",        tui("btop"))
 bind("SUPER + CTRL + A",             tui("wiremix"))
 bind("SUPER + CTRL + B",             tui("bluetui"))
@@ -46,6 +46,7 @@ bind("SUPER + CTRL + W",             tui("nmtui"))
 bind("SUPER + SPACE",                "walker")
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")
+bind("SUPER + V",                    "walker -m clipboard")
 bind("SUPER + ESCAPE",               scripts .. "power-menu.sh")
 bind("SUPER + ALT + SPACE",          scripts .. "power-menu.sh")
 bind("XF86PowerOff",                 scripts .. "power-menu.sh", { locked = true })
@@ -163,6 +164,7 @@ bind("SUPER + CTRL + L",             "loginctl lock-session")
 
 -- Captures
 bind("PRINT",                        scripts .. "screenshot.sh region")
+bind("SUPER + SHIFT + S",            scripts .. "screenshot.sh region")
 bind("SHIFT + PRINT",                scripts .. "screenshot.sh output")
 bind("SUPER + PRINT",                "pkill hyprpicker || hyprpicker -a")
 

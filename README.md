@@ -5,24 +5,26 @@ CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.c
 
 ## Bootstrap a new machine
 
-```bash
-git clone <this-repo> ~/dotfiles
-cd ~/dotfiles
-./install.sh --dry-run    # preview, changes nothing
-./install.sh              # symlink everything into place
+Install CachyOS with Hyprland, then:
 
-sudo pacman -S --needed - < packages.txt
-paru -S --needed - < packages-aur.txt   # elephant = walker backend
+```bash
+git clone -b omarchy-rice <this-repo> ~/dotfiles
+cd ~/dotfiles
+./install.sh --dry-run --packages   # preview, changes nothing
+./install.sh --packages             # packages + /etc files + symlinks
 ```
 
-Then log out and back in.
+Then log out and back in. Re-run `./install.sh` (no flag) any time to relink.
+
+`system/root-setup.sh` also mounts this PC's data drive — machine-specific, don't
+run it elsewhere.
 
 ## Layout
 
 | Path | Links to | Contains |
 |---|---|---|
 | `config/` | `~/.config/` | settings — hypr, noctalia, gtk, qt, terminals, fish |
-| `local/share/` | `~/.local/share/` | assets — the Bibata cursor theme |
+| `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
 | `system/` | *manual, needs root* | `/etc` files — Chrome policy |
 | `packages.txt` | — | explicit pacman packages |
@@ -64,6 +66,12 @@ cycles them. Helper scripts (power menu, toggles, screenshots) are in
 
 Noctalia is still installed but no longer autostarted. The pre-rice setup is on
 the `main` branch.
+
+## Launcher and default apps
+
+- `local/share/applications/*.desktop` hide apps from Walker (`NoDisplay=true`).
+  Delete one to bring that app back.
+- `config/mimeapps.list` sets default apps (imv for images, mpv for video).
 
 ## Editing
 

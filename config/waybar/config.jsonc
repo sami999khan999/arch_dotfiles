@@ -15,6 +15,7 @@
     "custom/notification-silencing-indicator"
   ],
   "modules-right": [
+    "custom/keys",
     "group/tray-expander",
     "bluetooth",
     "network",
@@ -153,6 +154,11 @@
       "custom/expand-icon",
       "tray"
     ]
+  },
+  "custom/keys": {
+    "format": "",
+    "tooltip-format": "Shortcuts (Super + K)",
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/keys.py"
   },
   "custom/expand-icon": {
     "format": "",

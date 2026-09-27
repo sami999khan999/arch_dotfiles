@@ -101,6 +101,17 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 `hyprctl clients | grep class`, then `hyprctl reload`. Loaded by
 `config/hypr/config/apps.lua`, run by `scripts/focus-or-launch.sh`.
 
+## Shortcut list
+
+`Super + K` (or the keyboard icon in waybar) opens a floating list of every
+shortcut, read live from `binds.lua` and `apps.conf`. `/` searches, `q` closes.
+A bind's description comes from a built-in table in `scripts/keys.py`; to label
+a new bind yourself, end its line with a comment:
+
+```lua
+bind("SUPER + M", launch .. "mpv") -- open mpv
+```
+
 ## Launcher and default apps
 
 - `local/share/applications/*.desktop` hide apps from Walker (`NoDisplay=true`).

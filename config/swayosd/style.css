@@ -1,9 +1,9 @@
-/* Omarchy swayosd — Bloodborne */
-@define-color background-color #0f0c0c;
-@define-color border-color #7d1a14;
-@define-color label #d8cbb8;
-@define-color image #d8cbb8;
-@define-color progress #7d1a14;
+/* Omarchy swayosd — Kanagawa Dragon */
+@define-color background-color #181616;
+@define-color border-color #C34043;
+@define-color label #c5c9c5;
+@define-color image #c5c9c5;
+@define-color progress #C34043;
 
 window {
   border-radius: 0;

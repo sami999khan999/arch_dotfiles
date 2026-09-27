@@ -1,8 +1,8 @@
-/* Omarchy's classic waybar style — Bloodborne */
-@define-color foreground #d8cbb8;
-@define-color background #0f0c0c;
-@define-color accent #a3302a;
-@define-color alert #9a4a38;
+/* Omarchy's classic waybar style — Kanagawa Dragon */
+@define-color foreground #c5c9c5;
+@define-color background #181616;
+@define-color accent #c4746e;
+@define-color alert #E46876;
 
 * {
   background-color: @background;

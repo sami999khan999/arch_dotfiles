@@ -1,8 +1,8 @@
--- Bloodborne (palette taken from the wallpaper)
+-- Kanagawa Dragon (https://github.com/rebelot/kanagawa.nvim)
 
-THEME_ACCENT     = "rgba(7d1a14ff)"
-THEME_BACKGROUND = "rgba(0f0c0cff)"
-THEME_FOREGROUND = "rgba(d8cbb8ff)"
-THEME_MUTED      = "rgba(3d2f2caa)"
-THEME_EMBER      = "rgba(9a4a38ff)"
-THEME_DARK_RED   = "rgba(560806ff)"
+THEME_ACCENT     = "rgba(C34043ff)" -- autumn red
+THEME_BACKGROUND = "rgba(181616ff)"
+THEME_FOREGROUND = "rgba(c5c9c5ff)"
+THEME_MUTED      = "rgba(393836aa)"
+THEME_EMBER      = "rgba(43242Bff)" -- winter red
+THEME_DARK_RED   = "rgba(43242Bff)"

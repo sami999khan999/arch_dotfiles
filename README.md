@@ -1,7 +1,7 @@
 # dotfiles
 
 CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
-(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in a Bloodborne theme.
+(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Kanagawa Dragon.
 
 ## Bootstrap a new machine
 
@@ -45,18 +45,20 @@ packages (`/usr/share/themes`, `/usr/share/icons`), so `packages.txt` matters as
 much as the files. The exception is **Bibata-Modern-Ice**, which was hand-placed
 and belongs to no package — it is committed here because nothing else restores it.
 
-## Theme: Bloodborne, hand-applied
+## Theme: Kanagawa Dragon, hand-applied
 
-Colors are taken from the wallpaper (`6-bloodborne.jpg`) and written directly
-into each app. Nothing generates them:
+[Kanagawa Dragon](https://github.com/rebelot/kanagawa.nvim) — picked to match the
+Bloodborne wallpaper. Terminal colors are the upstream ports; everything else
+is written directly into each app. Nothing generates them:
 
 | Role | Color |
 |---|---|
-| background / surface | `#0f0c0c` / `#1c1515` / `#2a1f1e` |
-| text / dim | `#d8cbb8` (parchment) / `#7a6a5c` |
-| accent — borders, highlights | `#7d1a14` (oxblood) |
-| accent — as text | `#a3302a` |
-| secondary | `#9a4a38` (ember), `#7d8b65` (moss), `#c9a25e` (brass) |
+| background / surface | `#181616` / `#1D1C19` / `#282727` |
+| text / dim | `#c5c9c5` / `#737c73`, highlight text `#C8C093` |
+| window & popup borders | `#C34043` (autumn red) → `#43242B` |
+| selection / highlight bg | `#43242B` (winter red) |
+| accent as text | `#c4746e` (dragon red) |
+| secondary | `#b6927b` orange, `#87a987` green, `#c4b28a` yellow |
 
 | App | File |
 |---|---|
@@ -66,8 +68,8 @@ into each app. Nothing generates them:
 | mako | `config/mako/config` |
 | hyprlock | `config/hypr/hyprlock.conf` |
 | sysmon | `config/hypr/scripts/sysmon.py` |
-| kitty, alacritty, btop | `themes/bloodborne.*` in each |
-| GTK 3/4, Qt | `gtk-*/bloodborne.css`, `qt6ct/colors/bloodborne.conf` |
+| kitty, alacritty, btop | `themes/kanagawa-dragon.*` in each |
+| GTK 3/4, Qt | `gtk-*/kanagawa-dragon.css`, `qt6ct/colors/kanagawa-dragon.conf` |
 | KDE apps (Dolphin) | `config/kdeglobals` |
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`

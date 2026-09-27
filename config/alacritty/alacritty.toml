@@ -1,5 +1,5 @@
 [general]
-import = ["~/.config/alacritty/themes/bloodborne.toml"]
+import = ["~/.config/alacritty/themes/kanagawa-dragon.toml"]
 working_directory = "None"
 live_config_reload = true
 

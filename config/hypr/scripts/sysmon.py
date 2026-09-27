@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# sysmon.py — minimal system monitor for the rice (Bloodborne). q / Esc to quit.
+# sysmon.py — minimal system monitor for the rice (Kanagawa Dragon). q / Esc to quit.
 import os, sys, time, select, shutil, termios, tty, subprocess
 from datetime import datetime
 
@@ -9,8 +9,8 @@ PAGE = os.sysconf("SC_PAGE_SIZE")
 TICKS = os.sysconf("SC_CLK_TCK")
 
 def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT = rgb("#d8cbb8"), rgb("#7a6a5c"), rgb("#a3302a")
-GREEN, YELLOW, RED, TRACK = rgb("#9aa882"), rgb("#c9a25e"), rgb("#a3302a"), rgb("#2a1f1e")
+FG, DIM, ACCENT = rgb("#c5c9c5"), rgb("#737c73"), rgb("#c4746e")
+GREEN, YELLOW, RED, TRACK = rgb("#87a987"), rgb("#c4b28a"), rgb("#E46876"), rgb("#282727")
 BOLD, RESET = "\033[1m", "\033[0m"
 
 def level(p): return GREEN if p < 60 else YELLOW if p < 85 else RED

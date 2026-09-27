@@ -1,10 +1,10 @@
-/* Omarchy walker theme — Bloodborne */
-@define-color selected-text #a3302a;
-@define-color text #d8cbb8;
-@define-color base #0f0c0c;
-@define-color border #7d1a14;
-@define-color foreground #d8cbb8;
-@define-color background #0f0c0c;
+/* Omarchy walker theme — Kanagawa Dragon */
+@define-color selected-text #c4746e;
+@define-color text #c5c9c5;
+@define-color base #181616;
+@define-color border #C34043;
+@define-color foreground #c5c9c5;
+@define-color background #181616;
 
 * {
   all: unset;

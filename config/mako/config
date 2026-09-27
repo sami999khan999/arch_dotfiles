@@ -1,7 +1,7 @@
-# Omarchy mako — Bloodborne
-text-color=#d8cbb8
-border-color=#7d1a14
-background-color=#0f0c0c
+# Omarchy mako — Kanagawa Dragon
+text-color=#c5c9c5
+border-color=#C34043
+background-color=#181616
 
 anchor=top-right
 group-by=app-name,summary,body

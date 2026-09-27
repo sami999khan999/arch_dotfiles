@@ -115,14 +115,20 @@ hl.window_rule({
     no_focus = true,
 })
 
--- Noctalia layer rule
+-- Omarchy-style floating windows: TUIs, viewers, file dialogs
+hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk)$" }, tag = "+floating-window" })
+hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?|Save.*As|Save|All Files|[Cc]hoose.*)$" }, tag = "+floating-window" })
+hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
+
+-- Slight transparency everywhere, except media
+hl.window_rule({ match = { class = ".*" }, opacity = "0.97 0.9" })
+hl.window_rule({ match = { class = "^(zoom|vlc|mpv|imv|org\\.kde\\.kdenlive|com\\.obsproject\\.Studio|steam_app.*|gamescope)$" }, opacity = "1 1" })
+
+-- Blur behind the bar, launcher and notifications
 hl.layer_rule({
-  name = "noctalia",
-  match = {
-    namespace = "^noctalia-(bar-.+|notification|dock|panel|attached-panel|osd|window-switcher)$",
-  },
-  no_anim = true,
-  ignore_alpha = 0.5,
+  name = "omarchy-stack",
+  match = { namespace = "^(waybar|walker|notifications|swayosd)$" },
   blur = true,
-  blur_popups = true,
+  ignore_alpha = 0.5,
 })
+hl.layer_rule({ name = "walker-noanim", match = { namespace = "^walker$" }, no_anim = true })

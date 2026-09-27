@@ -1,6 +1,7 @@
 # dotfiles
 
-CachyOS + Hyprland + Noctalia desktop configuration.
+CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
+(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Tokyo Night.
 
 ## Bootstrap a new machine
 
@@ -11,6 +12,7 @@ cd ~/dotfiles
 ./install.sh              # symlink everything into place
 
 sudo pacman -S --needed - < packages.txt
+paru -S --needed - < packages-aur.txt   # elephant = walker backend
 ```
 
 Then log out and back in.
@@ -41,31 +43,27 @@ packages (`/usr/share/themes`, `/usr/share/icons`), so `packages.txt` matters as
 much as the files. The exception is **Bibata-Modern-Ice**, which was hand-placed
 and belongs to no package — it is committed here because nothing else restores it.
 
-## Colors are generated, not configured
+## Theme: Tokyo Night, hand-applied
 
-Noctalia derives a Material 3 palette from the current wallpaper and writes it into:
+Colors come from Omarchy's `themes/tokyo-night/colors.toml` and are written
+directly into each app. Nothing generates them any more:
 
-```
-config/gtk-4.0/noctalia.css
-config/qt6ct/colors/noctalia.conf
-config/kitty|alacritty|btop theme fragments
-~/.local/share/color-schemes/noctalia.colors
-```
+| App | File |
+|---|---|
+| Hyprland borders | `config/hypr/config/colors.lua` |
+| waybar, swayosd | `config/waybar/style.css`, `config/swayosd/style.css` |
+| walker | `config/walker/themes/omarchy-default/style.css` |
+| mako | `config/mako/config` |
+| hyprlock | `config/hypr/hyprlock.conf` |
+| kitty, alacritty, btop | `themes/tokyo-night.*` in each |
+| GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
 
-Those are **output**. Editing them does nothing lasting — they are overwritten on
-the next wallpaper change, and are gitignored.
+Wallpapers live in `local/share/backgrounds/tokyo-night`; `Super+Ctrl+Space`
+cycles them. Helper scripts (power menu, toggles, screenshots) are in
+`config/hypr/scripts/`.
 
-To change colors, edit `config/noctalia/config.toml`:
-
-```toml
-[theme]
-mode = "dark"                    # or "light"
-source = "wallpaper"             # or a fixed palette
-wallpaper_scheme = "m3-tonal-spot"
-```
-
-Structure that Noctalia does *not* touch — icon sets, cursors, the adw-gtk3 widget
-style, Hyprland borders and gaps — is configured normally and is tracked here.
+Noctalia is still installed but no longer autostarted. The pre-rice setup is on
+the `main` branch.
 
 ## Editing
 

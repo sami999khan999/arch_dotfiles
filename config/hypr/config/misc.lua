@@ -8,7 +8,7 @@ hl.config({
     },
     misc = {
         col = {
-            splash = CACHYLGREEN,
+            splash = TN_ACCENT,
         },
         middle_click_paste = false,
         enable_swallow = true,

@@ -1,1 +1,9 @@
+elephant
+elephant-calc
+elephant-clipboard
+elephant-desktopapplications
+elephant-files
+elephant-providerlist
+elephant-symbols
+elephant-websearch
 google-chrome

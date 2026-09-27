@@ -1,8 +1,8 @@
--- Tokyo Night (Omarchy theme palette)
+-- Bloodborne (palette taken from the wallpaper)
 
-TN_ACCENT     = "rgba(7aa2f7ff)"
-TN_BACKGROUND = "rgba(1a1b26ff)"
-TN_FOREGROUND = "rgba(a9b1d6ff)"
-TN_MUTED      = "rgba(414868aa)"
-TN_MAGENTA    = "rgba(bb9af7ff)"
-TN_CYAN       = "rgba(0db9d7ff)"
+THEME_ACCENT     = "rgba(7d1a14ff)"
+THEME_BACKGROUND = "rgba(0f0c0cff)"
+THEME_FOREGROUND = "rgba(d8cbb8ff)"
+THEME_MUTED      = "rgba(3d2f2caa)"
+THEME_EMBER      = "rgba(9a4a38ff)"
+THEME_DARK_RED   = "rgba(560806ff)"

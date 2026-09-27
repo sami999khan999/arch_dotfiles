@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# sysmon.py — minimal system monitor for the rice (Tokyo Night). q / Esc to quit.
+# sysmon.py — minimal system monitor for the rice (Bloodborne). q / Esc to quit.
 import os, sys, time, select, shutil, termios, tty, subprocess
 from datetime import datetime
 
@@ -9,8 +9,8 @@ PAGE = os.sysconf("SC_PAGE_SIZE")
 TICKS = os.sysconf("SC_CLK_TCK")
 
 def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, BLUE = rgb("#c0caf5"), rgb("#565f89"), rgb("#7aa2f7")
-GREEN, YELLOW, RED, TRACK = rgb("#9ece6a"), rgb("#e0af68"), rgb("#f7768e"), rgb("#292e42")
+FG, DIM, ACCENT = rgb("#d8cbb8"), rgb("#7a6a5c"), rgb("#a3302a")
+GREEN, YELLOW, RED, TRACK = rgb("#9aa882"), rgb("#c9a25e"), rgb("#a3302a"), rgb("#2a1f1e")
 BOLD, RESET = "\033[1m", "\033[0m"
 
 def level(p): return GREEN if p < 60 else YELLOW if p < 85 else RED
@@ -134,12 +134,12 @@ def render(cpu, temp, mem, dsk, g, apps):
         out.append(pad + left + " " * gap + right)
 
     def section(title):
-        out.append(pad + f"{BLUE}{BOLD}{title}{RESET} {TRACK}{'─' * (w - len(title) - 1)}{RESET}")
+        out.append(pad + f"{ACCENT}{BOLD}{title}{RESET} {TRACK}{'─' * (w - len(title) - 1)}{RESET}")
         out.append("")
 
     def metric(name, pct, detail):
         bw = w - 40
-        line(f"{BLUE}{ICONS[name]}{RESET}  {FG}{name:<8}{RESET}{bar(pct, bw)}  {level(pct)}{BOLD}{pct:>3.0f}%{RESET}",
+        line(f"{ACCENT}{ICONS[name]}{RESET}  {FG}{name:<8}{RESET}{bar(pct, bw)}  {level(pct)}{BOLD}{pct:>3.0f}%{RESET}",
              f"{DIM}{detail}{RESET}")
 
     line(f"{FG}{BOLD}{MODEL}{RESET}", f"{DIM}up {uptime()}  ·  {RESET}{FG}{datetime.now():%H:%M}{RESET}")
@@ -157,7 +157,7 @@ def render(cpu, temp, mem, dsk, g, apps):
     for name, (c, m) in apps[:min(TOP_APPS, room)]:
         name = name[:1].upper() + name[1:]
         n = max(round(12 * m / biggest), 1)
-        mbar = BLUE + "━" * n + TRACK + "━" * (12 - n) + RESET
+        mbar = ACCENT + "━" * n + TRACK + "━" * (12 - n) + RESET
         line(f"{FG}{name[:w - 40]}{RESET}",
              f"{level(c)}{c:>5.1f}%{RESET}   {mbar} {DIM}{size(m):>9}{RESET}")
     out.append("")

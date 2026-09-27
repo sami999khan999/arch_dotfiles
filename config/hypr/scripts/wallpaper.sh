@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Wallpaper cycling with swaybg.   wallpaper.sh restore | next | <path>
-dir="$HOME/.local/share/backgrounds/tokyo-night"
+dir="$HOME/.local/share/backgrounds/wallpapers"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/wallpaper"
 mkdir -p "$(dirname "$state")"
 

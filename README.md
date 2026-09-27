@@ -1,14 +1,14 @@
 # dotfiles
 
 CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
-(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Tokyo Night.
+(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in a Bloodborne theme.
 
 ## Bootstrap a new machine
 
 Install CachyOS with Hyprland, then:
 
 ```bash
-git clone -b omarchy-rice <this-repo> ~/dotfiles
+git clone <this-repo> ~/dotfiles
 cd ~/dotfiles
 ./install.sh --dry-run --packages   # preview, changes nothing
 ./install.sh --packages             # packages + /etc files + symlinks
@@ -45,10 +45,18 @@ packages (`/usr/share/themes`, `/usr/share/icons`), so `packages.txt` matters as
 much as the files. The exception is **Bibata-Modern-Ice**, which was hand-placed
 and belongs to no package — it is committed here because nothing else restores it.
 
-## Theme: Tokyo Night, hand-applied
+## Theme: Bloodborne, hand-applied
 
-Colors come from Omarchy's `themes/tokyo-night/colors.toml` and are written
-directly into each app. Nothing generates them any more:
+Colors are taken from the wallpaper (`6-bloodborne.jpg`) and written directly
+into each app. Nothing generates them:
+
+| Role | Color |
+|---|---|
+| background / surface | `#0f0c0c` / `#1c1515` / `#2a1f1e` |
+| text / dim | `#d8cbb8` (parchment) / `#7a6a5c` |
+| accent — borders, highlights | `#7d1a14` (oxblood) |
+| accent — as text | `#a3302a` |
+| secondary | `#9a4a38` (ember), `#7d8b65` (moss), `#c9a25e` (brass) |
 
 | App | File |
 |---|---|
@@ -57,15 +65,16 @@ directly into each app. Nothing generates them any more:
 | walker | `config/walker/themes/omarchy-default/style.css` |
 | mako | `config/mako/config` |
 | hyprlock | `config/hypr/hyprlock.conf` |
-| kitty, alacritty, btop | `themes/tokyo-night.*` in each |
-| GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
+| sysmon | `config/hypr/scripts/sysmon.py` |
+| kitty, alacritty, btop | `themes/bloodborne.*` in each |
+| GTK 3/4, Qt | `gtk-*/bloodborne.css`, `qt6ct/colors/bloodborne.conf` |
+| KDE apps (Dolphin) | `config/kdeglobals` |
 
-Wallpapers live in `local/share/backgrounds/tokyo-night`; `Super+Ctrl+Space`
+Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. Helper scripts (power menu, toggles, screenshots) are in
 `config/hypr/scripts/`.
 
-Noctalia is still installed but no longer autostarted. The pre-rice setup is on
-the `main` branch.
+Noctalia is still installed but no longer autostarted.
 
 ## Launcher and default apps
 

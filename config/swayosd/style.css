@@ -1,9 +1,9 @@
-/* Omarchy swayosd — Tokyo Night */
-@define-color background-color #1a1b26;
-@define-color border-color #7aa2f7;
-@define-color label #a9b1d6;
-@define-color image #a9b1d6;
-@define-color progress #7aa2f7;
+/* Omarchy swayosd — Bloodborne */
+@define-color background-color #0f0c0c;
+@define-color border-color #7d1a14;
+@define-color label #d8cbb8;
+@define-color image #d8cbb8;
+@define-color progress #7d1a14;
 
 window {
   border-radius: 0;

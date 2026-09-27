@@ -55,7 +55,7 @@ is written directly into each app. Nothing generates them:
 |---|---|
 | background / surface | `#181616` / `#1D1C19` / `#282727` |
 | text / dim | `#c5c9c5` / `#737c73`, highlight text `#C8C093` |
-| window & popup borders | `#625e5a` focused, `#282727` unfocused |
+| window & popup borders | `#393836` focused, `#1D1C19` unfocused |
 | selection / highlight bg | `#43242B` (winter red) |
 | accent as text | `#c4746e` (dragon red) |
 | secondary | `#b6927b` orange, `#87a987` green, `#c4b28a` yellow |

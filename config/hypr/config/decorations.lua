@@ -1,7 +1,7 @@
 -- Look and feel, after Omarchy's default/hypr/looknfeel.lua
 
-local active_border_color   = { colors = { THEME_ACCENT, THEME_EMBER }, angle = 45 }
-local inactive_border_color = THEME_MUTED
+local active_border_color   = THEME_BORDER
+local inactive_border_color = THEME_BORDER_DIM
 
 hl.config({
     general = {

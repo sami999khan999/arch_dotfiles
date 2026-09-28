@@ -7,6 +7,7 @@ awesome-terminal-fonts
 base
 base-devel
 bash-completion
+bat
 bind
 bluetui
 bluez
@@ -38,6 +39,7 @@ cachyos-wallpapers
 cachyos-zsh-config
 cantarell-fonts
 chwd
+cmake
 cpupower
 cryptsetup
 device-mapper
@@ -45,6 +47,9 @@ diffutils
 dmidecode
 dmraid
 dnsmasq
+docker
+docker-buildx
+docker-compose
 dolphin
 dosfstools
 duf
@@ -53,13 +58,18 @@ efibootmgr
 efitools
 ethtool
 exfatprogs
+eza
 f2fs-tools
 fastfetch
+fd
 ffmpegthumbnailer
 fsarchiver
+fzf
 git
+git-delta
 github-cli
 glances
+go
 grim
 grub
 grub-btrfs-support
@@ -70,6 +80,7 @@ gst-plugins-bad
 gst-plugins-ugly
 gst-plugin-va
 hdparm
+httpie
 hwdetect
 hwinfo
 hypridle
@@ -86,6 +97,8 @@ jfsutils
 jq
 kdegraphics-thumbnailers
 kitty
+lazydocker
+lazygit
 less
 lib32-nvidia-580xx-utils
 lib32-opencl-nvidia-580xx
@@ -113,6 +126,7 @@ mdadm
 meld
 mesa-utils
 micro
+mise
 mkinitcpio
 modemmanager
 mpv
@@ -124,6 +138,7 @@ networkmanager
 networkmanager-openvpn
 nfs-utils
 nilfs-utils
+ninja
 noctalia-greeter
 noto-fonts
 noto-fonts-cjk
@@ -142,6 +157,7 @@ pavucontrol
 perl
 pipewire-alsa
 pipewire-pulse
+pkgconf
 pkgfile
 playerctl
 plocate
@@ -157,6 +173,7 @@ rebuild-detector
 reflector
 ripgrep
 rsync
+rustup
 satty
 sg3_utils
 shelly
@@ -171,6 +188,7 @@ swaybg
 swayosd
 sysfsutils
 texinfo
+tree
 ttf-bitstream-vera
 ttf-dejavu
 ttf-jetbrains-mono-nerd
@@ -184,6 +202,7 @@ unzip
 upower
 usb_modeswitch
 usbutils
+uv
 vim
 vlc-plugins-all
 vulkan-icd-loader
@@ -199,3 +218,4 @@ wpa_supplicant
 xdg-user-dirs
 xfsprogs
 xl2tpd
+zoxide

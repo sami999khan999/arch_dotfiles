@@ -1,0 +1,21 @@
+{
+  "workbench.colorTheme": "Tokyo Night",
+  "editor.fontFamily": "'JetBrainsMono Nerd Font', monospace",
+  "editor.fontSize": 14,
+  "editor.fontLigatures": true,
+  "editor.formatOnSave": true,
+  "editor.minimap.enabled": false,
+  "editor.bracketPairColorization.enabled": true,
+  "terminal.integrated.fontFamily": "'JetBrainsMono Nerd Font'",
+  "terminal.integrated.defaultProfile.linux": "fish",
+  "window.titleBarStyle": "custom",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "git.autofetch": true,
+  "telemetry.telemetryLevel": "off",
+  "[python]": { "editor.defaultFormatter": "charliermarsh.ruff" },
+  "[rust]": { "editor.defaultFormatter": "rust-lang.rust-analyzer" },
+  "[javascript][typescript][javascriptreact][typescriptreact][json][jsonc][css][html][markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  }
+}

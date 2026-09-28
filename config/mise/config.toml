@@ -1,0 +1,6 @@
+# Language runtimes managed by mise (installed into ~/.local/share/mise).
+# "lts" / "latest" always resolve to the newest release: update with  mise upgrade
+[tools]
+node = "lts"
+pnpm = "latest"
+bun = "latest"

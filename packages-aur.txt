@@ -7,3 +7,4 @@ elephant-providerlist
 elephant-symbols
 elephant-websearch
 google-chrome
+visual-studio-code-bin

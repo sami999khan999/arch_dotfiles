@@ -1,0 +1,10 @@
+enkia.tokyo-night
+rust-lang.rust-analyzer
+ms-python.python
+charliermarsh.ruff
+dbaeumer.vscode-eslint
+esbenp.prettier-vscode
+golang.go
+ms-azuretools.vscode-docker
+eamodio.gitlens
+tamasfe.even-better-toml

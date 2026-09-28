@@ -1,0 +1,24 @@
+# Shared git settings. Machine-specific bits (gh credential helper) stay in ~/.gitconfig.
+[user]
+	name = sami
+	email = sami999khan999@gmail.com
+[init]
+	defaultBranch = main
+[pull]
+	rebase = true
+[push]
+	autoSetupRemote = true
+[fetch]
+	prune = true
+[core]
+	pager = delta
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true
+	line-numbers = true
+	syntax-theme = OneHalfDark
+[merge]
+	conflictstyle = zdiff3
+[diff]
+	colorMoved = default

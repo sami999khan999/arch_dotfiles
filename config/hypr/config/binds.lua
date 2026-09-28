@@ -45,6 +45,7 @@ bind("SUPER + CTRL + W",             tui("nmtui"))
 
 bind("SUPER + SPACE",                "walker")
 bind("SUPER + K",                    tui(scripts .. "keys.py")) -- shortcut list
+bind("SUPER + CTRL + G",             tui("~/.local/bin/wsgroups")) -- workspace groups manager
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")
 bind("SUPER + V",                    "walker -m clipboard")

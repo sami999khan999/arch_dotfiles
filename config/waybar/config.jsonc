@@ -15,6 +15,7 @@
     "custom/notification-silencing-indicator"
   ],
   "modules-right": [
+    "custom/wsgroups",
     "custom/keys",
     "group/tray-expander",
     "bluetooth",
@@ -154,6 +155,12 @@
       "custom/expand-icon",
       "tray"
     ]
+  },
+  "custom/wsgroups": {
+    "exec": "~/.local/bin/wsgroups bar",
+    "return-type": "json",
+    "escape": true,
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.local/bin/wsgroups"
   },
   "custom/keys": {
     "format": "",

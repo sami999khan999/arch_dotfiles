@@ -63,6 +63,14 @@
   margin-right: 13px;
 }
 
+#custom-wsgroups {
+  margin-right: 16px;
+}
+
+#custom-wsgroups.none {
+  opacity: 0.5;
+}
+
 #custom-keys {
   margin-right: 18px;
 }

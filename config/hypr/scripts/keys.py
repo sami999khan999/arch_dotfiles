@@ -251,7 +251,7 @@ def main():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     tty.setcbreak(fd)
-    sys.stdout.write("\033[?1049h\033[?25l\033[?1000h\033[?1006h")  # alt screen, no cursor, mouse wheel
+    sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h")  # alt screen, no cursor, mouse wheel
     query, top = "", 0
     try:
         while True:
@@ -275,7 +275,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        sys.stdout.write("\033[?1000l\033[?1006l\033[?25h\033[?1049l")
+        sys.stdout.write("\033[?1000l\033[?1006l\033[?7h\033[?25h\033[?1049l")
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 if __name__ == "__main__":

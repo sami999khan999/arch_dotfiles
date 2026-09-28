@@ -4,7 +4,8 @@
   wsgroups                    open the manager UI (also Super + Ctrl + G, or click it in waybar)
   wsgroups focus N            focus window N (1-10) of the current workspace, in the order opened
   wsgroups go N               go to workspace N; launch its apps if none are open there yet
-  wsgroups launch N|all [-f]  launch a group's programs (-f: even if some are already open)
+  wsgroups launch N|all [-f]  launch a group's programs (-f: even if some are already open;
+                              --background: return to the current workspace afterwards)
   wsgroups tidy               move already-open windows to their group's workspace
   wsgroups list               show the groups and the numbered windows in each
   wsgroups bar                waybar module: follows Hyprland events, prints JSON lines
@@ -118,6 +119,17 @@ def launch(ws, force=False):
         subprocess.Popen(["uwsm", "app", "--", *argv], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return True
+
+
+def wait_for(ws, timeout=10):
+    """Wait until one of the group's windows has opened on ws."""
+    g = groups().get(ws)
+    end = time.time() + timeout
+    while g and time.time() < end:
+        if any(matches(w, g["cls"]) for w in windows(ws)):
+            return True
+        time.sleep(0.25)
+    return False
 
 
 def go(ws):
@@ -428,13 +440,13 @@ def ui():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     tty.setcbreak(fd)
-    sys.stdout.write("\033[?1049h\033[?25l")
+    sys.stdout.write("\033[?1049h\033[?25l\033[?7l")  # no wrap: clip long lines
     try:
         UI(fd).run()
     except KeyboardInterrupt:
         pass
     finally:
-        sys.stdout.write("\033[?25h\033[?1049l")
+        sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
@@ -448,15 +460,22 @@ def main(argv):
         return
     cmd, rest = argv[0], argv[1:]
     force = "-f" in rest or "--force" in rest
-    rest = [a for a in rest if a not in ("-f", "--force")]
+    background = "--background" in rest
+    rest = [a for a in rest if a not in ("-f", "--force", "--background")]
     if cmd == "focus" and rest:
         focus(int(rest[0]))
     elif cmd == "go" and rest:
         go(int(rest[0]))
     elif cmd == "launch" and rest:
         targets = sorted(groups()) if rest[0] == "all" else [int(rest[0])]
+        home = (query("activeworkspace") or {}).get("id")
         for ws in targets:
-            print(f"workspace {ws}: {'launched' if launch(ws, force) else 'already open (use -f)'}")
+            started = launch(ws, force)
+            print(f"workspace {ws}: {'launched' if started else 'already open (use -f)'}")
+            if started and background:
+                wait_for(ws)
+        if background and home:   # the group rules follow new windows; go back to where we were
+            dispatch(f'hl.dsp.focus({{ workspace = "{home}" }})')
     elif cmd == "tidy":
         print(f"moved {tidy()} window(s)")
     elif cmd == "list":

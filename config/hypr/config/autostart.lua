@@ -16,4 +16,5 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("systemctl --user start hyprpolkitagent")
     hl.exec_cmd("~/.config/hypr/scripts/wallpaper.sh restore")
     hl.exec_cmd("wl-paste --watch cliphist store")
+    hl.exec_cmd("~/.local/bin/wsgroups launch 6 --background") -- Control Center on workspace 6
 end)

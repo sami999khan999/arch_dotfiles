@@ -137,8 +137,12 @@ def render(cpu, temp, mem, dsk, g, apps):
         out.append(pad + f"{ACCENT}{BOLD}{title}{RESET} {TRACK}{'─' * (w - len(title) - 1)}{RESET}")
         out.append("")
 
+    narrow = w < 64  # e.g. a Control Center pane: drop the detail column, keep bars readable
+
     def metric(name, pct, detail):
-        bw = w - 40
+        bw = max(w - 18, 6) if narrow else w - 40
+        if narrow:
+            detail = ""
         line(f"{ACCENT}{ICONS[name]}{RESET}  {FG}{name:<8}{RESET}{bar(pct, bw)}  {level(pct)}{BOLD}{pct:>3.0f}%{RESET}",
              f"{DIM}{detail}{RESET}")
 
@@ -158,8 +162,11 @@ def render(cpu, temp, mem, dsk, g, apps):
         name = name[:1].upper() + name[1:]
         n = max(round(12 * m / biggest), 1)
         mbar = ACCENT + "━" * n + TRACK + "━" * (12 - n) + RESET
-        line(f"{FG}{name[:w - 40]}{RESET}",
-             f"{level(c)}{c:>5.1f}%{RESET}   {mbar} {DIM}{size(m):>9}{RESET}")
+        if narrow:
+            line(f"{FG}{name[:max(w - 17, 4)]}{RESET}", f"{level(c)}{c:>5.1f}%{RESET} {DIM}{size(m):>8}{RESET}")
+        else:
+            line(f"{FG}{name[:w - 40]}{RESET}",
+                 f"{level(c)}{c:>5.1f}%{RESET}   {mbar} {DIM}{size(m):>9}{RESET}")
     out.append("")
     out.append(pad + " " * ((w - 7) // 2) + f"{DIM}q close{RESET}")
 
@@ -171,7 +178,7 @@ def main():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     tty.setcbreak(fd)
-    sys.stdout.write("\033[?1049h\033[?25l")  # alt screen, hide cursor
+    sys.stdout.write("\033[?1049h\033[?25l\033[?7l")  # alt screen, hide cursor
     try:
         t0, i0 = cpu_ticks()
         p0 = processes()
@@ -190,7 +197,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        sys.stdout.write("\033[?25h\033[?1049l")
+        sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 if __name__ == "__main__":

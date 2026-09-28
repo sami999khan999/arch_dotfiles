@@ -122,9 +122,18 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 
 `config/hypr/workspaces.conf` gives each kind of app its own workspace:
 
+| Workspace | Group | Apps |
+|---|---|---|
+| 1 | Code | VS Code windows |
+| 2 | Web | Chrome windows |
+| 3 | Terminal | kitty |
+| 4 | Docker | lazydocker |
+| 5 | Files | Dolphin |
+| 6 | Control | the Control Center (below) |
+
 ```
-2 | Code     | code          | code ~/dotfiles
-3 | Web      | google-chrome | google-chrome-stable
+1 | Code     | code            | code ~/dotfiles
+2 | Web      | google-chrome   | google-chrome-stable
 ```
 
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
@@ -143,6 +152,14 @@ hover for the numbered window list.
 Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
 taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
 Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`.
+
+### Control Center (workspace 6)
+
+One kitty window in grid layout with the waybar tools as panes: workspace groups manager,
+audio (wiremix), shortcuts, network (nmtui) and system monitor. It starts at login in the
+background (`wsgroups launch 6 --background` in `autostart.lua`); `Super + Ctrl + 6` reopens it
+if closed. Panes are defined in `config/kitty/controlcenter.session`; each runs through
+`scripts/panel.sh`, which restarts a tool when you quit it.
 
 ## Shortcut list
 

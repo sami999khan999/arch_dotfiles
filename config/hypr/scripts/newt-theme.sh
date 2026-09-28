@@ -1,0 +1,3 @@
+# Tokyo Night-ish colors for newt apps (nmtui): terminal background, blue accents.
+# Sourced by tui.sh and panel.sh.
+export NEWT_COLORS='root=white,default;border=blue,default;window=white,default;shadow=default,default;title=blue,default;button=black,blue;actbutton=black,blue;compactbutton=white,default;checkbox=white,default;actcheckbox=black,blue;entry=white,default;disentry=gray,default;label=white,default;listbox=white,default;actlistbox=black,blue;sellistbox=blue,default;actsellistbox=black,blue;textbox=white,default;acttextbox=black,blue;emptyscale=,default;fullscale=,blue;helpline=white,default;roottext=white,default'

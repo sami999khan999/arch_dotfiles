@@ -1,0 +1,8 @@
+# Control Center (workspace 6): the waybar tools in one kitty window, grid layout.
+# Launched by `wsgroups launch 6` (see ~/.config/hypr/workspaces.conf). Quitting a tool restarts it.
+layout grid
+launch --title Groups    sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.local/bin/wsgroups"
+launch --title Audio     sh -c "exec ~/.config/hypr/scripts/panel.sh wiremix"
+launch --title Shortcuts sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/keys.py"
+launch --title Network   sh -c "exec ~/.config/hypr/scripts/panel.sh nmtui"
+launch --title System    sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/sysmon.py"

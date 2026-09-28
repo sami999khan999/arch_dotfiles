@@ -155,11 +155,12 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
 
 ### Control Center (workspace 6)
 
-One kitty window in grid layout with the waybar tools as panes: workspace groups manager,
+One kitty window (splits layout) with the waybar tools as panes: workspace groups manager,
 audio (wiremix), shortcuts, network (nmtui) and system monitor. It starts at login in the
 background (`wsgroups launch 6 --background` in `autostart.lua`); `Super + Ctrl + 6` reopens it
 if closed. Panes are defined in `config/kitty/controlcenter.session`; each runs through
-`scripts/panel.sh`, which restarts a tool when you quit it.
+`scripts/panel.sh`, which restarts a tool when you quit it. Drag a border (or `ctrl+shift+r`)
+to resize: each border only affects the two panes next to it.
 
 ## Shortcut list
 

@@ -6,6 +6,7 @@ import os, re, sys, shutil, termios, tty, select
 
 HYPR = os.path.expanduser("~/.config/hypr")
 BINDS, APPS = f"{HYPR}/config/binds.lua", f"{HYPR}/apps.conf"
+WSGROUPS = f"{HYPR}/workspaces.conf"
 
 def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
 FG, DIM, ACCENT, KEY, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#7aa2f7"), rgb("#e0af68"), rgb("#292e42")
@@ -172,11 +173,28 @@ def read_apps():
         pass
     return rows
 
+def read_wsgroups():
+    rows = [("Alt + 1…0", "Switch to window N in this workspace"),
+            ("Super + Ctrl + 1…0", "Go to workspace, launch its apps if needed")]
+    try:
+        for line in open(WSGROUPS):
+            line = line.strip()
+            if not line or line.startswith("#"): continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) >= 3 and parts[0].isdigit():
+                rows.append((f"Workspace {parts[0]}", f"{parts[1]} — {parts[2]}"))
+    except OSError:
+        return []
+    return rows
+
 def sections():
     out = read_binds()
     apps = read_apps()
     if apps:
         out.insert(1, ("App Hotkeys (apps.conf)", apps))
+    groups = read_wsgroups()
+    if groups:
+        out.insert(2 if apps else 1, ("Workspace Groups (workspaces.conf)", groups))
     return out
 
 # ---- drawing -----------------------------------------------------------------------------------

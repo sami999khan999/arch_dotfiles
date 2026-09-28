@@ -118,6 +118,29 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 `hyprctl clients | grep class`, then `hyprctl reload`. Loaded by
 `config/hypr/config/apps.lua`, run by `scripts/focus-or-launch.sh`.
 
+## Workspace groups
+
+`config/hypr/workspaces.conf` gives each kind of app its own workspace:
+
+```
+2 | Code     | code          | code ~/dotfiles
+3 | Web      | google-chrome | google-chrome-stable
+```
+
+Windows of that class always open on that workspace, maximized (waybar and gaps stay).
+
+| Key / command | Does |
+|---|---|
+| `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened) |
+| `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
+| `wsgroups launch N\|all [-f]` | launch a group's programs |
+| `wsgroups tidy` | move already-open windows to their workspaces |
+| `wsgroups list` | show groups and numbered windows |
+
+Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
+taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
+Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`.
+
 ## Shortcut list
 
 `Super + K` (or the keyboard icon in waybar) opens a floating list of every

@@ -4,18 +4,20 @@
 # "splits" layout: every border belongs to one split, so dragging it (or ctrl+shift+r)
 # resizes only the two panes next to it.
 #
-#   ┌──────────┬───────────┐
-#   │ Groups   │ Shortcuts │
-#   │          ├───────────┤
-#   ├──────────┤ Network   │
-#   │ Audio    ├───────────┤
-#   │          │ System    │
-#   └──────────┴───────────┘
+#   ┌──────────────┬─────────────┐
+#   │ Groups       │ System      │
+#   │              │             │
+#   ├──────────────┤             │
+#   │ Audio        ├─────────────┤
+#   │              │ Shortcuts   │
+#   │              ├─────────────┤
+#   │              │ Network     │
+#   └──────────────┴─────────────┘
 layout splits
-launch --title Groups    --var panel=groups                                        sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.local/bin/wsgroups"
-launch --title Shortcuts --var panel=shortcuts --location=vsplit                   sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/keys.py"
-launch --title Network   --var panel=network   --location=hsplit --bias=70         sh -c "exec ~/.config/hypr/scripts/panel.sh nmtui"
-launch --title System    --var panel=system    --location=hsplit --bias=55         sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/sysmon.py"
-focus_matching_window title:^Groups$
-launch --title Audio     --var panel=audio     --location=hsplit            sh -c "exec ~/.config/hypr/scripts/panel.sh wiremix"
-focus_matching_window title:^Groups$
+launch --title Groups    --var panel=groups                                sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.local/bin/wsgroups"
+launch --title System    --var panel=system    --location=vsplit --bias=50 sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/sysmon.py"
+launch --title Shortcuts --var panel=shortcuts --location=hsplit --bias=60 sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/keys.py"
+launch --title Network   --var panel=network   --location=hsplit --bias=50 sh -c "exec ~/.config/hypr/scripts/panel.sh ~/.config/hypr/scripts/netpanel.py"
+focus_matching_window var:panel=groups
+launch --title Audio     --var panel=audio     --location=hsplit --bias=50 sh -c "exec ~/.config/hypr/scripts/panel.sh wiremix -v output"
+focus_matching_window var:panel=groups

@@ -7,7 +7,7 @@ hl.config({
     general = {
         gaps_in = 2,
         gaps_out = 4,
-        border_size = 2,
+        border_size = 1,
         resize_on_border = false,
         allow_tearing = false,
         layout = "dwindle",
@@ -20,12 +20,15 @@ hl.config({
         rounding = 0,
         dim_special = 0.3,
         shadow = {
-            enabled = false,
+            enabled = true,
+            range = 18,
+            render_power = 3,
+            color = "rgba(0000004d)",
         },
         blur = {
             enabled = true,
-            size = 2,
-            passes = 2,
+            size = 6,
+            passes = 3,
             special = true,
             brightness = 0.60,
             contrast = 0.75,

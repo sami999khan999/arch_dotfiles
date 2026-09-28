@@ -9,7 +9,7 @@ BINDS, APPS = f"{HYPR}/config/binds.lua", f"{HYPR}/apps.conf"
 WSGROUPS = f"{HYPR}/workspaces.conf"
 
 def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT, KEY, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#7aa2f7"), rgb("#e0af68"), rgb("#292e42")
+FG, DIM, ACCENT, KEY, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0"), rgb("#e0af68"), rgb("#292e42")
 BOLD, RESET = "\033[1m", "\033[0m"
 
 # ---- describing actions ------------------------------------------------------------------------
@@ -214,11 +214,16 @@ def render(rows, top, query):
     w = min(cols - 4, 90)
     pad = " " * max((cols - w) // 2, 0)
     kw = min(max((len(k) for k, _ in rows if k and k != "#"), default=10) + 2, w // 2)
-    body = height - 7
+    compact = height < 18  # short pane (Control Center): no spacer lines, more room for results
+    body = height - (6 if compact else 9)
     box = f"{query}{FG}▏{RESET}" if query else f"{FG}▏{RESET}{DIM}type to search…{RESET}"
-    out = [pad + f"{FG}{BOLD}Shortcuts{RESET}", "",
+    count = f"{len([r for r in rows if r[0] and r[0] != '#'])} shortcuts"
+    out = [pad + f"{ACCENT}\U000f030c{RESET}  {FG}{BOLD}Shortcuts{RESET}" + " " * max(w - 13 - len(count), 1) + f"{DIM}{count}{RESET}",
+           pad + f"{TRACK}{'━' * w}{RESET}", "",
            pad + f"{ACCENT}\uf002{RESET}  {FG}{box}",
            pad + f"{TRACK}{'─' * w}{RESET}", ""]
+    if compact:
+        out = [l for l in out if l]
     if not rows:
         out.append(pad + f"{DIM}No shortcut matches “{query}”{RESET}")
     for key, desc in rows[top:top + body]:

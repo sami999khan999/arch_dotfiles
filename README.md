@@ -54,8 +54,8 @@ directly into each app. Nothing generates them:
 |---|---|
 | background / surface | `#1a1b26` / `#24283b` / `#292e42` |
 | text / dim | `#a9b1d6`, bright `#c0caf5` / `#565f89` |
-| accent | `#7aa2f7` blue, `#bb9af7` magenta |
-| window & popup borders | `#414868` focused, `#292e42` unfocused |
+| accent | `#6b8fe0` blue (a bit darker than stock Tokyo Night), `#bb9af7` magenta |
+| window & popup borders | `#3b4261` at 70%, 1px — same as the waybar islands |
 
 | App | File |
 |---|---|
@@ -155,12 +155,16 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
 
 ### Control Center (workspace 6)
 
-One kitty window (splits layout) with the waybar tools as panes: workspace groups manager,
-audio (wiremix), shortcuts, network (nmtui) and system monitor. It starts at login in the
-background (`wsgroups launch 6 --background` in `autostart.lua`); `Super + Ctrl + 6` reopens it
-if closed. Panes are defined in `config/kitty/controlcenter.session`; each runs through
-`scripts/panel.sh`, which restarts a tool when you quit it. Drag a border (or `ctrl+shift+r`)
-to resize: each border only affects the two panes next to it.
+One kitty window, split into cards: workspace groups manager and audio (wiremix) on the
+left; system monitor, shortcuts and network status (`scripts/netpanel.py`, Enter opens
+nmtui) on the right. Every pane has the same header style. It starts at login in the
+background (`wsgroups launch 6 --background` in `autostart.lua`); `Super + Ctrl + 6`
+reopens it if closed.
+
+- Layout: `config/kitty/controlcenter.session` (kitty *splits* layout — dragging a border
+  or `ctrl+shift+r` resizes only the two panes next to it).
+- Look: `config/kitty/controlcenter.conf` (includes kitty.conf; card gaps, borders, glass).
+- Each pane runs through `scripts/panel.sh`, which restarts a tool when you quit it.
 
 ## Shortcut list
 

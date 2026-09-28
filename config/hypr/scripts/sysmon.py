@@ -9,7 +9,7 @@ PAGE = os.sysconf("SC_PAGE_SIZE")
 TICKS = os.sysconf("SC_CLK_TCK")
 
 def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT = rgb("#c0caf5"), rgb("#565f89"), rgb("#7aa2f7")
+FG, DIM, ACCENT = rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0")
 GREEN, YELLOW, RED, TRACK = rgb("#9ece6a"), rgb("#e0af68"), rgb("#f7768e"), rgb("#292e42")
 BOLD, RESET = "\033[1m", "\033[0m"
 
@@ -135,8 +135,9 @@ def render(cpu, temp, mem, dsk, g, apps):
 
     def section(title):
         out.append(pad + f"{ACCENT}{BOLD}{title}{RESET} {TRACK}{'─' * (w - len(title) - 1)}{RESET}")
-        out.append("")
+        if not compact: out.append("")
 
+    compact = rows < 20  # short pane: drop spacer lines so the app list still fits
     narrow = w < 64  # e.g. a Control Center pane: drop the detail column, keep bars readable
 
     def metric(name, pct, detail):
@@ -146,17 +147,19 @@ def render(cpu, temp, mem, dsk, g, apps):
         line(f"{ACCENT}{ICONS[name]}{RESET}  {FG}{name:<8}{RESET}{bar(pct, bw)}  {level(pct)}{BOLD}{pct:>3.0f}%{RESET}",
              f"{DIM}{detail}{RESET}")
 
-    line(f"{FG}{BOLD}{MODEL}{RESET}", f"{DIM}up {uptime()}  ·  {RESET}{FG}{datetime.now():%H:%M}{RESET}")
-    out.append("")
-    section("System")
+    line(f"{ACCENT}\U000f035b{RESET}  {FG}{BOLD}System{RESET}",
+         f"{DIM}{MODEL}  ·  up {uptime()}  ·  {RESET}{FG}{datetime.now():%H:%M}{RESET}")
+    out.append(pad + f"{TRACK}{'━' * w}{RESET}")
+    if not compact: out.append("")
+    section("Resources")
     metric("CPU", cpu, f"{temp:.0f}°C" if temp else "")
     metric("Memory", mem[0] / mem[1] * 100, f"{size(mem[0])} / {size(mem[1])}")
     metric("Disk", dsk[0] / dsk[1] * 100, f"{size(dsk[0])} / {size(dsk[1])}")
     if g:
         metric("GPU", g[0], f"{g[1]:.0f}°C")
-    out.append("")
+    if not compact: out.append("")
     section("Apps")
-    room = max(rows - len(out) - 4, 1)
+    room = max(rows - len(out) - 1, 1)
     biggest = max((m for _, (_, m) in apps[:1]), default=1)
     for name, (c, m) in apps[:min(TOP_APPS, room)]:
         name = name[:1].upper() + name[1:]
@@ -167,10 +170,12 @@ def render(cpu, temp, mem, dsk, g, apps):
         else:
             line(f"{FG}{name[:w - 40]}{RESET}",
                  f"{level(c)}{c:>5.1f}%{RESET}   {mbar} {DIM}{size(m):>9}{RESET}")
-    out.append("")
-    out.append(pad + " " * ((w - 7) // 2) + f"{DIM}q close{RESET}")
+    if len(out) + 2 <= rows:  # footer only when there's room (a Control Center pane has none to spare)
+        out.append("")
+        out.append(pad + " " * ((w - 7) // 2) + f"{DIM}q close{RESET}")
 
     top = max((rows - len(out)) // 2, 0)
+    out = out[:rows]  # short pane: keep the top instead of scrolling it away
     sys.stdout.write("\033[H\033[2J" + "\n" * top + "\n".join(out))
     sys.stdout.flush()
 

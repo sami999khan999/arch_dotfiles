@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 # netpanel.py — network status panel (Tokyo Night) for the Control Center.
 #   enter  manage connections (nmtui)     esc / q  quit
-import os, re, select, shutil, subprocess, sys, termios, time, tty
+import re, subprocess, time
 
 INTERVAL = 1.0
 HISTORY = 40
 
-def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0"), rgb("#292e42")
-GREEN, YELLOW, RED, CYAN, MAGENTA = rgb("#9ece6a"), rgb("#e0af68"), rgb("#f7768e"), rgb("#7dcfff"), rgb("#bb9af7")
-BOLD, RESET = "\033[1m", "\033[0m"
+from panelkit import (Panel, run as show, suspend, FG, DIM, ACCENT, TRACK, GREEN, RED, CYAN, MAGENTA, BOLD, RESET,
+                      fit, frame, card, spread, header, section, hints)
 SPARK = "▁▂▃▄▅▆▇█"
 
 
@@ -60,83 +58,61 @@ def spark(values, width):
     return "".join(SPARK[min(int(v / top * (len(SPARK) - 1) + 0.5), len(SPARK) - 1)] if v else "▁" for v in values)
 
 
-def render(dev, typ, state, conn, info, down, up):
-    cols, rows = shutil.get_terminal_size()
-    w = min(cols - 4, 90)
-    pad = " " * max((cols - w) // 2, 0)
+def total(b):
+    return rate(b)[:-2]  # "2.0 GB/s" -> "2.0 GB"
+
+
+def render(dev, typ, state, conn, info, down, up, totals):
+    cols, rows, w, pad = frame(90)
     ip, gw, dns, wifi = info
     icon = "\U000f05a9" if typ == "wifi" else "\U000f0200"
-    sub = f"{dev} · {typ}"
-    out = [pad + f"{ACCENT}{icon}{RESET}  {FG}{BOLD}Network{RESET}" + " " * max(w - 11 - len(sub), 1) + f"{DIM}{sub}{RESET}",
-           pad + f"{TRACK}{'━' * w}{RESET}", ""]
     ok = state == "connected"
-    dot = f"{GREEN}●{RESET}" if ok else f"{RED}●{RESET}"
-    out.append(pad + f"{dot}  {FG}{BOLD}{conn or 'Not connected'}{RESET}" + " " * max(w - 5 - len(conn or 'Not connected') - len(state), 1)
-               + (f"{GREEN}" if ok else f"{RED}") + state + RESET)
-    out.append("")
-    gw_ = max(w - 22, 8)
-    out.append(pad + f"   {CYAN}↓{RESET}  {FG}{rate(down[-1]):>10}{RESET}  {CYAN}{spark(down, gw_)}{RESET}")
-    out.append(pad + f"   {MAGENTA}↑{RESET}  {FG}{rate(up[-1]):>10}{RESET}  {MAGENTA}{spark(up, gw_)}{RESET}")
-    out.append("")
-    rows_kv = [("IP", ip), ("Gateway", gw), ("DNS", dns)] + ([("Wi-Fi", wifi)] if wifi else [])
-    for k, v in rows_kv:
-        out.append(pad + f"   {DIM}{k:<9}{RESET}{FG}{v[:w - 12]}{RESET}")
-    out += [""] * max(rows - len(out) - 1, 0)
-    out.append(pad + f"{DIM}enter  manage connections{RESET}")
-    sys.stdout.write("\033[H\033[2J" + "\n".join(out[:rows]))
-    sys.stdout.flush()
+    color = GREEN if ok else RED
+    body = [spread(f"{color}●{RESET}  {FG}{BOLD}{fit(conn or 'Not connected', w - 18)}{RESET}", f"{color}{state}{RESET}", w), ""]
+    # traffic: current rate and a sparkline of the last HISTORY seconds
+    sw = max(w - 15, 8)
+    for arrow, c, hist in (("↓", CYAN, down), ("↑", MAGENTA, up)):
+        body.append(f"{c}{arrow}{RESET} {FG}{rate(hist[-1]):>10}{RESET}  {c}{spark(hist, sw)}{RESET}")
+    body += ["", section("Details", w)]
+    kv = [("IP", ip), ("Gateway", gw), ("DNS", dns)] + ([("Wi-Fi", wifi)] if wifi else [])
+    kv += [("Received", total(totals[0])), ("Sent", total(totals[1]))]
+    body += [f"{DIM}{k:<10}{RESET}{FG}{fit(v, w - 10)}{RESET}" for k, v in kv]
+    head = header(icon, "Network", f"{dev} · {typ}", w)
+    foot = hints([("enter", "manage connections")], w)
+    return card(head, body, foot, rows, pad)
 
 
-def enter_screen():
-    sys.stdout.write("\033[?1049h\033[?25l\033[?7l")
-    sys.stdout.flush()
+class NetworkPanel(Panel):
+    interval = INTERVAL
 
+    def __init__(self):
+        self.down, self.up = [0.0] * HISTORY, [0.0] * HISTORY
+        self.refresh()
+        self.prev, self.prev_t = counters(self.dev), time.time()
 
-def leave_screen():
-    sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
-    sys.stdout.flush()
+    def refresh(self):
+        self.dev, self.typ, self.state, self.conn = active_device()
+        self.info, self.last_info = details(self.dev), time.time()
 
+    def tick(self):
+        now, cur = time.time(), counters(self.dev)
+        dt = max(now - self.prev_t, 0.001)
+        self.down = (self.down + [max(cur[0] - self.prev[0], 0) / dt])[-HISTORY:]
+        self.up = (self.up + [max(cur[1] - self.prev[1], 0) / dt])[-HISTORY:]
+        self.prev, self.prev_t = cur, now
+        if now - self.last_info > 10:  # connection details change rarely
+            self.refresh()
 
-def main():
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
-    enter_screen()
-    down, up = [0.0] * HISTORY, [0.0] * HISTORY
-    dev, typ, state, conn = active_device()
-    info, last_info = details(dev), time.time()
-    prev, prev_t = counters(dev), time.time()
-    try:
-        while True:
-            render(dev, typ, state, conn, info, down, up)
-            r, _, _ = select.select([sys.stdin], [], [], INTERVAL)
-            if r:
-                k = os.read(fd, 8)
-                if k in (b"q", b"\x1b"):
-                    break
-                if k in (b"\r", b"\n"):
-                    leave_screen()
-                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
-                    subprocess.run(["nmtui"])
-                    tty.setcbreak(fd)
-                    enter_screen()
-                    dev, typ, state, conn = active_device()
-                    info = details(dev)
-                continue
-            now, cur = time.time(), counters(dev)
-            dt = max(now - prev_t, 0.001)
-            down = (down + [max(cur[0] - prev[0], 0) / dt])[-HISTORY:]
-            up = (up + [max(cur[1] - prev[1], 0) / dt])[-HISTORY:]
-            prev, prev_t = cur, now
-            if now - last_info > 10:  # connection details change rarely
-                dev, typ, state, conn = active_device()
-                info, last_info = details(dev), now
-    except KeyboardInterrupt:
-        pass
-    finally:
-        leave_screen()
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    def draw(self, w, h):
+        return render(self.dev, self.typ, self.state, self.conn, self.info, self.down, self.up, self.prev)
+
+    def key(self, k):
+        if k in ("q", "ESC"):
+            return "quit"
+        if k == "ENTER":
+            suspend(["nmtui"])
+            self.refresh()
 
 
 if __name__ == "__main__":
-    main()
+    show(NetworkPanel())

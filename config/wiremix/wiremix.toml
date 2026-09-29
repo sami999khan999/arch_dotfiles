@@ -1,0 +1,52 @@
+# wiremix — Tokyo Night, matching the Control Center cards (panelkit.py) and waybar.
+# Only what differs from the defaults; reference: https://github.com/tsowell/wiremix/blob/main/wiremix.toml
+
+[themes.default]
+default_device = { fg = "#e0af68" }
+default_stream = { fg = "#e0af68" }
+selector = { fg = "#6b8fe0" }
+tab = { fg = "#565f89" }
+tab_selected = { fg = "#6b8fe0", add_modifier = "BOLD" }
+tab_marker = { fg = "#6b8fe0" }
+list_more = { fg = "#565f89" }
+node_title = { fg = "#c0caf5", add_modifier = "BOLD" }
+node_target = { fg = "#565f89" }
+volume = { fg = "#c0caf5" }
+volume_empty = { fg = "#292e42" }
+volume_filled = { fg = "#6b8fe0" }
+meter_inactive = { fg = "#292e42" }
+meter_active = { fg = "#9ece6a" }
+meter_overload = { fg = "#f7768e" }
+meter_center_inactive = { fg = "#292e42" }
+meter_center_active = { fg = "#9ece6a" }
+config_device = { fg = "#c0caf5", add_modifier = "BOLD" }
+config_profile = { fg = "#c0caf5" }
+dropdown_icon = { fg = "#6b8fe0" }
+dropdown_border = { fg = "#3b4261" }
+dropdown_item = { fg = "#c0caf5" }
+dropdown_selected = { fg = "#1a1b26", bg = "#6b8fe0" }
+dropdown_more = { fg = "#565f89" }
+help_border = { fg = "#3b4261" }
+help_item = { fg = "#c0caf5" }
+help_more = { fg = "#565f89" }
+
+[char_sets.default]
+# a thin accent bar for the selection instead of shaded blocks
+selector_top = "▎"
+selector_middle = "▎"
+selector_bottom = "▎"
+tab_marker_left = "▸"
+tab_marker_right = " "
+# same bars as the System card: a solid line on a dark track
+volume_empty = "━"
+volume_filled = "━"
+meter_left_inactive = "▪"
+meter_left_active = "▪"
+meter_left_overload = "▪"
+meter_right_inactive = "▪"
+meter_right_active = "▪"
+meter_right_overload = "▪"
+meter_center_left_inactive = "▪"
+meter_center_left_active = "▪"
+meter_center_right_inactive = "▪"
+meter_center_right_active = "▪"

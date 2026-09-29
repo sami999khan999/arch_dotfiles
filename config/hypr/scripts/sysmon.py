@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # sysmon.py — minimal system monitor for the rice (Tokyo Night). q / Esc to quit.
-import os, sys, time, select, shutil, termios, tty, subprocess
+import os, subprocess
 from datetime import datetime
 
 INTERVAL = 1.5
@@ -8,10 +8,8 @@ TOP_APPS = 8
 PAGE = os.sysconf("SC_PAGE_SIZE")
 TICKS = os.sysconf("SC_CLK_TCK")
 
-def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT = rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0")
-GREEN, YELLOW, RED, TRACK = rgb("#9ece6a"), rgb("#e0af68"), rgb("#f7768e"), rgb("#292e42")
-BOLD, RESET = "\033[1m", "\033[0m"
+from panelkit import (Panel, run, CARD, CHROME, FG, DIM, ACCENT, GREEN, YELLOW, RED, TRACK, BOLD, RESET,
+                      fit, frame, card, spread, header, section, hints)
 
 def level(p): return GREEN if p < 60 else YELLOW if p < 85 else RED
 
@@ -112,98 +110,85 @@ def uptime():
     m = int(float(open("/proc/uptime").read().split()[0]) // 60)
     return f"{m // 60}h {m % 60:02d}m" if m >= 60 else f"{m}m"
 
-def visible_len(text):
-    out, skip = 0, False
-    for ch in text:
-        if ch == "\033": skip = True
-        elif skip and ch == "m": skip = False
-        elif not skip: out += 1
-    return out
-
 ICONS = {"CPU": "\U000f0ee0", "Memory": "\U000f035b", "Disk": "\U000f02ca", "GPU": "\U000f08ae"}
 MODEL = cpu_model()
 
+def short(b):
+    """Compact size for a narrow card: 4.6G, 916M."""
+    n, unit = size(b).split()
+    return f"{float(n):.0f}{unit[0]}" if float(n) >= 100 or unit in ("B", "KB", "MB") else f"{n}{unit[0]}"
+
+def load():
+    one, five, _, procs = open("/proc/loadavg").read().split()[:4]
+    return one, five, procs.split("/")[1]
+
 def render(cpu, temp, mem, dsk, g, apps):
-    cols, rows = shutil.get_terminal_size()
-    w = min(cols - 6, 76)
-    pad = " " * max((cols - w) // 2, 0)
-    out = []
+    """The card's screen text."""
+    cols, rows, w, pad = frame(84)
+    narrow = w < 64  # a Control Center card: short details, no memory bars
+    body = []
 
     def line(left, right=""):
-        gap = max(w - visible_len(left) - visible_len(right), 1)
-        out.append(pad + left + " " * gap + right)
+        body.append(spread(left, right, w))
 
-    def section(title):
-        out.append(pad + f"{ACCENT}{BOLD}{title}{RESET} {TRACK}{'─' * (w - len(title) - 1)}{RESET}")
-        if not compact: out.append("")
-
-    compact = rows < 20  # short pane: drop spacer lines so the app list still fits
-    narrow = w < 64  # e.g. a Control Center pane: drop the detail column, keep bars readable
-
-    def metric(name, pct, detail):
-        bw = max(w - 18, 6) if narrow else w - 40
-        if narrow:
-            detail = ""
+    def metric(name, pct, detail, brief):
+        detail = brief if narrow else detail
+        dw = 10 if narrow else 19
+        bw = max(w - 17 - dw - 2, 6)
         line(f"{ACCENT}{ICONS[name]}{RESET}  {FG}{name:<8}{RESET}{bar(pct, bw)}  {level(pct)}{BOLD}{pct:>3.0f}%{RESET}",
              f"{DIM}{detail}{RESET}")
 
-    line(f"{ACCENT}\U000f035b{RESET}  {FG}{BOLD}System{RESET}",
-         f"{DIM}{MODEL}  ·  up {uptime()}  ·  {RESET}{FG}{datetime.now():%H:%M}{RESET}")
-    out.append(pad + f"{TRACK}{'━' * w}{RESET}")
-    if not compact: out.append("")
-    section("Resources")
-    metric("CPU", cpu, f"{temp:.0f}°C" if temp else "")
-    metric("Memory", mem[0] / mem[1] * 100, f"{size(mem[0])} / {size(mem[1])}")
-    metric("Disk", dsk[0] / dsk[1] * 100, f"{size(dsk[0])} / {size(dsk[1])}")
+    t = f"{temp:.0f}°C" if temp else ""
+    body.append(section("Resources", w))
+    metric("CPU", cpu, t, t)
+    metric("Memory", mem[0] / mem[1] * 100, f"{size(mem[0])} / {size(mem[1])}", f"{short(mem[0])}/{short(mem[1])}")
+    metric("Disk", dsk[0] / dsk[1] * 100, f"{size(dsk[0])} / {size(dsk[1])}", f"{short(dsk[0])}/{short(dsk[1])}")
     if g:
-        metric("GPU", g[0], f"{g[1]:.0f}°C")
-    if not compact: out.append("")
-    section("Apps")
-    room = max(rows - len(out) - 1, 1)
+        metric("GPU", g[0], f"{g[1]:.0f}°C", f"{g[1]:.0f}°C")
+    body.append("")
+    body.append(section("Apps", w, "cpu" + " " * (4 if narrow else 17) + "memory"))
+    room = max(rows - CHROME - len(body), 1)
     biggest = max((m for _, (_, m) in apps[:1]), default=1)
     for name, (c, m) in apps[:min(TOP_APPS, room)]:
         name = name[:1].upper() + name[1:]
         n = max(round(12 * m / biggest), 1)
         mbar = ACCENT + "━" * n + TRACK + "━" * (12 - n) + RESET
         if narrow:
-            line(f"{FG}{name[:max(w - 17, 4)]}{RESET}", f"{level(c)}{c:>5.1f}%{RESET} {DIM}{size(m):>8}{RESET}")
+            line(f"{FG}{fit(name, w - 18)}{RESET}", f"{level(c)}{c:>5.1f}%{RESET}  {DIM}{size(m):>8}{RESET}")
         else:
-            line(f"{FG}{name[:w - 40]}{RESET}",
-                 f"{level(c)}{c:>5.1f}%{RESET}   {mbar} {DIM}{size(m):>9}{RESET}")
-    if len(out) + 2 <= rows:  # footer only when there's room (a Control Center pane has none to spare)
-        out.append("")
-        out.append(pad + " " * ((w - 7) // 2) + f"{DIM}q close{RESET}")
+            line(f"{FG}{fit(name, w - 36)}{RESET}", f"{level(c)}{c:>5.1f}%{RESET}  {mbar} {DIM}{size(m):>8}{RESET}")
 
-    top = max((rows - len(out)) // 2, 0)
-    out = out[:rows]  # short pane: keep the top instead of scrolling it away
-    sys.stdout.write("\033[H\033[2J" + "\n" * top + "\n".join(out))
-    sys.stdout.flush()
+    one, five, procs = load()
+    info = f"{DIM}load {RESET}{FG}{one}{RESET}{DIM} · {five}   {procs} processes{RESET}"
+    foot = info if CARD else spread(hints([("q", "close")], w), info, w)
+    head = header("\U000f035b", "System", f"{MODEL} · up {uptime()} · {datetime.now():%H:%M}", w)
+    return card(head, body, foot, rows, pad, center=True)
 
-def main():
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
-    sys.stdout.write("\033[?1049h\033[?25l\033[?7l")  # alt screen, hide cursor
-    try:
-        t0, i0 = cpu_ticks()
-        p0 = processes()
-        wait = 0.4
-        while True:
-            r, _, _ = select.select([sys.stdin], [], [], wait)
-            if r and sys.stdin.read(1) in ("q", "\x1b"):
-                break
-            t1, i1 = cpu_ticks()
-            p1 = processes()
-            dt = t1 - t0
-            cpu = (1 - (i1 - i0) / dt) * 100 if dt else 0
-            render(cpu, cpu_temp(), memory(), disk(), gpu(), top_apps(p0, p1, dt))
-            t0, i0, p0 = t1, i1, p1
-            wait = INTERVAL
-    except KeyboardInterrupt:
-        pass
-    finally:
-        sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+class SystemPanel(Panel):
+    interval = INTERVAL
+
+    def __init__(self):
+        self.t0, self.i0 = cpu_ticks()
+        self.p0 = processes()
+        self.stats = None
+
+    def tick(self):
+        t1, i1 = cpu_ticks()
+        p1 = processes()
+        dt = t1 - self.t0
+        cpu = (1 - (i1 - self.i0) / dt) * 100 if dt else 0
+        self.stats = (cpu, cpu_temp(), memory(), disk(), gpu(), top_apps(self.p0, p1, dt))
+        self.t0, self.i0, self.p0 = t1, i1, p1
+
+    def draw(self, w, h):
+        return render(*self.stats) if self.stats else ""
+
+    def key(self, k):
+        if k in ("q", "ESC"):
+            return "quit"
+
 
 if __name__ == "__main__":
-    main()
+    import time
+    time.sleep(0.4)  # a first CPU sample needs a moment between two readings
+    run(SystemPanel())

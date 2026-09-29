@@ -2,15 +2,13 @@
 # keys.py — shortcut viewer (Tokyo Night). Reads binds.lua and apps.conf live, so it never goes stale.
 #   type  search (every word must match)     ↑↓ / wheel  scroll     PgUp PgDn  page     Esc  clear / close
 # A bind shows its trailing "-- comment" as its description when it has one.
-import os, re, sys, shutil, termios, tty, select
+import os, re
 
 HYPR = os.path.expanduser("~/.config/hypr")
 BINDS, APPS = f"{HYPR}/config/binds.lua", f"{HYPR}/apps.conf"
 WSGROUPS = f"{HYPR}/workspaces.conf"
 
-def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT, KEY, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0"), rgb("#e0af68"), rgb("#292e42")
-BOLD, RESET = "\033[1m", "\033[0m"
+from panelkit import Panel, run, CARD, CHROME, FG, DIM, ACCENT, KEY, TRACK, BOLD, RESET, fit, frame, card, spread, header, section, hints
 
 # ---- describing actions ------------------------------------------------------------------------
 # first matching pattern wins; checked against the bind's action text
@@ -175,7 +173,8 @@ def read_apps():
 
 def read_wsgroups():
     rows = [("Alt + 1…0", "Switch to window N in this workspace"),
-            ("Super + Ctrl + 1…0", "Go to workspace, launch its apps if needed")]
+            ("Super + Ctrl + 1…0", "Go to workspace, launch its apps if needed"),
+            ("Super + N", "New window of this workspace's app")]
     try:
         for line in open(WSGROUPS):
             line = line.strip()
@@ -210,78 +209,58 @@ def build(query):
     return rows
 
 def render(rows, top, query):
-    cols, height = shutil.get_terminal_size()
-    w = min(cols - 4, 90)
-    pad = " " * max((cols - w) // 2, 0)
-    kw = min(max((len(k) for k, _ in rows if k and k != "#"), default=10) + 2, w // 2)
-    compact = height < 18  # short pane (Control Center): no spacer lines, more room for results
-    body = height - (6 if compact else 9)
-    box = f"{query}{FG}▏{RESET}" if query else f"{FG}▏{RESET}{DIM}type to search…{RESET}"
+    cols, height, w, pad = frame(90)
+    kw = min(max((len(k) for k, _ in rows if k and k != "#"), default=10) + 3, w // 2)
     count = f"{len([r for r in rows if r[0] and r[0] != '#'])} shortcuts"
-    out = [pad + f"{ACCENT}\U000f030c{RESET}  {FG}{BOLD}Shortcuts{RESET}" + " " * max(w - 13 - len(count), 1) + f"{DIM}{count}{RESET}",
-           pad + f"{TRACK}{'━' * w}{RESET}", "",
-           pad + f"{ACCENT}\uf002{RESET}  {FG}{box}",
-           pad + f"{TRACK}{'─' * w}{RESET}", ""]
-    if compact:
-        out = [l for l in out if l]
+    box = f"{FG}{query}▏{RESET}" if query else f"{FG}▏{RESET}{DIM}type to search…{RESET}"
+    search = [f"{ACCENT}\uf002{RESET}  {box}", ""]
+    body = max(height - CHROME - len(search), 1)
+    lines = list(search)
     if not rows:
-        out.append(pad + f"{DIM}No shortcut matches “{query}”{RESET}")
+        lines.append(f"{DIM}No shortcut matches “{query}”{RESET}")
     for key, desc in rows[top:top + body]:
         if key == "#":
-            out.append(pad + f"{ACCENT}{BOLD}{desc}{RESET} {TRACK}{'─' * (w - len(desc) - 1)}{RESET}")
+            lines.append(section(desc, w))
         elif key:
-            out.append(pad + f"{KEY}{key:<{kw}}{RESET}{FG}{desc[:w - kw]}{RESET}")
+            lines.append(f"{KEY}{key:<{kw}}{RESET}{FG}{fit(desc, w - kw)}{RESET}")
         else:
-            out.append("")
-    out += [""] * (body - max(len(rows[top:top + body]), 0 if rows else 1))
-    more = f"   {top + 1}–{min(top + body, len(rows))} of {len(rows)}" if len(rows) > body else ""
-    out.append(pad + f"{DIM}↑↓ scroll   esc {'clear' if query else 'close'}{more}{RESET}")
-    sys.stdout.write("\033[H\033[2J" + "\n".join(out))
-    sys.stdout.flush()
-    return body
+            lines.append("")
+    more = f"{top + 1}–{min(top + body, len(rows))} of {len(rows)}" if len(rows) > body else ""
+    foot = spread(hints([("↑↓", "scroll"), ("esc", "clear" if query or CARD else "close")], w), f"{DIM}{more}{RESET}", w)
+    head = header("\U000f030c", "Shortcuts", count, w)
+    return card(head, lines, foot, height, pad), body
 
-def read_key(fd):
-    ch = os.read(fd, 1)
-    if ch != b"\x1b":
-        return ch.decode(errors="ignore")
-    if not select.select([fd], [], [], 0.03)[0]:
-        return "ESC"
-    seq = os.read(fd, 16).decode(errors="ignore")
-    if seq.startswith("[<"):        # SGR mouse: wheel = 64 / 65
-        btn = seq[2:].split(";")[0]
-        return {"64": "UP", "65": "DOWN"}.get(btn, "")
-    return {"[A": "UP", "[B": "DOWN", "[5~": "PGUP", "[6~": "PGDN", "[H": "HOME", "[F": "END"}.get(seq, "")
+class ShortcutsPanel(Panel):
+    interval = 5.0  # binds.lua / apps.conf are re-read this often
 
-def main():
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
-    sys.stdout.write("\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h")  # alt screen, no cursor, mouse wheel
-    query, top = "", 0
-    try:
-        while True:
-            rows = build(query)
-            body = render(rows, top, query)
-            k = read_key(fd)
-            last = max(len(rows) - body, 0)
-            if k == "ESC":
-                if not query: break
-                query, top = "", 0
-            elif k in ("\x7f", "\b"):  query, top = query[:-1], 0
-            elif k == "\x15":          query, top = "", 0          # Ctrl+U
-            elif k == "DOWN":          top = min(top + 1, last)
-            elif k == "UP":            top = max(top - 1, 0)
-            elif k == "PGDN":          top = min(top + body, last)
-            elif k == "PGUP":          top = max(top - body, 0)
-            elif k == "HOME":          top = 0
-            elif k == "END":           top = last
-            elif len(k) == 1 and k.isprintable():
-                query, top = query + k, 0
-    except KeyboardInterrupt:
-        pass
-    finally:
-        sys.stdout.write("\033[?1000l\033[?1006l\033[?7h\033[?25h\033[?1049l")
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    def __init__(self):
+        self.query, self.top, self.body = "", 0, 10
+
+    def tick(self):
+        self.rows = build(self.query)
+
+    def draw(self, w, h):
+        text, self.body = render(self.rows, self.top, self.query)
+        return text
+
+    def key(self, k):
+        last = max(len(self.rows) - self.body, 0)
+        if k == "ESC":
+            if not self.query:
+                return "quit"
+            self.query, self.top = "", 0
+        elif k == "BACKSPACE":            self.query, self.top = self.query[:-1], 0
+        elif k == "\x15":                 self.query, self.top = "", 0          # Ctrl+U
+        elif k in ("DOWN", "WHEELDOWN"):  self.top = min(self.top + 1, last)
+        elif k in ("UP", "WHEELUP"):      self.top = max(self.top - 1, 0)
+        elif k == "PGDN":                 self.top = min(self.top + self.body, last)
+        elif k == "PGUP":                 self.top = max(self.top - self.body, 0)
+        elif k == "HOME":                 self.top = 0
+        elif k == "END":                  self.top = last
+        elif isinstance(k, str) and len(k) == 1 and k.isprintable():
+            self.query, self.top = self.query + k, 0
+        self.rows = build(self.query)
+
 
 if __name__ == "__main__":
-    main()
+    run(ShortcutsPanel())

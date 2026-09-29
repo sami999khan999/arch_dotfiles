@@ -105,6 +105,42 @@ dotsync "what changed"   # same, with your own commit message
 Run it after changing something, and before starting on the other PC.
 `dotsync` lives in `local/bin/` and is linked into `~/.local/bin`.
 
+## Code backup (codesync)
+
+Code lives on the SSD in `~/code` (fast); `codesync` copies every change to the HDD at
+`/mnt/data/code` a few seconds after you save, so a crash loses at most those seconds.
+
+- Runs in the background as a systemd user service, starts at login (`codesync enable`).
+- Mirror: the HDD matches the SSD. Anything the sync deletes or overwrites on the HDD is moved to
+  `/mnt/data/.code-trash/<date>/` first and kept 30 days.
+- Ignore list: `config/codesync/ignore` (`codesync ignore` opens it) — node_modules, .next, dist,
+  .venv, caches… A project can add its own `.syncignore`. Ignored files are never copied and are left
+  untouched on the HDD.
+- Safety: nothing runs if the HDD isn't mounted, and an empty `~/code` is never mirrored.
+
+**Waybar:** the sync icon next to the logo shows the state: grey (up to date), white (changes waiting),
+blue (syncing), amber (paused), red (problem). Hover for a summary; click opens the Code Sync panel
+(backed-up files/folders/size, what the ignore list skips, free space, old versions, per-folder
+breakdown, today's activity, recent changed files, and the timing settings: ↑↓ pick, ←→ change).
+Right-click syncs now, middle-click pauses/resumes. Timing is stored in `config/codesync/settings.json`.
+
+| Command | Does |
+|---|---|
+| `codesync` | status: last sync, errors, paths |
+| `codesync pause` / `resume` | hold syncing (changes still noticed, synced on resume) |
+| `codesync now` | sync immediately |
+| `codesync log` | follow what it's doing |
+| `codesync pull` | one-time copy HDD → SSD (new machine); never deletes |
+| `codesync enable` / `disable` | start / stop the background service |
+
+**On another PC** the folders can be anywhere: `codesync enable` first asks where the code is and
+where the backup goes (on the other drive), and saves that to `config/codesync/machine.json`, which is
+gitignored, so every PC keeps its own paths while the ignore list and timing stay shared.
+`codesync setup` changes them later. If that PC's backup already holds code, run `codesync pull`
+first to copy it to the fast drive. Until codesync is enabled on a PC, its waybar icon stays hidden.
+The backup drive must be mounted at boot on that PC (an `/etc/fstab` line, not in these dotfiles).
+The program is `local/bin/codesync`.
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:
@@ -127,9 +163,10 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 1 | Code | VS Code windows |
 | 2 | Web | Chrome windows |
 | 3 | Terminal | kitty |
-| 4 | Docker | lazydocker |
-| 5 | Files | Dolphin |
-| 6 | Control | the Control Center (below) |
+| 7 | Files | Dolphin |
+| 8 | Discord | Discord |
+| 9 | Docker | lazydocker |
+| 10 (key 0) | Control | the Control Center (below) |
 
 ```
 1 | Code     | code            | code ~/dotfiles
@@ -145,6 +182,7 @@ hover for the numbered window list.
 | `Super + Ctrl + G`, or click it in waybar | open the manager: map open apps to workspaces, edit, launch |
 | `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened) |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
+| `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…) |
 | `wsgroups launch N\|all [-f]` | launch a group's programs |
 | `wsgroups tidy` | move already-open windows to their workspaces |
 | `wsgroups list` | show groups and numbered windows |
@@ -153,18 +191,23 @@ Several launch commands are separated with `;` and open in that order. Alt + 1�
 taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
 Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`.
 
-### Control Center (workspace 6)
+### Control Center (workspace 10)
 
-One kitty window, split into cards: workspace groups manager and audio (wiremix) on the
-left; system monitor, shortcuts and network status (`scripts/netpanel.py`, Enter opens
-nmtui) on the right. Every pane has the same header style. It starts at login in the
-background (`wsgroups launch 6 --background` in `autostart.lua`); `Super + Ctrl + 6`
-reopens it if closed.
+One window, five cards: workspace groups manager and system monitor on top; shortcuts, audio
+and network below. `scripts/controlcenter.py` draws them all on one character grid, so the
+gaps between cards are equal and every card has the same border, padding, header, section
+titles and key-hint footer (`scripts/panelkit.py`). It starts at login in the background
+(`wsgroups launch 10 --background` in `autostart.lua`); `Super + Ctrl + 0` reopens it.
 
-- Layout: `config/kitty/controlcenter.session` (kitty *splits* layout — dragging a border
-  or `ctrl+shift+r` resizes only the two panes next to it).
-- Look: `config/kitty/controlcenter.conf` (includes kitty.conf; card gaps, borders, glass).
-- Each pane runs through `scripts/panel.sh`, which restarts a tool when you quit it.
+- `Tab` / `Shift + Tab` or a click moves between cards (blue border = focused); every other
+  key goes to that card.
+- Audio: ←→ volume, m mute, Enter makes a device the default, w opens wiremix
+  (themed by `config/wiremix/wiremix.toml`).
+- Network: Enter opens nmtui.
+- The cards also run on their own as popups: `sysmon.py`, `keys.py`, `netpanel.py`,
+  `audiopanel.py`, `wsgroups`.
+- Spacing: `config/kitty/controlcenter.conf` (padding) and `config/hypr/config/controlcenter.lua`
+  (no window border, no outer gap on workspace 10).
 
 ## Shortcut list
 

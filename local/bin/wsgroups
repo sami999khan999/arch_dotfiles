@@ -4,6 +4,7 @@
   wsgroups                    open the manager UI (also Super + Ctrl + G, or click it in waybar)
   wsgroups focus N            focus window N (1-10) of the current workspace, in the order opened
   wsgroups go N               go to workspace N; launch its apps if none are open there yet
+  wsgroups new                open another window of the current workspace's app (Super + N)
   wsgroups launch N|all [-f]  launch a group's programs (-f: even if some are already open;
                               --background: return to the current workspace afterwards)
   wsgroups tidy               move already-open windows to their group's workspace
@@ -12,7 +13,7 @@
 
 Groups are stored in ~/.config/hypr/workspaces.conf.
 """
-import json, os, re, select, shlex, shutil, socket, subprocess, sys, termios, time, tty
+import json, os, re, shlex, socket, subprocess, sys, time
 
 CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
 ICON = "\U000f0570"  # nf-md-view_carousel
@@ -55,7 +56,7 @@ def matches(win, cls):
 
 # ---- workspaces.conf ---------------------------------------------------------------------------
 def read_conf():
-    """(header lines, {ws: {"name", "cls", "launch": [cmd]}})"""
+    """(header lines, {ws: {"name", "cls", "launch": [cmd], "new": cmd}})"""
     header, groups = [], {}
     try:
         lines = open(CONF).read().splitlines()
@@ -64,11 +65,12 @@ def read_conf():
     body = False
     for line in lines:
         s = line.strip()
-        parts = [p.strip() for p in s.split("|", 3)]
+        parts = [p.strip() for p in s.split("|", 4)]
         if s and not s.startswith("#") and len(parts) >= 3 and parts[0].isdigit():
             body = True
             launch = [c.strip() for c in parts[3].split(";")] if len(parts) > 3 else []
-            groups[int(parts[0])] = {"name": parts[1], "cls": parts[2], "launch": [c for c in launch if c]}
+            groups[int(parts[0])] = {"name": parts[1], "cls": parts[2], "launch": [c for c in launch if c],
+                                     "new": parts[4] if len(parts) > 4 else ""}
         elif not body:
             header.append(line)
     return header, groups
@@ -85,7 +87,8 @@ def write_conf(groups_):
     rows = []
     for ws in sorted(groups_):
         g = groups_[ws]
-        rows.append(f"{ws} | {g['name']:<8} | {g['cls']:<13} | {' ; '.join(g['launch'])}".rstrip())
+        row = f"{ws} | {g['name']:<8} | {g['cls']:<13} | {' ; '.join(g['launch'])}"
+        rows.append((row + f" | {g['new']}" if g.get("new") else row).rstrip())
     with open(CONF, "w") as f:           # write in place: the file is a symlink into ~/dotfiles
         f.write("\n".join(header) + "\n\n" + "\n".join(rows) + "\n")
     hypr("reload")
@@ -102,7 +105,8 @@ def focus(n):
     dispatch(f'hl.dsp.focus({{ window = "address:{target["address"]}" }})')
     if ws in groups():
         active = query("activewindow") or {}
-        if active.get("address") == target["address"] and active.get("fullscreen", 0) == 0:
+        if (active.get("address") == target["address"] and active.get("fullscreen", 0) == 0
+                and not active.get("floating")):  # floating (Control Center cards) keep their place
             dispatch('hl.dsp.window.fullscreen({ mode = "maximized" })')
 
 
@@ -115,10 +119,28 @@ def launch(ws, force=False):
     for i, cmd in enumerate(g["launch"]):
         if i:
             time.sleep(0.8)  # keep the opening order = the Alt + N order
-        argv = [os.path.expanduser(a) for a in shlex.split(cmd)]
-        subprocess.Popen(["uwsm", "app", "--", *argv], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        spawn(cmd)
     return True
+
+
+def spawn(cmd):
+    argv = [os.path.expanduser(a) for a in shlex.split(cmd)]
+    subprocess.Popen(["uwsm", "app", "--", *argv], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def new_window():
+    """Another window of this workspace's app. Its class rule keeps it on this workspace."""
+    ws = (query("activeworkspace") or {}).get("id", 0)
+    g = groups().get(ws)
+    if not g:
+        notify(f"Workspace {ws % 10} has no app yet (Super + Ctrl + G to add one)")
+        return
+    cmd = g.get("new") or (g["launch"][0] if g["launch"] else "")
+    if cmd in ("", "-"):
+        notify(f"{g['name']} has no new-window command")
+        return
+    spawn(cmd)
 
 
 def wait_for(ws, timeout=10):
@@ -173,7 +195,7 @@ def bar_status():
     lines = [f"Alt+{i % 10}  {w['class']}: {w['title'][:40]}" for i, w in enumerate(wins, 1)]
     tip = (f"{g['name']} · workspace {ws}" if g else f"Workspace {ws} (no group)")
     tip += "\n" + ("\n".join(lines) if lines else "no windows") + "\n\nClick: manage groups"
-    text = f"{ICON} {g['name']} {pos}/{len(wins)}" if g and wins else (f"{ICON} {g['name']}" if g else ICON)
+    text = f"{ICON} {pos}/{len(wins)}" if wins else ICON  # the group's name is in the tooltip
     return {"text": text, "tooltip": tip, "class": "group" if g else "none"}
 
 
@@ -209,32 +231,27 @@ def bar():
 
 
 # ---- manager UI --------------------------------------------------------------------------------
-def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-FG, DIM, ACCENT, KEY, TRACK, GOOD, BAD = (rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0"), rgb("#e0af68"),
-                                          rgb("#292e42"), rgb("#9ece6a"), rgb("#f7768e"))
-SELBG, BOLD, RESET = "\033[48;2;41;46;66m", "\033[1m", "\033[0m"
+sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))  # shared Control Center look
+from panelkit import (Panel, run, CARD, FG, DIM, ACCENT, KEY, TRACK, GREEN as GOOD, RED as BAD, BOLD, RESET,
+                      fit, frame, card, spread, header, section, hints, highlight)
 
 
-def read_key(fd):
-    ch = os.read(fd, 1)
-    if ch != b"\x1b":
-        return ch.decode(errors="ignore")
-    if not select.select([fd], [], [], 0.03)[0]:
-        return "ESC"
-    seq = os.read(fd, 16).decode(errors="ignore")
-    return {"[A": "UP", "[B": "DOWN", "[C": "RIGHT", "[D": "LEFT"}.get(seq, "")
+class UI(Panel):
+    interval = 2.0  # keep the window counts current
 
-
-class UI:
-    def __init__(self, fd):
-        self.fd, self.sel, self.msg = fd, 1, ""
+    def __init__(self):
+        self.msg = ""
         self.mode = "main"            # main | pick
         self.pick_sel = 0
+        self.ask = None               # a question on the footer row: {label, value, yesno, done}
         self.sel = (query("activeworkspace") or {}).get("id", 1)
         if not 1 <= self.sel <= 10:
             self.sel = 1
 
     # -- data --
+    def tick(self):
+        self.load()
+
     def load(self):
         self.groups = groups()
         self.clients = query("clients") or []
@@ -249,83 +266,110 @@ class UI:
         return list(seen.values())
 
     # -- drawing --
-    @staticmethod
-    def highlight(row):
-        return SELBG + row.replace(RESET, RESET + SELBG) + " " * 4 + RESET
+    def paint(self, body, footer):
+        """Card header, body, then the last action's result or the key hints on the bottom row."""
+        cols, rows, w, pad = frame(92)
+        head = header(ICON, "Workspaces", "Alt + 1…0 switches windows", w)
+        if self.ask and self.ask["yesno"]:
+            foot = f"{BAD}{self.ask['label']}{RESET}  " + hints([("y", "yes"), ("n", "no")], w)
+        elif self.ask:
+            field = f"{ACCENT}{self.ask['label']}{RESET} {FG}{self.ask['value']}▏{RESET}"
+            foot = spread(field, hints([("enter", "ok"), ("esc", "cancel")], 24), w)
+        elif self.msg:
+            foot = f"{GOOD}{fit(self.msg, w)}{RESET}"
+        else:
+            foot = hints(footer, w)
+        return card(head, body, foot, rows, pad)
 
-    def frame(self, lines, footer):
-        cols, rows = shutil.get_terminal_size()
-        w = min(cols - 4, 92)
-        pad = " " * max((cols - w) // 2, 0)
-        sub = "Alt + 1…0 switches windows"
-        out = [pad + f"{ACCENT}\U000f0570{RESET}  {FG}{BOLD}Workspaces{RESET}" + " " * max(w - 14 - len(sub), 1) + f"{DIM}{sub}{RESET}",
-               pad + f"{TRACK}{'━' * w}{RESET}", ""]
-        out += [pad + l for l in lines]
-        out += [""] * max(rows - len(out) - 3, 0)
-        out.append(pad + (f"{GOOD}{self.msg}{RESET}" if self.msg else ""))
-        out.append(pad + f"{DIM}{footer}{RESET}")
-        sys.stdout.write("\033[H\033[2J" + "\n".join(out[:rows]))
-        sys.stdout.flush()
-        return w
+    def draw(self, w, h):
+        return self.draw_pick() if self.mode == "pick" else self.draw_main()
 
-    def draw_main(self):
+    def group_rows(self, w):
+        cw = max(w - 30, 6)  # class column: whatever the other columns leave
         lines = []
         for ws in range(1, 11):
             g = self.groups.get(ws)
             n = len(windows(ws, self.clients))
             here = f"{ACCENT}●{RESET}" if ws == self.active_ws else " "
-            name = f"{FG}{BOLD}{g['name']:<10}{RESET}" if g else f"{DIM}{'—':<10}{RESET}"
-            cls = f"{KEY}{g['cls'][:22]:<22}{RESET}" if g else f"{DIM}{'no group':<22}{RESET}"
-            count = f"{DIM}{n} window{'s' if n != 1 else ''}{RESET}" if n else f"{DIM}empty{RESET}"
-            row = f" {here} {ACCENT}{ws % 10}{RESET}  {name}  {cls}  {count}"
-            lines.append(self.highlight(row) if ws == self.sel else row)
-        lines += ["", f"{TRACK}{'─' * 60}{RESET}"]
+            num = f"{ACCENT if g else DIM}{ws % 10}{RESET}"
+            name = f"{FG}{BOLD}{fit(g['name'], 10):<10}{RESET}" if g else f"{DIM}{'—':<10}{RESET}"
+            cls = f"{KEY}{fit(g['cls'], cw)}{RESET}" if g else f"{DIM}unassigned{RESET}"
+            count = f"{GOOD}{'●' * min(n, 4)}{RESET} {DIM}{n}{RESET}" if n else f"{TRACK}○{RESET}"
+            row = spread(f"{here} {num}  {name}  {cls}", count + " ", w)
+            lines.append(highlight(row, w) if ws == self.sel else row)
+        return lines
+
+    def detail_rows(self, w):
         g = self.groups.get(self.sel)
-        if g:
-            lines.append(f"{DIM}launch   {RESET}{FG}{' ; '.join(g['launch']) or '(nothing)'}{RESET}")
         wins = windows(self.sel, self.clients)
-        for i, win in enumerate(wins[:6], 1):
-            lines.append(f"{KEY}Alt+{i % 10}{RESET}    {FG}{win['class']}{RESET} {DIM}{win['title'][:52]}{RESET}")
-        if len(wins) > 6:
-            lines.append(f"{DIM}         … {len(wins) - 6} more{RESET}")
-        self.frame(lines, "↑↓ select   a add app   e edit   d delete   l launch   g go   t tidy   esc close")
+        title = f"Workspace {self.sel % 10}" + (f" · {g['name']}" if g else "")
+        lines = [section(title, w, f"{len(wins)} open" if wins else "")]
+        if not g:
+            return lines + [f"{DIM}No app yet. Press {RESET}{KEY}a{RESET}{DIM} to put an open one here.{RESET}"]
+        for i, cmd in enumerate(g["launch"] or ["(nothing)"]):
+            lines.append(f"{DIM}{'launch' if i == 0 else '':<8}{RESET}{FG}{fit(cmd, w - 8)}{RESET}")
+        new = g.get("new") or (g["launch"][0] if g["launch"] else "-")
+        lines.append(f"{DIM}{'Super+N':<8}{RESET}" + (f"{DIM}nothing{RESET}" if new == "-" else f"{FG}{fit(new, w - 8)}{RESET}"))
+        lines.append("")
+        for i, win in enumerate(wins, 1):
+            cls = fit(win["class"], 16)
+            lines.append(f"{KEY}{'Alt+' + str(i % 10):<8}{RESET}{FG}{cls}{RESET}  "
+                         f"{DIM}{fit(win['title'], max(w - 10 - len(cls), 4))}{RESET}")
+        if not wins:
+            lines.append(f"{DIM}{'':<8}no windows open{RESET}")
+        return lines
+
+    def draw_main(self):
+        w = frame(92)[2]
+        if w >= 90:  # wide card: the list and the selected workspace side by side
+            gap = 4
+            lw = (w - gap) // 2
+            left, right = self.group_rows(lw), self.detail_rows(w - lw - gap)[:10]
+            right += [""] * (len(left) - len(right))
+            lines = [l + " " * gap + r for l, r in zip(left, right)]
+        else:
+            lines = self.group_rows(w) + [""] + self.detail_rows(w)
+        return self.paint(lines, [("↑↓", "select"), ("a", "add app"), ("e", "edit"), ("d", "delete"),
+                           ("l", "launch"), ("g", "go"), ("t", "tidy")] + ([] if CARD else [("esc", "close")]))
 
     def draw_pick(self):
+        w = frame(92)[2]
+        tw = max(w - 44, 6)
         apps = self.apps()
-        lines = [f"{FG}Pick an open app to put on workspace {ACCENT}{self.sel % 10}{RESET}{FG}:{RESET}", ""]
+        lines = [section(f"Pick an open app for workspace {self.sel % 10}", w)]
         for i, c in enumerate(apps):
             owner = next((ws for ws, g in self.groups.items() if matches(c, g["cls"])), None)
-            where = f"{DIM}group {owner}{RESET}" if owner else f"{DIM}on {c['workspace']['id']}{RESET}"
-            row = f"  {KEY}{c['class'][:26]:<26}{RESET}  {DIM}{c['title'][:36]:<36}{RESET}  {where}"
-            lines.append(self.highlight(row) if i == self.pick_sel else row)
-        lines += ["", f"{DIM}  or press {RESET}{KEY}c{RESET}{DIM} to type a class yourself{RESET}"]
-        self.frame(lines, "↑↓ select   enter add   c type class   esc back")
+            where = f"{ACCENT}group {owner}{RESET}" if owner else f"{DIM}on {c['workspace']['id']}{RESET}"
+            row = spread(f"{KEY}{fit(c['class'], 24):<24}{RESET}  {DIM}{fit(c['title'], tw)}{RESET}", where + " ", w)
+            lines.append(highlight(row, w) if i == self.pick_sel else row)
+        lines += ["", f"{DIM}or press {RESET}{KEY}c{RESET}{DIM} to type a class yourself{RESET}"]
+        return self.paint(lines, [("↑↓", "select"), ("enter", "add"), ("c", "type class"), ("esc", "back")])
 
     # -- input --
-    def prompt(self, label, value=""):
-        """One-line editor on the bottom row. Returns None on Esc."""
-        cols, rows = shutil.get_terminal_size()
-        while True:
-            sys.stdout.write(f"\033[{rows};1H\033[2K  {ACCENT}{label}{RESET} {FG}{value}▏{RESET}"
-                             f"   {DIM}enter ok · esc cancel{RESET}")
-            sys.stdout.flush()
-            k = read_key(self.fd)
-            if k == "ESC":
-                return None
-            if k in ("\r", "\n"):
-                return value.strip()
-            if k in ("\x7f", "\b"):
-                value = value[:-1]
-            elif k == "\x15":
-                value = ""
-            elif len(k) == 1 and k.isprintable():
-                value += k
+    def prompt(self, label, value, done):
+        """Ask for a line of text on the footer row; done(text) runs on Enter."""
+        self.ask = {"label": label, "value": value, "yesno": False, "done": done}
 
-    def confirm(self, question):
-        cols, rows = shutil.get_terminal_size()
-        sys.stdout.write(f"\033[{rows};1H\033[2K  {BAD}{question}{RESET} {DIM}y / n{RESET}")
-        sys.stdout.flush()
-        return read_key(self.fd) in ("y", "Y")
+    def confirm(self, question, done):
+        self.ask = {"label": question, "value": "", "yesno": True, "done": done}
+
+    def answer(self, k):
+        ask = self.ask
+        if ask["yesno"]:
+            self.ask = None
+            if k in ("y", "Y"):
+                ask["done"]("")
+        elif k == "ESC":
+            self.ask = None
+        elif k == "ENTER":
+            self.ask = None
+            ask["done"](ask["value"].strip())
+        elif k == "BACKSPACE":
+            ask["value"] = ask["value"][:-1]
+        elif k == "\x15":
+            ask["value"] = ""
+        elif isinstance(k, str) and len(k) == 1 and k.isprintable():
+            ask["value"] += k
 
     def save(self, msg):
         write_conf(self.groups)
@@ -384,72 +428,71 @@ class UI:
         self.save(f"{cls} now opens on workspace {self.sel % 10}")
 
     def edit(self):
-        g = self.groups.get(self.sel, {"name": "", "cls": "", "launch": []})
-        name = self.prompt("Name:", g["name"])
-        if name is None: return
-        cls = self.prompt("Window class (regex, a|b for several):", g["cls"])
-        if cls is None: return
-        launch = self.prompt("Launch (commands separated by ;):", " ; ".join(g["launch"]))
-        if launch is None: return
-        if not name or not cls:
-            self.msg = "name and class are required"
-            return
-        self.groups[self.sel] = {"name": name, "cls": cls,
-                                 "launch": [c.strip() for c in launch.split(";") if c.strip()]}
-        self.save(f"saved workspace {self.sel % 10}")
+        g = self.groups.get(self.sel, {"name": "", "cls": "", "launch": [], "new": ""})
+        new = {}
 
-    def run(self):
-        while True:
-            self.load()
-            if self.mode == "pick":
-                self.draw_pick()
-            else:
-                self.draw_main()
-            k = read_key(self.fd)
-            if self.mode == "pick":
-                apps = self.apps()
-                if k == "ESC":                       self.mode = "main"
-                elif k in ("UP", "k"):               self.pick_sel = max(self.pick_sel - 1, 0)
-                elif k in ("DOWN", "j"):             self.pick_sel = min(self.pick_sel + 1, len(apps) - 1)
-                elif k in ("\r", "\n") and apps:
-                    c = apps[self.pick_sel]
-                    self.add_class(c["class"], c.get("pid")); self.mode = "main"
-                elif k == "c":
-                    cls = self.prompt("Window class:")
-                    if cls: self.add_class(cls)
-                    self.mode = "main"
-                continue
-            self.msg = "" if k not in ("",) else self.msg
-            if k in ("ESC", "q"):                    return
-            elif k in ("UP", "k"):                   self.sel = (self.sel - 2) % 10 + 1
-            elif k in ("DOWN", "j"):                 self.sel = self.sel % 10 + 1
-            elif k.isdigit():                        self.sel = int(k) or 10
-            elif k == "a":                           self.mode, self.pick_sel = "pick", 0
-            elif k in ("e", "\r", "\n"):             self.edit()
-            elif k == "d" and self.sel in self.groups:
-                if self.confirm(f"Remove the {self.groups[self.sel]['name']} group?"):
-                    del self.groups[self.sel]
-                    self.save(f"removed group from workspace {self.sel % 10}")
-            elif k == "l":
-                self.msg = "launched" if launch(self.sel, force=True) else "nothing to launch"
-            elif k == "g":
-                go(self.sel); return
-            elif k == "t":
-                self.msg = f"moved {tidy()} window(s) to their workspaces"
+        def got_name(v):
+            new["name"] = v
+            self.prompt("Window class (regex, a|b for several):", g["cls"], got_cls)
+
+        def got_cls(v):
+            new["cls"] = v
+            self.prompt("Launch (commands separated by ;):", " ; ".join(g["launch"]), got_launch)
+
+        def got_launch(v):
+            if not new["name"] or not new["cls"]:
+                self.msg = "name and class are required"
+                return
+            self.groups[self.sel] = {"name": new["name"], "cls": new["cls"], "new": g.get("new", ""),
+                                     "launch": [c.strip() for c in v.split(";") if c.strip()]}
+            self.save(f"saved workspace {self.sel % 10}")
+
+        self.prompt("Name:", g["name"], got_name)
+
+    def key(self, k):
+        if self.ask:
+            self.answer(k)
+            return
+        if not isinstance(k, str):  # mouse clicks
+            return
+        k = {"WHEELUP": "UP", "WHEELDOWN": "DOWN"}.get(k, k)
+        self.load()
+        if self.mode == "pick":
+            apps = self.apps()
+            if k == "ESC":                       self.mode = "main"
+            elif k in ("UP", "k"):               self.pick_sel = max(self.pick_sel - 1, 0)
+            elif k in ("DOWN", "j"):             self.pick_sel = min(self.pick_sel + 1, len(apps) - 1)
+            elif k == "ENTER" and apps:
+                c = apps[self.pick_sel]
+                self.add_class(c["class"], c.get("pid")); self.mode = "main"
+            elif k == "c":
+                self.mode = "main"
+                self.prompt("Window class:", "", lambda cls: cls and self.add_class(cls))
+            return
+        self.msg = ""
+        if k in ("ESC", "q"):                    return "quit"
+        elif k in ("UP", "k"):                   self.sel = (self.sel - 2) % 10 + 1
+        elif k in ("DOWN", "j"):                 self.sel = self.sel % 10 + 1
+        elif k.isdigit():                        self.sel = int(k) or 10
+        elif k == "a":                           self.mode, self.pick_sel = "pick", 0
+        elif k in ("e", "ENTER"):                self.edit()
+        elif k == "d" and self.sel in self.groups:
+            def remove(_):
+                del self.groups[self.sel]
+                self.save(f"removed group from workspace {self.sel % 10}")
+            self.confirm(f"Remove the {self.groups[self.sel]['name']} group?", remove)
+        elif k == "l":
+            self.msg = "launched" if launch(self.sel, force=True) else "nothing to launch"
+        elif k == "g":
+            go(self.sel)
+            return "quit"
+        elif k == "t":
+            self.msg = f"moved {tidy()} window(s) to their workspaces"
+        self.load()
 
 
 def ui():
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    tty.setcbreak(fd)
-    sys.stdout.write("\033[?1049h\033[?25l\033[?7l")  # no wrap: clip long lines
-    try:
-        UI(fd).run()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    run(UI())
 
 
 # ---- entry -------------------------------------------------------------------------------------
@@ -466,6 +509,8 @@ def main(argv):
     rest = [a for a in rest if a not in ("-f", "--force", "--background")]
     if cmd == "focus" and rest:
         focus(int(rest[0]))
+    elif cmd == "new":
+        new_window()
     elif cmd == "go" and rest:
         go(int(rest[0]))
     elif cmd == "launch" and rest:

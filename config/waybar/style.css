@@ -35,7 +35,8 @@ window#waybar {
 /* every module: same spacing, same hover */
 #custom-logo, #clock, #custom-wsgroups, #custom-keys, #custom-expand-icon, #tray,
 #bluetooth, #network, #pulseaudio, #cpu, #battery,
-#custom-idle-indicator, #custom-notification-silencing-indicator {
+#custom-idle-indicator, #custom-notification-silencing-indicator,
+#window, #mpris, #memory, #temperature {
   padding: 0 8px;
   margin: 4px 1px;
   border-radius: 0;
@@ -45,7 +46,7 @@ window#waybar {
 
 #custom-logo:hover, #clock:hover, #custom-wsgroups:hover, #custom-keys:hover,
 #custom-expand-icon:hover, #bluetooth:hover, #network:hover, #pulseaudio:hover,
-#cpu:hover, #battery:hover {
+#cpu:hover, #battery:hover, #mpris:hover, #memory:hover, #temperature:hover {
   background: @overlay;
   color: @text;
 }
@@ -92,6 +93,24 @@ window#waybar {
   font-weight: bold;
 }
 
+/* focused window title; collapses when the workspace is empty */
+#window {
+  color: @muted;
+}
+
+window#waybar.empty #window {
+  padding: 0;
+  margin: 0;
+}
+
+#mpris {
+  color: @text;
+}
+
+#mpris.paused {
+  color: @muted;
+}
+
 #custom-wsgroups {
   color: @text;
 }
@@ -109,7 +128,9 @@ window#waybar {
 #custom-idle-indicator.active,
 #custom-notification-silencing-indicator.active,
 #battery.warning,
-#battery.critical {
+#battery.critical,
+#cpu.critical,
+#temperature.critical {
   color: @alert;
 }
 

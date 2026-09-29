@@ -1,0 +1,6 @@
+{
+  "quiet": 10,
+  "max_wait": 30,
+  "full_every": 900,
+  "trash_days": 30
+}

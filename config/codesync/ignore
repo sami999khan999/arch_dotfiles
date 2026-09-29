@@ -1,0 +1,50 @@
+# codesync ignore list — files and folders never copied between ~/code (SSD) and /mnt/data/code (HDD).
+# Used by the background sync and by `codesync pull`. Takes effect on the next sync; no restart needed.
+#
+#   name/        a folder with this name, at any depth         node_modules/
+#   name         a file (or folder) with this name, any depth  .DS_Store
+#   *.ext        wildcards                                     *.pyc
+#   /path/       anchored to the top of ~/code                 /drafts/scratch/
+#   # …          comment
+#
+# A project can also have its own `.syncignore` file with the same syntax, applying inside that folder.
+#
+# Ignored things already on the HDD are left alone there (never deleted, never updated).
+#
+# Deliberately NOT ignored: build/, vendor/, out/ — some projects keep real source in folders with
+# those names (e.g. src/features/onboarding/build/). Ignore them per project with a .syncignore.
+
+# ---- JavaScript / TypeScript
+node_modules/
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+.turbo/
+.vercel/
+.parcel-cache/
+.angular/
+.expo/
+.pnpm-store/
+dist/
+*.tsbuildinfo
+
+# ---- Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# ---- Rust / JVM / Dart   (Rust's target/ isn't listed: no Rust projects yet, and "target" is a
+#                           common source-folder name. Add `target/` to a Rust project's .syncignore.)
+.gradle/
+.dart_tool/
+
+# ---- OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

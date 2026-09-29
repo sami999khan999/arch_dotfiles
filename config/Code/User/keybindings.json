@@ -1,1 +1,182 @@
-[]
+// Keybindings, shared with Windows (restored from Settings Sync's Windows copy).
+[
+  {
+    "key": "ctrl+l ctrl+o",
+    "command": "editor.toggleFold",
+    "when": "editorTextFocus && foldingEnabled",
+  },
+  {
+    "key": "ctrl+k ctrl+l",
+    "command": "-editor.toggleFold",
+    "when": "editorTextFocus && foldingEnabled",
+  },
+  {
+    "key": "ctrl+s",
+    "command": "workbench.action.files.save",
+  },
+  {
+    "key": "ctrl+s",
+    "command": "-workbench.action.files.save",
+  },
+  {
+    "key": "shift+enter",
+    "command": "workbench.action.terminal.sendSequence",
+    "args": {
+      "text": "\u001b\r",
+    },
+    "when": "terminalFocus",
+  },
+
+  {
+    "key": "ctrl+alt+right",
+    "command": "workbench.action.terminal.focusNext",
+    "when": "terminalIsOpen",
+  },
+  {
+    "key": "ctrl+alt+left",
+    "command": "workbench.action.terminal.focusPrevious",
+    "when": "terminalIsOpen",
+  },
+
+  {
+    "key": "alt+right",
+    "command": "workbench.action.terminal.focusNextPane",
+    "when": "terminalIsOpen",
+  },
+  {
+    "key": "alt+left",
+    "command": "workbench.action.terminal.focusPreviousPane",
+    "when": "terminalIsOpen",
+  },
+
+  {
+    "key": "ctrl+shift+`",
+    "command": "workbench.action.toggleMaximizedPanel",
+  },
+
+  {
+    "key": "ctrl+`",
+    "command": "-workbench.action.terminal.toggleTerminal",
+  },
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.terminal.focus",
+    "when": "!terminalFocus",
+  },
+  {
+    "key": "ctrl+`",
+    "command": "workbench.action.terminal.toggleTerminal",
+    "when": "terminalFocus",
+  },
+
+  {
+    "key": "ctrl+shift+e",
+    "command": "-workbench.view.explorer",
+  },
+  {
+    "key": "ctrl+shift+e",
+    "command": "workbench.view.explorer",
+    "when": "!explorerViewletVisible",
+  },
+  {
+    "key": "ctrl+shift+e",
+    "command": "workbench.action.toggleSidebarVisibility",
+    "when": "explorerViewletVisible",
+  },
+
+  // Focus mode: hide sidebar + panel together, restore them together.
+  //
+  // The `when` clauses branch on what is actually visible. `terminalProcessSupported`
+  // was the wrong key here: it is a static capability flag meaning "this VS Code can
+  // spawn terminals at all", and on desktop it is always true — so the restore branch
+  // never fired and the sidebar stayed hidden.
+  // Four exact states, so every branch knows precisely what is open and each command
+  // is an unconditional toggle. `closeSidebar` / `closePanel` were dropped: both carry
+  // a visibility precondition, and a precondition that fails mid-chain stops
+  // `runCommands` without a word. `toggleSidebarVisibility` and `togglePanel` have no
+  // precondition at all — guarded by the `when` clause, their direction is already known.
+  {
+    "key": "ctrl+alt+z",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "workbench.action.togglePanel",
+        "workbench.action.toggleSidebarVisibility",
+      ],
+    },
+    "when": "sideBarVisible && panelVisible",
+  },
+  {
+    "key": "ctrl+alt+z",
+    "command": "workbench.action.toggleSidebarVisibility",
+    "when": "sideBarVisible && !panelVisible",
+  },
+  {
+    "key": "ctrl+alt+z",
+    "command": "workbench.action.togglePanel",
+    "when": "!sideBarVisible && panelVisible",
+  },
+  {
+    "key": "ctrl+alt+z",
+    "command": "runCommands",
+    "args": {
+      "commands": [
+        "workbench.view.explorer",
+        "workbench.action.terminal.toggleTerminal",
+      ],
+    },
+    "when": "!sideBarVisible && !panelVisible",
+  },
+
+  {
+    "key": "ctrl+shift+t",
+    "command": "workbench.action.terminal.new",
+  },
+
+  // 2. Close/Kill the active terminal
+  {
+    "key": "ctrl+shift+w",
+    "command": "workbench.action.terminal.kill",
+    "when": "terminalFocus",
+  },
+  {
+    "key": "shift+alt+0",
+    "command": "audioCursor.stop",
+    "when": "audioCursor.paused || audioCursor.playing",
+  },
+  {
+    "key": "shift+alt+p",
+    "command": "-audioCursor.stop",
+    "when": "audioCursor.paused || audioCursor.playing",
+  },
+
+  // Claude Code: one key opens the side bar view, focuses its input, and closes it again.
+  //
+  // `claude-vscode.sidebar.open` resolves to `claudeVSCodeSidebarSecondary.focus` — a *view*
+  // command, so it reveals the container wherever that container happens to be docked. VS Code
+  // has no command that moves a container between bars (`moveView` and `moveFocusedView` both
+  // open a quick pick), so drag the Claude icon from the right activity bar onto the left one
+  // once; the placement persists and this key follows it.
+  //
+  // The primary and secondary bars carry different context keys, so "already open and focused"
+  // has to be spelled out twice. The open branch is their exact negation rather than a bare
+  // fallback, so the three rules stay mutually exclusive and none depends on file order.
+  {
+    "key": "ctrl+l ctrl+c",
+    "command": "workbench.action.toggleSidebarVisibility",
+    "when": "sideBarVisible && sideBarFocus && activeViewlet == 'workbench.view.extension.claude-sidebar-secondary'",
+  },
+  {
+    "key": "ctrl+l ctrl+c",
+    "command": "workbench.action.toggleAuxiliaryBar",
+    "when": "auxiliaryBarVisible && auxiliaryBarFocus && activeAuxiliary == 'workbench.view.extension.claude-sidebar-secondary'",
+  },
+  {
+    "key": "ctrl+l ctrl+c",
+    "command": "runCommands",
+    "args": {
+      "commands": ["claude-vscode.sidebar.open", "claude-vscode.focus"],
+    },
+    "when": "!(sideBarVisible && sideBarFocus && activeViewlet == 'workbench.view.extension.claude-sidebar-secondary') && !(auxiliaryBarVisible && auxiliaryBarFocus && activeAuxiliary == 'workbench.view.extension.claude-sidebar-secondary')",
+  },
+]

@@ -4,14 +4,15 @@
   "layer": "top",
   "position": "top",
   "spacing": 0,
-  "height": 30,
+  "height": 27,
   "margin-top": 4,
   "margin-left": 4,
   "margin-right": 4,
   "modules-left": [
     "custom/logo",
-    "hyprland/workspaces",
-    "hyprland/window"
+    "custom/wsbar",
+    "group/wsbuttons",
+    "custom/window"
   ],
   "modules-center": [
     "mpris",
@@ -21,58 +22,153 @@
   ],
   "modules-right": [
     "custom/wsgroups",
+    "custom/codesync",
     "custom/keys",
     "group/tray-expander",
     "bluetooth",
     "network",
     "pulseaudio",
-    "cpu",
-    "memory",
-    "temperature",
-    "battery"
+    "group/stats",
+    "custom/power"
   ],
-  "hyprland/workspaces": {
-    "on-click": "activate",
-    "format": "{icon}",
-    "format-icons": {
-      "default": "",
-      "1": "1",
-      "2": "2",
-      "3": "3",
-      "4": "4",
-      "5": "5",
-      "6": "6",
-      "7": "7",
-      "8": "8",
-      "9": "9",
-      "10": "0"
-    },
-    "persistent-workspaces": {
-      "1": [],
-      "2": [],
-      "3": [],
-      "4": [],
-      "5": [],
-      "6": []
-    }
+  "group/stats": {
+    "orientation": "inherit",
+    "modules": [
+      "cpu",
+      "memory",
+      "temperature",
+      "battery"
+    ]
   },
-  "hyprland/window": {
-    "format": "{title}",
-    "max-length": 60,
-    "separate-outputs": true,
-    "rewrite": {
-      "(.*) — Mozilla Firefox": "󰈹 $1",
-      "(.*) - Visual Studio Code": "󰨞 $1"
-    }
+  "custom/power": {
+    "format": "󰐥",
+    "tooltip-format": "System menu (Super + Escape)",
+    "on-click": "~/.config/hypr/scripts/power-menu.sh"
+  },
+  // workspace buttons: hyprland/workspaces' click sends a legacy dispatch the Lua config rejects,
+  // so each button is a custom module that reads its state from wsbar.py and dispatches in Lua
+  // code backup (~/code -> HDD): status icon, details on hover, panel on click
+  "custom/codesync": {
+    "exec": "~/.local/bin/codesync bar",
+    "return-type": "json",
+    "interval": 20,
+    "signal": 11,
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/syncpanel.py",
+    "on-click-right": "~/.local/bin/codesync now",
+    "on-click-middle": "~/.local/bin/codesync toggle"
+  },
+  "custom/wsbar": {
+    "exec": "~/.config/hypr/scripts/wsbar.py",
+    "tooltip": false
+  },
+  "group/wsbuttons": {
+    "orientation": "inherit",
+    "modules": ["custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4", "custom/ws5", "custom/ws6", "custom/ws7", "custom/ws8", "custom/ws9", "custom/ws10"]
+  },
+  "custom/ws1": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/1.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"1\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws2": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/2.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"2\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws3": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/3.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"3\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws4": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/4.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"4\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws5": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/5.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"5\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws6": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/6.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"6\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws7": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/7.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"7\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws8": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/8.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"8\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws9": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/9.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"9\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/ws10": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/wsbar/10.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 8,
+    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"10\" })'",
+    "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
+    "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
+  },
+  "custom/window": {
+    "exec": "~/.config/hypr/scripts/wintitle.py",
+    "return-type": "json",
+    "escape": true
   },
   "mpris": {
-    "format": "{status_icon} {artist} – {title}",
+    "format": "{status_icon}",
+    "tooltip-format": "{title}\n{artist}\n\n{player} · {status}\nclick: play/pause · scroll: next/prev",
     "format-stopped": "",
     "status-icons": {
       "playing": "󰏤",
       "paused": "󰐊"
     },
-    "max-length": 45,
+    "max-length": 40,
     "on-click": "playerctl play-pause",
     "on-scroll-up": "playerctl next",
     "on-scroll-down": "playerctl previous"
@@ -100,9 +196,23 @@
     "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/sysmon.py"
   },
   "clock": {
-    "format": "{:L%A %H:%M}",
-    "format-alt": "{:L%d %B W%V %Y}",
-    "tooltip": false
+    "format": "<span color='#565f89'>{:L%a %d %b</span>  <b>%H:%M</b>}",
+    "format-alt": "{:L%A %d %B %Y  W%V}",
+    "tooltip-format": "<tt>{calendar}</tt>",
+    "calendar": {
+      "mode": "month",
+      "weeks-pos": "left",
+      "format": {
+        "months": "<span color='#c0caf5'><b>{}</b></span>",
+        "weekdays": "<span color='#565f89'>{}</span>",
+        "weeks": "<span color='#3b4261'>{}</span>",
+        "today": "<span color='#6b8fe0'><b><u>{}</u></b></span>"
+      }
+    },
+    "actions": {
+      "on-scroll-up": "shift_down",
+      "on-scroll-down": "shift_up"
+    }
   },
   "network": {
     "format-icons": [
@@ -174,7 +284,7 @@
     "on-click": "~/.config/hypr/scripts/tui.sh bluetui"
   },
   "pulseaudio": {
-    "format": "{icon}",
+    "format": "{icon}  {volume}%",
     "on-click": "~/.config/hypr/scripts/tui.sh wiremix",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",

@@ -1,4 +1,5 @@
-/* Waybar — Tokyo Night, floating islands, square corners. Colors match walker, mako and the Control Center. */
+/* Waybar — Tokyo Night, floating islands, square corners. Colors match walker, mako and the Control Center.
+   Layout:  [logo | workspaces | title]     [media | clock]     [group | controls | stats | power] */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -22,109 +23,186 @@ window#waybar {
   color: @subtext;
 }
 
-/* the three islands */
+/* ---- the three islands ------------------------------------------------------------------ */
 .modules-left,
 .modules-center,
 .modules-right {
-  background: alpha(@base, 0.88);
+  background: alpha(@base, 0.92);
   border: 1px solid alpha(@line, 0.7);
-  border-radius: 0;
-  padding: 0 6px;
+  padding: 0 4px;
 }
 
-/* every module: same spacing, same hover */
-#custom-logo, #clock, #custom-wsgroups, #custom-keys, #custom-expand-icon, #tray,
-#bluetooth, #network, #pulseaudio, #cpu, #battery,
+/* the centre island keeps 6px from its neighbours even when a long title pushes it,
+   so two 1px borders never meet as one thick line */
+.modules-center { margin: 0 6px; }
+
+.modules-left  { padding-left: 0; }
+.modules-right { padding-right: 0; }
+
+/* ---- every module: same chip size, same hover ------------------------------------------ */
+#clock, #custom-wsgroups, #custom-keys, #custom-expand-icon, #tray,
+#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
 #custom-idle-indicator, #custom-notification-silencing-indicator,
-#window, #mpris, #memory, #temperature {
+#custom-window, #mpris, #custom-power, #custom-codesync {
   padding: 0 8px;
-  margin: 4px 1px;
-  border-radius: 0;
+  margin: 3px 1px;
   color: @subtext;
   transition: background-color 150ms, color 150ms;
 }
 
-#custom-logo:hover, #clock:hover, #custom-wsgroups:hover, #custom-keys:hover,
-#custom-expand-icon:hover, #bluetooth:hover, #network:hover, #pulseaudio:hover,
-#cpu:hover, #battery:hover, #mpris:hover, #memory:hover, #temperature:hover {
+#clock:hover, #custom-wsgroups:hover, #custom-keys:hover, #custom-expand-icon:hover,
+#bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
+#memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover {
   background: @overlay;
   color: @text;
 }
 
+/* dividers between sections: 1px, same as the island borders */
+#custom-window, #stats, #custom-power {
+  border-left: 1px solid alpha(@line, 0.7);
+}
+#mpris, #custom-wsgroups {
+  border-right: 1px solid alpha(@line, 0.7);
+}
+
+/* ---- left: logo, workspaces, title ----------------------------------------------------- */
 #custom-logo {
-  color: @accent;
-  font-size: 14px;
-  padding: 0 10px 0 8px;
+  background: @accent;
+  color: @base;
+  font-size: 13px;
+  padding: 0 10px 0 9px;
+  margin: 0 6px 0 0;
+  transition: background-color 150ms;
 }
 
-/* workspaces: pills, the active one highlighted */
-#workspaces {
-  margin: 4px 0;
+#custom-logo:hover {
+  background: shade(@accent, 1.15);
 }
 
-#workspaces button {
-  all: initial;
-  font-family: 'JetBrainsMono Nerd Font';
+/* code backup status: quiet when fine, coloured when it needs a look */
+#custom-codesync {
+  font-size: 13px;
+  color: @muted;
+}
+#custom-codesync.pending { color: @subtext; }
+#custom-codesync.syncing { color: @accent; }
+#custom-codesync.paused  { color: #e0af68; }
+#custom-codesync.error,
+#custom-codesync.off     { color: @alert; }
+
+#wsbuttons {
+  margin: 3px 0;
+}
+
+#wsbuttons label {
   font-size: 12px;
   color: @subtext;
-  padding: 0 9px;
+  padding: 0 8px;
   margin: 0 1px;
-  border-radius: 0;
-  min-width: 10px;
+  min-width: 12px;
   transition: background-color 150ms, color 150ms;
 }
 
-#workspaces button:hover {
+#wsbuttons label:hover {
   background: @overlay;
   color: @text;
 }
 
-#workspaces button.active {
-  background: alpha(@accent, 0.18);
-  color: @accent;
-}
-
-#workspaces button.empty {
+#wsbuttons label.empty {
   color: @muted;
 }
 
-#clock {
+#wsbuttons label.active {
+  background: @accent;
+  color: @base;
+}
+
+#wsbuttons label.urgent {
+  background: alpha(@alert, 0.25);
+  color: @alert;
+}
+
+#custom-window {
   color: @text;
-  font-weight: bold;
+  margin: 3px 4px 3px 6px;
+  padding: 0 10px 0 12px;
 }
 
-/* focused window title; collapses when the workspace is empty */
-#window {
-  color: @muted;
-}
-
-window#waybar.empty #window {
+/* collapses when the workspace is empty */
+#custom-window.empty {
   padding: 0;
   margin: 0;
+  border: none;
 }
 
+/* ---- center: media, clock --------------------------------------------------------------- */
 #mpris {
-  color: @text;
+  color: @accent;
+  font-size: 13px;
+  margin-right: 4px;
+  padding: 0 11px 0 9px;
 }
 
 #mpris.paused {
   color: @muted;
 }
 
+#clock {
+  color: @text;
+  padding: 0 10px;
+}
+
+#custom-idle-indicator,
+#custom-notification-silencing-indicator {
+  font-size: 11px;
+  padding: 0 4px;
+}
+
+/* ---- right: group, controls, stats, power ---------------------------------------------- */
 #custom-wsgroups {
   color: @text;
+  margin-right: 4px;
+  padding-right: 12px;
 }
 
 #custom-wsgroups.none {
   color: @muted;
 }
 
-#custom-idle-indicator,
-#custom-notification-silencing-indicator {
-  font-size: 10px;
-  padding: 0 4px;
+#custom-keys, #custom-expand-icon, #bluetooth, #network {
+  color: @muted;
 }
 
+#pulseaudio {
+  color: @text;
+}
+
+#pulseaudio.muted {
+  color: @muted;
+}
+
+#stats {
+  margin-left: 4px;
+  padding-left: 4px;
+}
+
+#cpu, #memory, #temperature, #battery {
+  color: @text;
+}
+
+#custom-power {
+  margin: 0 0 0 4px;
+  padding: 0 11px 0 10px;
+  color: @accent;
+  font-size: 13px;
+}
+
+#custom-power:hover {
+  background: @alert;
+  color: @base;
+}
+
+/* ---- states ------------------------------------------------------------------------------ */
 #custom-idle-indicator.active,
 #custom-notification-silencing-indicator.active,
 #battery.warning,
@@ -139,9 +217,8 @@ window#waybar.empty #window {
 }
 
 tooltip {
-  background: alpha(@base, 0.96);
+  background: alpha(@base, 0.97);
   border: 1px solid @line;
-  border-radius: 0;
 }
 
 tooltip label {

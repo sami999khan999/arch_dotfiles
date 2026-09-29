@@ -107,6 +107,10 @@ hl.window_rule({
 hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?|Save.*As|Save|All Files|[Cc]hoose.*)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
+-- the code sync panel (waybar sync icon): two columns of details
+hl.window_rule({ match = { tag = "floating-window", title = "^(syncpanel\\.py)$" }, size = { 1180, 640 } })
+-- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
+hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 
 -- Slight transparency everywhere, except media
 hl.window_rule({ match = { class = ".*" }, opacity = "0.97 0.9" })

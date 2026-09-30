@@ -214,8 +214,12 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
 | Volumes | grouped by compose project: size, which containers use it | full name, driver, mountpoint |
 | Networks | created / built in: driver, subnet, container count | gateway, the containers on it and their IPs |
 
-- Containers: `s` start/stop · `r` restart · `p` start/stop the whole compose project ·
-  `o` open the first port in the browser
+- Containers: `s` start/stop · `r` restart · `o` open the first port in the browser
+- Compose projects work like Docker Desktop: each project's heading is a row you can select.
+  Its details show the folder, totals and every container's state. There, `s` stops the project
+  if anything in it runs (else starts all of it), `r` restarts it, `l` follows all its logs in
+  one stream, and `Enter`/`Space` folds it. Only the containers that are changing say
+  "stopping…"/"starting…".
 - Logs are formatted by `scripts/dockerlogs.py`: local time, a coloured level badge (ERR / WRN /
   INF / DBG), the message, then `key=value` details dimmed; long lines wrap under the message and
   repeats collapse to `×N`. It reads JSON logs, logfmt, postgres / pgbouncer / redis / nginx

@@ -28,6 +28,7 @@ SHELLS = {"bash", "sh", "ash", "zsh", "fish", "dash"}
 EXEC_PRESETS = ["env", "ps aux", "df -h", "cat /etc/os-release", "ls -la"]
 TABS = ["containers", "images", "volumes", "networks"]
 BUILTIN_NETWORKS = {"bridge", "host", "none"}
+PROJECT = "project:"  # a compose project's row in the containers list has the ID "project:<name>"
 
 
 def docker(*args, timeout=15):
@@ -87,6 +88,10 @@ def status(c):
     return DIM, "○", state
 
 
+def is_project(e):
+    return bool(e) and e["ID"].startswith(PROJECT)
+
+
 def kv_rows(pairs, w, key_w=11):
     return [f"{DIM}{k:<{key_w}}{RESET}{FG}{clip(v, w - key_w)}{RESET}" for k, v in pairs]
 
@@ -107,6 +112,7 @@ class DockerPanel(Panel):
         self.history = {}                               # image ID -> [(size, command)]
         self.busy = {}                                  # ID -> "removing…" while an action runs
         self.armed = None                               # (tab, ID, time): d was pressed once
+        self.folded = set()                             # compose projects shown as just their row
         self.flash, self.flash_at = "", 0
         self.rows, self.left_w, self.tab_spans = {}, 0, []  # for clicks
         self.refresh = threading.Event()
@@ -133,7 +139,8 @@ class DockerPanel(Panel):
         # compose projects A–Z, containers not in a project last
         items.sort(key=lambda c: (not c["project"], c["project"], c["short"]))
         self.items, self.error = items, ""
-        self.keep_selection("containers", [c["ID"] for c in items])
+        projects = [PROJECT + p for p in dict.fromkeys(c["project"] for c in items) if p]
+        self.keep_selection("containers", projects + [c["ID"] for c in items])
 
     def keep_selection(self, tab, ids):
         if self.sel[tab] not in ids:
@@ -210,7 +217,7 @@ class DockerPanel(Panel):
         while True:
             tab, sid = self.tab, self.sel[self.tab]
             try:
-                if tab == "containers" and sid:
+                if tab == "containers" and sid and not sid.startswith(PROJECT):
                     r = subprocess.run(["docker", "logs", "--timestamps", "--tail", "300", sid],
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
                     records = map(dockerlogs.parse, r.stdout.decode(errors="replace").splitlines())
@@ -237,7 +244,17 @@ class DockerPanel(Panel):
                 "networks": self.networks}[tab or self.tab]
 
     def current(self):
-        return next((e for e in self.entries() if e["ID"] == self.sel[self.tab]), None)
+        sid = self.sel[self.tab]
+        if self.tab == "containers" and sid and sid.startswith(PROJECT):
+            return self.project(sid[len(PROJECT):])
+        return next((e for e in self.entries() if e["ID"] == sid), None)
+
+    def project(self, name):
+        """A compose project as an entry: its row ID, name, folder and containers."""
+        group = [c for c in self.items if c["project"] == name]
+        if not group:
+            return None
+        return dict(ID=PROJECT + name, project=name, workdir=group[0]["workdir"], containers=group)
 
     # ---- drawing: the list -----------------------------------------------------------------------
     def short(self, name, project):
@@ -308,19 +325,43 @@ class DockerPanel(Panel):
         custom = [n for n in e if n["name"] not in BUILTIN_NETWORKS]
         return [g for g in [("created", f"{len(custom)}", custom), ("built in", f"{len(builtin)}", builtin)] if g[2]]
 
-    def left(self, w, top_row, room):
+    def project_row(self, name, w):
+        """A compose project's heading, selectable like Docker Desktop's project row."""
+        group = [c for c in self.items if c["project"] == name]
+        up = sum(c["State"] == "running" for c in group)
+        pid = PROJECT + name
+        if pid in self.busy:
+            note = f"{CYAN}{self.busy[pid]}"
+        elif up:
+            note = f"{GREEN if up == len(group) else YELLOW}●{RESET}{DIM} running {up}/{len(group)}"
+        else:
+            note = f"○ exited 0/{len(group)}"
+        return section(f"{'▸' if name in self.folded else '▾'} {name}", w, note)
+
+    def listing(self):
+        """[(ID or None, draw(w))]: the list's lines in on-screen order. On the containers tab a
+        compose project's heading is an entry too, and a folded project hides its containers."""
         draw_row = {"containers": self.container_row, "images": self.image_row,
                     "volumes": self.volume_row, "networks": self.network_row}[self.tab]
-        sel = self.sel[self.tab]
-        lines, ids = [], []   # ids[i]: the entry on lines[i], or None
+        out = []
         for title, note, group in self.groups():
-            if lines:
-                lines.append(""); ids.append(None)
-            lines.append(section(title, w, note)); ids.append(None)
-            for e in group:
-                row = draw_row(e, w)
-                lines.append(highlight(row, w) if e["ID"] == sel else row)
-                ids.append(e["ID"])
+            if out:
+                out.append((None, lambda w: ""))
+            project = self.tab == "containers" and group[0]["project"]
+            if project:
+                out.append((PROJECT + project, lambda w, p=project: self.project_row(p, w)))
+                if project in self.folded:
+                    continue
+            else:
+                out.append((None, lambda w, t=title, n=note: section(t, w, n)))
+            out += [(e["ID"], lambda w, e=e: draw_row(e, w)) for e in group]
+        return out
+
+    def left(self, w, top_row, room):
+        sel = self.sel[self.tab]
+        listing = self.listing()
+        lines = [highlight(draw(w), w) if eid and eid == sel else draw(w) for eid, draw in listing]
+        ids = [eid for eid, _ in listing]   # ids[i]: the entry on lines[i], or None
         if not lines:
             lines = [f"{RED}{self.error}{RESET}" if self.error else f"{DIM}nothing here{RESET}"]
             ids = [None]
@@ -341,8 +382,34 @@ class DockerPanel(Panel):
         e = self.current()
         if not e:
             return []
+        if is_project(e):
+            return self.project_detail(e, w, room)
         return {"containers": self.container_detail, "images": self.image_detail,
                 "volumes": self.volume_detail, "networks": self.network_detail}[self.tab](e, w, room)
+
+    def project_detail(self, p, w, room):
+        group = p["containers"]
+        up = [c for c in group if c["State"] == "running"]
+        state = (f"{GREEN if len(up) == len(group) else YELLOW}● running {len(up)}/{len(group)}{RESET}"
+                 if up else f"{DIM}○ exited{RESET}")
+        rows = [section(p["project"], w, state)]
+        kv = [("Folder", p["workdir"].replace(HOME, "~") or "—"),
+              ("Containers", f"{len(up)} running · {len(group) - len(up)} stopped")]
+        stats = [self.stats[c["ID"]] for c in up if c["ID"] in self.stats]
+        if stats:
+            cpu, mem = sum(percent(s["CPUPerc"]) for s in stats), sum(percent(s["MemPerc"]) for s in stats)
+            kv.append(("CPU", f"{bar(cpu, 12)} {FG}{cpu:.1f}%{RESET}"))
+            kv.append(("Memory", f"{bar(mem, 12)} {FG}{mem:.1f}% of RAM{RESET}"))
+        pp = [f"{h} {c['short']}" for c in up for h, _, _ in ports(c["Ports"])]
+        if pp:
+            kv.append(("Ports", "  ".join(pp)))
+        rows += kv_rows(kv, w) + ["", section("Containers", w, f"{len(up)}/{len(group)} up")]
+        for c in group:
+            color, dot, words = status(c)
+            words = f"{CYAN}{self.busy[c['ID']]}" if c["ID"] in self.busy else f"{DIM}{words}"
+            rows.append(f"{color}{dot}{RESET} {FG if c['State'] == 'running' else DIM}{fit(c['short'], w - 20):<{w - 20}}"
+                        f"{RESET}{' ' * max(18 - visible_len(words), 0)}{words}{RESET}")
+        return rows[:room]
 
     def container_detail(self, c, w, room):
         color, dot, words = status(c)
@@ -441,7 +508,10 @@ class DockerPanel(Panel):
         elif self.flash and time.time() - self.flash_at < 4:
             foot = self.flash
         else:
-            keys = {"containers": [("s", "start/stop"), ("r", "restart"), ("p", "project"), ("l", "logs"),
+            on_project = is_project(self.current())
+            keys = {"containers": [("s", "start/stop all"), ("r", "restart all"), ("l", "logs"),
+                                   ("enter", "fold")] if on_project else
+                                  [("s", "start/stop"), ("r", "restart"), ("l", "logs"),
                                    ("e", "exec"), ("o", "open port")],
                     "images": [("u", "pull"), ("d d", "remove")],
                     "volumes": [("d d", "remove")],
@@ -454,10 +524,12 @@ class DockerPanel(Panel):
         self.flash, self.flash_at = f"{color}{msg}{RESET}", time.time()
 
     def act(self, ids, doing, args, done):
-        """Run a docker command in the background; the rows show `doing` until it finishes."""
+        """Run a docker command in the background; the rows show `doing` until it finishes.
+        `ids` can be a dict of ID -> label when rows should say different things."""
+        labels = ids if isinstance(ids, dict) else dict.fromkeys(ids, doing)
+        self.busy.update(labels)  # now, so a second key press can't start it twice
+
         def work():
-            for i in ids:
-                self.busy[i] = doing
             try:
                 r = docker(*args, timeout=300)
                 if r.returncode:
@@ -467,7 +539,7 @@ class DockerPanel(Panel):
             except (OSError, subprocess.TimeoutExpired) as e:
                 self.say(str(e), RED)
             finally:
-                for i in ids:
+                for i in labels:
                     self.busy.pop(i, None)
                 self.refresh.set()
         threading.Thread(target=work, daemon=True).start()
@@ -481,7 +553,7 @@ class DockerPanel(Panel):
             signal.signal(signal.SIGINT, signal.default_int_handler)
 
     def move(self, step):
-        ids = [e["ID"] for _, _, g in self.groups() for e in g]  # in on-screen order
+        ids = [eid for eid, _ in self.listing() if eid]  # in on-screen order
         if ids:
             i = ids.index(self.sel[self.tab]) if self.sel[self.tab] in ids else 0
             self.sel[self.tab] = ids[max(0, min(len(ids) - 1, i + step))]
@@ -526,10 +598,14 @@ class DockerPanel(Panel):
                 self.sel[self.tab] = self.rows[y]
         elif k == "L":
             self.external(["lazydocker"])
+        elif k in ("ENTER", " ") and is_project(self.current()):
+            self.folded ^= {self.current()["project"]}
         else:
             e = self.current()
             if e and e["ID"] not in self.busy:
-                if k == "d":
+                if is_project(e):
+                    self.project_key(k, e)
+                elif k == "d":
                     self.remove(e)
                 elif self.tab == "containers":
                     self.container_key(k, e)
@@ -547,15 +623,6 @@ class DockerPanel(Panel):
                 self.act([c["ID"]], "starting…", ["start", c["ID"]], f"started {c['short']}")
         elif k == "r":
             self.act([c["ID"]], "restarting…", ["restart", c["ID"]], f"restarted {c['short']}")
-        elif k == "p":
-            if not c["project"]:
-                self.say("this container isn't part of a compose project", YELLOW)
-                return
-            group = [x for x in self.items if x["project"] == c["project"]]
-            running = any(x["State"] == "running" for x in group)
-            verb = "stop" if running else "start"
-            self.act([x["ID"] for x in group], "stopping…" if running else "starting…",
-                     ["compose", "-p", c["project"], verb], f"{c['project']}: {verb}{'ped' if running else 'ed'}")
         elif k == "l":
             self.full_logs(c)
         elif k in ("e", "x"):
@@ -573,6 +640,25 @@ class DockerPanel(Panel):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.say(f"opened {url}")
 
+
+    def project_key(self, k, p):
+        """The project row, like Docker Desktop's: stop if anything runs, else start everything."""
+        name, group = p["project"], p["containers"]
+        running = [c for c in group if c["State"] == "running"]
+        if k == "s":
+            doing, verb, done, rows = ("stopping…", "stop", "stopped", running) if running else \
+                ("starting…", "start", "started", group)
+        elif k == "r":
+            doing, verb, done, rows = "restarting…", "restart", "restarted", group
+        elif k == "l":
+            return self.project_logs(name)
+        elif k in ("e", "x", "o"):
+            return self.say("select a container first", YELLOW)
+        else:
+            return
+        # only the rows that will change say so; the project row says what's happening
+        labels = {c["ID"]: doing for c in rows} | {p["ID"]: doing}
+        self.act(labels, doing, ["compose", "-p", name, verb], f"{name}: {done}")
 
     # ---- full-screen logs ------------------------------------------------------------------------
     def full_logs(self, c):
@@ -594,6 +680,12 @@ class DockerPanel(Panel):
                 pass
             p.wait()
             os.remove(path)
+
+    def project_logs(self, name):
+        """Every container's logs in one stream (compose colours each name), in less."""
+        script = (f"docker compose --ansi always -p {shlex.quote(name)} logs --follow --tail 200 2>&1 | "
+                  f"less -R --mouse +F {shlex.quote(f'-Ps{name} logs · F follow · Ctrl+C stop following · / search · q back$')}")
+        self.external(["sh", "-c", script])
 
     # ---- exec ------------------------------------------------------------------------------------
     def open_prompt(self, c):

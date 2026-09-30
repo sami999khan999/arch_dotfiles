@@ -165,7 +165,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 3 | Terminal | kitty |
 | 7 | Files | Dolphin |
 | 8 | Discord | Discord |
-| 9 | Docker | lazydocker |
+| 9 | Docker | lazydocker (Tokyo Night theme in `config/lazydocker/config.yml`) |
 | 10 (key 0) | Control | the Control Center (below) |
 
 ```

@@ -1,0 +1,30 @@
+# lazydocker — Tokyo Night, using the repo palette (AGENTS.md > Conventions).
+# Opened on workspace 9 (config/hypr/workspaces.conf). Defaults: `lazydocker --config`.
+
+gui:
+  border: single                           # square corners, like the rest of the desktop
+  theme:
+    activeBorderColor: ["#6b8fe0", bold]   # accent: the focused panel
+    inactiveBorderColor: ["#565f89"]       # muted slate: everything else
+    selectedLineBgColor: ["#292e42"]       # overlay: soft highlight instead of bright blue
+    optionsTextColor: ["#737aa2"]          # the key-hint line at the bottom
+  sidePanelWidth: 0.3                      # more room for logs
+  expandFocusedSidePanel: true             # focused list grows, others shrink
+  containerStatusHealthStyle: icon         # icons instead of "running (healthy)"
+  wrapMainPanel: true
+  scrollHeight: 3
+
+logs:
+  timestamps: false
+  since: 60m
+  tail: "300"
+
+stats:
+  maxDuration: 3m
+  graphs:
+    - caption: CPU (%)
+      statPath: DerivedStats.CPUPercentage
+      color: "#6b8fe0"
+    - caption: Memory (%)
+      statPath: DerivedStats.MemoryPercentage
+      color: "#9ece6a"

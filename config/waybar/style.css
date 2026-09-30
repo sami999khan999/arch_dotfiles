@@ -27,10 +27,8 @@ window#waybar {
 .modules-left,
 .modules-center,
 .modules-right {
-  /* a touch lighter at the top, and a faint top edge: the islands read as raised, not flat */
-  background: linear-gradient(to bottom, alpha(@surface, 0.94), alpha(@base, 0.94));
+  background: alpha(@base, 0.92);
   border: 1px solid alpha(@line, 0.7);
-  box-shadow: inset 0 1px alpha(@text, 0.05);
   padding: 0 4px;
 }
 
@@ -70,16 +68,16 @@ window#waybar {
 
 /* ---- left: logo, workspaces, title ----------------------------------------------------- */
 #custom-logo {
-  background: linear-gradient(135deg, @accent, #9d7cd8);
+  background: @accent;
   color: @base;
-  font-size: 14px;
-  padding: 0 11px 0 10px;
+  font-size: 13px;
+  padding: 0 10px 0 9px;
   margin: 0 6px 0 0;
   transition: background-color 150ms;
 }
 
 #custom-logo:hover {
-  background: linear-gradient(135deg, shade(@accent, 1.15), shade(#9d7cd8, 1.15));
+  background: shade(@accent, 1.15);
 }
 
 /* code backup status: quiet when fine, coloured when it needs a look */
@@ -118,9 +116,8 @@ window#waybar {
 }
 
 #wsbuttons label.active {
-  background: linear-gradient(135deg, @accent, #9d7cd8);
+  background: @accent;
   color: @base;
-  font-weight: bold;
 }
 
 #wsbuttons label.urgent {
@@ -162,7 +159,7 @@ window#waybar {
 
 #clock {
   color: @text;
-  padding: 0 12px;
+  padding: 0 10px;
 }
 
 #custom-idle-indicator,

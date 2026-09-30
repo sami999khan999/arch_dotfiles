@@ -85,8 +85,10 @@ window#waybar {
   color: @muted;
 }
 #custom-codesync.pending { color: @subtext; }
-#custom-codesync.syncing { color: @accent; }
-#custom-codesync.paused  { color: #e0af68; }
+#custom-codesync.syncing,
+#custom-codesync.restoring { color: @accent; }
+#custom-codesync.paused,
+#custom-codesync.restore { color: #e0af68; }
 #custom-codesync.error,
 #custom-codesync.off     { color: @alert; }
 

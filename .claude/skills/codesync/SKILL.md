@@ -22,13 +22,26 @@ cleaned after `trash_days`.
 | `~/.local/state/codesync.paused` | runtime | exists = paused |
 | `~/.config/systemd/user/codesync.service` | per PC | written by `codesync enable` |
 
+| `~/.local/state/codesync.restoring` | runtime | pid of a running `codesync restore` |
+
+State dir is `$XDG_STATE_HOME` (set in this session), not `$HOME/.local/state`: a scratch test must
+override **both** `HOME` and `XDG_STATE_HOME`, or it writes the real status file.
+
 The service rereads `settings.json` every loop. Signals to the service: `SIGUSR1` = sync now,
 `SIGUSR2` = pause state/settings changed. It signals waybar with `RTMIN+11` on status changes.
 UI: waybar `custom/codesync` (`codesync bar`), panel `config/hypr/scripts/syncpanel.py`.
+The panel changes the folders: `folderpick.py` (GTK4 dialog, floated by a window rule) →
+`check_folders()` → `preview()` (rsync `-n`, file counts) → `y` → `save_machine()` (writes
+machine.json, restarts the service) and reloads the codesync module.
+
+Statuses: `ok` `pending` `syncing` `paused` `error` `off`, plus `restore` (code folder empty, backup
+not: held, fixable with `r` / `codesync restore`) and `restoring` (percent in `detail`). A restore
+holds `codesync.lock` for its whole run, so the service's first sync waits for a complete code
+folder instead of mirroring a half-restored one as deletions.
 
 ## Commands
 
-`codesync` (status) · `now` · `pause` / `resume` / `toggle` · `setup` · `pull` · `enable` /
+`codesync` (status) · `now` · `pause` / `resume` / `toggle` · `setup` · `restore` (alias `pull`) · `enable` /
 `disable` · `log` · `ignore` · `bar` · `watch` (the service).
 
 ## Rules

@@ -117,12 +117,20 @@ Code lives on the SSD in `~/code` (fast); `codesync` copies every change to the 
   .venv, caches… A project can add its own `.syncignore`. Ignored files are never copied and are left
   untouched on the HDD.
 - Safety: nothing runs if the HDD isn't mounted, and an empty `~/code` is never mirrored.
+- **Empty code folder, full backup** (new PC, wiped SSD, wrong folder picked): syncing holds, the
+  icon turns amber and a notification says so. In the panel press `r` (or run `codesync restore`) to
+  copy the backup into the code folder — nothing is deleted — and syncing resumes by itself.
 
 **Waybar:** the sync icon next to the logo shows the state: grey (up to date), white (changes waiting),
-blue (syncing), amber (paused), red (problem). Hover for a summary; click opens the Code Sync panel
-(backed-up files/folders/size, what the ignore list skips, free space, old versions, per-folder
-breakdown, today's activity, recent changed files, and the timing settings: ↑↓ pick, ←→ change).
-Right-click syncs now, middle-click pauses/resumes. Timing is stored in `config/codesync/settings.json`.
+blue (syncing or restoring), amber (paused, or restore needed), red (problem). Hover for a summary;
+click opens the Code Sync panel (backed-up files/folders/size, what the ignore list skips, free space,
+old versions, per-folder breakdown, today's activity, recent changed files, the two folders and the
+timing settings: ↑↓ pick, ←→ change a setting). Right-click syncs now, middle-click pauses/resumes.
+Timing is stored in `config/codesync/settings.json`.
+
+**Changing the folders:** in the panel, pick *Code folder* (where you work) or *Backup* (where copies
+go) and press Enter (or click it). A folder dialog opens; after you choose, the panel shows what the
+switch would do to the backup (+ new, ~ changed, − moved to old versions) and applies it on `y`.
 
 | Command | Does |
 |---|---|
@@ -130,14 +138,14 @@ Right-click syncs now, middle-click pauses/resumes. Timing is stored in `config/
 | `codesync pause` / `resume` | hold syncing (changes still noticed, synced on resume) |
 | `codesync now` | sync immediately |
 | `codesync log` | follow what it's doing |
-| `codesync pull` | one-time copy HDD → SSD (new machine); never deletes |
+| `codesync restore` | copy the backup into the code folder (new machine, emptied SSD); never deletes. Alias: `pull` |
 | `codesync enable` / `disable` | start / stop the background service |
 
 **On another PC** the folders can be anywhere: `codesync enable` first asks where the code is and
 where the backup goes (on the other drive), and saves that to `config/codesync/machine.json`, which is
 gitignored, so every PC keeps its own paths while the ignore list and timing stay shared.
-`codesync setup` changes them later. If that PC's backup already holds code, run `codesync pull`
-first to copy it to the fast drive. Until codesync is enabled on a PC, its waybar icon stays hidden.
+`codesync setup` (or the panel) changes them later. If that PC's backup already holds code, run
+`codesync restore` first to copy it to the fast drive. Until codesync is enabled on a PC, its waybar icon stays hidden.
 The backup drive must be mounted at boot on that PC (an `/etc/fstab` line, not in these dotfiles).
 The program is `local/bin/codesync`.
 

@@ -104,7 +104,7 @@ hl.window_rule({
 })
 
 -- Omarchy-style floating windows: TUIs, viewers, file dialogs
-hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk)$" }, tag = "+floating-window" })
+hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk|codesync\\.folderpick)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?|Save.*As|Save|All Files|[Cc]hoose.*)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
 -- the code sync panel (waybar sync icon): two columns of details

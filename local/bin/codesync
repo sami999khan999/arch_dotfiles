@@ -5,8 +5,10 @@
   codesync now        sync right away (the service does this by itself a few seconds after changes)
   codesync pause      stop syncing until resumed (changes are still noticed, and synced on resume)
   codesync resume
-  codesync setup      choose this PC's code folder and backup folder (asked by enable the first time)
-  codesync pull       one-time copy HDD -> SSD (never deletes; skips everything in the ignore list)
+  codesync setup      choose this PC's code folder and backup folder (asked by enable the first time;
+                      the Code Sync panel can change them too)
+  codesync restore    copy the backup into the code folder (never deletes; skips the ignore list).
+                      Needed when the code folder is empty: syncing is held until then. Alias: pull
   codesync enable     install and start the background service (systemd --user), also at login
   codesync disable    stop it and remove it from login
   codesync log        follow the service log
@@ -18,6 +20,9 @@ How it syncs: rsync mirrors the SSD onto the HDD. Files deleted or overwritten o
 lost: they are moved to /mnt/data/.code-trash/<date>/ and cleaned after trash_days days.
 Ignored files (~/.config/codesync/ignore, plus any .syncignore inside ~/code) are never copied, and
 if they already exist on the HDD they are left alone there.
+
+An empty code folder next to a non-empty backup is never mirrored (that would empty the backup):
+the service holds with status "restore" until `codesync restore` fills the code folder back up.
 
 Timing lives in ~/.config/codesync/settings.json (the panel edits it; the service rereads it live).
 Live status for waybar and the panel: ~/.local/state/codesync.json.
@@ -50,11 +55,18 @@ _m = machine()
 SRC = os.path.expanduser(_m.get("src", "~/code"))           # the code, on the fast drive
 DST = os.path.expanduser(_m.get("dst", "/mnt/data/code"))   # the backup, on the other drive
 MOUNT = _m.get("mount", "/mnt/data")                        # the drive DST lives on
-TRASH = os.path.join(os.path.dirname(DST), ".code-trash")   # old versions, next to the backup
+
+
+def trash_of(dst):
+    return os.path.join(os.path.dirname(dst), ".code-trash")  # old versions, next to the backup
+
+
+TRASH = trash_of(DST)
 STATE_DIR = os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state"))
 STATE = f"{STATE_DIR}/codesync.json"
 PAUSED = f"{STATE_DIR}/codesync.paused"  # exists = paused (not in settings.json: that one is in git)
-LOCK = f"{STATE_DIR}/codesync.lock"
+LOCK = f"{STATE_DIR}/codesync.lock"     # held by every rsync run: a sync waits for a restore to finish
+RESTORING = f"{STATE_DIR}/codesync.restoring"  # pid of a running restore
 UNIT = os.path.expanduser("~/.config/systemd/user/codesync.service")
 WAYBAR_SIGNAL = 11
 RECENT = 200  # changed paths remembered for the panel
@@ -134,18 +146,84 @@ def rsync_filters():
 
 
 # ---- safety checks -------------------------------------------------------------------------------
+def has_entries(path):
+    try:
+        return bool(os.listdir(path))
+    except OSError:
+        return False
+
+
+def needs_restore(src=None, dst=None):
+    """The code folder is empty (or missing) but the backup isn't: mirroring would empty the backup."""
+    return not has_entries(src or SRC) and has_entries(dst or DST)
+
+
+def restoring():
+    """True while a `codesync restore` is running."""
+    try:
+        os.kill(int(open(RESTORING).read()), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def restore_detail():
+    tot = load_state().get("totals") or {}
+    if tot.get("files"):
+        return f"code folder is empty; the backup has {tot['files']:,} files ({human(tot['size'])})"
+    try:
+        n = len(os.listdir(DST))
+    except OSError:
+        n = 0
+    return f"code folder is empty; the backup has {n} folder(s)"
+
+
 def problem():
     """Why a sync must not run right now, or None."""
     if not os.path.exists(MACHINE):
         return "not set up on this PC yet (run `codesync setup`)"
     if not os.path.ismount(MOUNT):
         return f"the backup drive is not mounted at {MOUNT}"
+    if needs_restore():
+        # an empty code folder would mirror as "delete everything" — hold until it's restored
+        return restore_detail()
     if not os.path.isdir(SRC):
-        return f"{SRC} does not exist (run `codesync pull` first)"
-    if not os.listdir(SRC) and os.path.isdir(DST) and os.listdir(DST):
-        # an empty ~/code would mirror as "delete everything" — refuse
-        return f"{SRC} is empty but the HDD copy is not; refusing to mirror an empty folder"
+        return f"{SRC} does not exist"
     return None
+
+
+def report_problem(why):
+    """Show why nothing syncs: "restore" (amber, fixable from the panel) or "error"."""
+    if restoring():
+        return  # the restore owns the status while it runs
+    status("restore" if needs_restore() and os.path.ismount(MOUNT) else "error", why)
+
+
+def check_folders(src, dst):
+    """(error, warning) for using src as the code folder and dst as the backup."""
+    src, dst = (os.path.abspath(os.path.expanduser(p)) for p in (src, dst))
+    if src == dst or dst.startswith(src + os.sep) or src.startswith(dst + os.sep):
+        return "the code folder and the backup folder must be separate (neither inside the other)", None
+    mount = mount_of(dst)
+    if mount == mount_of(src):
+        return None, (f"{dst} is on the same drive as {src} ({mount}): that protects against deleted "
+                      "files, but not against that drive failing")
+    if mount == "/":
+        return None, f"{dst} is on the system drive, not a separate mount. Is the other drive mounted?"
+    return None, None
+
+
+def save_machine(src, dst):
+    """Save this PC's two folders (machine.json, not in git) and point the running service at them."""
+    src, dst = (os.path.abspath(os.path.expanduser(p)) for p in (src, dst))
+    os.makedirs(CONF_DIR, exist_ok=True)
+    with open(MACHINE, "w") as f:
+        json.dump({"src": src.replace(os.path.expanduser("~"), "~", 1), "dst": dst, "mount": mount_of(dst)},
+                  f, indent=2)
+        f.write("\n")
+    save_state(totals={}, last_error=None)  # the old totals describe the old backup
+    if service_pid():
+        subprocess.run(["systemctl", "--user", "restart", "codesync.service"])
 
 
 # ---- syncing -------------------------------------------------------------------------------------
@@ -157,12 +235,43 @@ def num(pattern, text):
     return int(m.group(1).replace(",", "")) if m else 0
 
 
+def mirror_cmd(src, dst):
+    """rsync that makes dst an exact copy of src; replaced/deleted files go to the trash folder."""
+    day = datetime.date.today().isoformat()
+    return ["rsync", "-rlt", "--delete", "--backup", f"--backup-dir={trash_of(dst)}/{day}",
+            "--itemize-changes", "--stats", *rsync_filters(), f"{src}/", f"{dst}/"]
+
+
+def parse_changes(out):
+    """[(op, path)] from rsync --itemize-changes: + new, ~ updated, - deleted."""
+    changes = []
+    for line in out.splitlines():
+        m = ITEM.match(line)
+        if not m or m.group(1).startswith(".d"):
+            continue  # folder timestamp touch-ups aren't worth showing
+        flags, path = m.groups()
+        changes.append(("-" if flags == "*deleting" else "+" if "+++" in flags else "~", path))
+    return changes
+
+
+def preview(src, dst):
+    """What mirroring src onto dst would do, without doing it: {"new", "updated", "removed"} counts,
+    or {"error": …}. For the panel, before it switches folders."""
+    src, dst = (os.path.abspath(os.path.expanduser(p)) for p in (src, dst))
+    r = subprocess.run([*mirror_cmd(src, dst), "-n"], capture_output=True, text=True)
+    if r.returncode not in (0, 24):
+        return {"error": (r.stderr.strip().splitlines() or [f"rsync exit {r.returncode}"])[-1]}
+    changes = [(op, p) for op, p in parse_changes(r.stdout) if not p.endswith("/")]  # files, not folders
+    return {"new": sum(op == "+" for op, _ in changes), "updated": sum(op == "~" for op, _ in changes),
+            "removed": sum(op == "-" for op, _ in changes)}
+
+
 def sync(reason="manual"):
     why = problem()
     if why:
         log(f"skipped ({reason}): {why}")
         save_state(last_error=why, last_error_at=time.time())
-        status("error", why)
+        report_problem(why)
         return False
     os.makedirs(STATE_DIR, exist_ok=True)
     lock = open(LOCK, "w")
@@ -170,11 +279,8 @@ def sync(reason="manual"):
     try:
         status("syncing", reason)
         os.makedirs(DST, exist_ok=True)
-        day = datetime.date.today().isoformat()
-        cmd = ["rsync", "-rlt", "--delete", "--backup", f"--backup-dir={TRASH}/{day}",
-               "--itemize-changes", "--stats", *rsync_filters(), f"{SRC}/", f"{DST}/"]
         start = time.time()
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(mirror_cmd(SRC, DST), capture_output=True, text=True)
         took = time.time() - start
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
@@ -190,14 +296,7 @@ def sync(reason="manual"):
         return False
 
     now = time.time()
-    changes = []  # (op, path): + new, ~ updated, - deleted
-    for line in r.stdout.splitlines():
-        m = ITEM.match(line)
-        if not m or m.group(1).startswith(".d"):
-            continue  # folder timestamp touch-ups aren't worth showing
-        flags, path = m.groups()
-        op = "-" if flags == "*deleting" else "+" if "+++" in flags else "~"
-        changes.append((op, path))
+    changes = parse_changes(r.stdout)
     out = r.stdout
     totals = {"files": num(r"reg: ([\d,]+)", out), "dirs": num(r"dir: ([\d,]+)", out),
               "size": num(r"Total file size: ([\d,]+)", out)}
@@ -292,9 +391,19 @@ def watch():
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
     log(f"watching {SRC} -> {DST}")
-    while problem():  # wait for the HDD (or ~/code) instead of failing
-        status("error", problem())
-        select.select([wake_r], [], [], 30)
+    told = False
+    while problem():  # wait for the HDD, or for the code folder to be restored, instead of failing
+        why = problem()
+        report_problem(why)
+        if needs_restore() and not told:
+            notify("Your code folder is empty but the backup isn't, so nothing is synced. "
+                   "Open Code Sync and press r to restore it.")
+            told = True
+        if select.select([wake_r], [], [], 30)[0]:
+            try:
+                os.read(wake_r, 512)
+            except BlockingIOError:
+                pass
     w = Watcher(SRC)
     save_state(watched=len(w.paths), started=time.time())
     sync("start")
@@ -402,16 +511,53 @@ def set_paused(on):
     log("paused" if on else "resumed")
 
 
-def pull():
+def restore():
+    """Copy the backup into the code folder. Never deletes. Holds LOCK throughout, so the service's
+    first sync waits for a complete code folder (a half-restored one would mirror as deletions)."""
     if not os.path.exists(MACHINE):
+        if not sys.stdin.isatty():
+            sys.exit("not set up on this PC yet (run `codesync setup`)")
         setup()
-        os.execv(sys.argv[0], [sys.argv[0], "pull"])
-    if not os.path.ismount(MOUNT) or not os.path.isdir(DST):
-        sys.exit(f"nothing to pull: {DST} not found (is the HDD mounted?)")
+        os.execv(sys.argv[0], [sys.argv[0], "restore"])
+    if not os.path.ismount(MOUNT) or not has_entries(DST):
+        sys.exit(f"nothing to restore: {DST} is empty or missing (is the backup drive mounted?)")
+    if restoring():
+        sys.exit("a restore is already running")
     os.makedirs(SRC, exist_ok=True)
-    log(f"copying {DST} -> {SRC} (skipping ignored folders; nothing is deleted)…")
-    r = subprocess.run(["rsync", "-rlt", "--info=progress2", *rsync_filters(), f"{DST}/", f"{SRC}/"])
-    sys.exit(r.returncode)
+    os.makedirs(STATE_DIR, exist_ok=True)
+    lock = open(LOCK, "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    open(RESTORING, "w").write(str(os.getpid()))
+    try:
+        status("restoring", "starting…")
+        log(f"copying {DST} -> {SRC} (skipping ignored folders; nothing is deleted)…")
+        p = subprocess.Popen(["rsync", "-rlt", "--info=progress2", "--no-inc-recursive", *rsync_filters(),
+                              f"{DST}/", f"{SRC}/"], stdout=subprocess.PIPE, text=True)
+        shown = None
+        for line in p.stdout:  # progress2 ends its updates with \r; text mode splits on those too
+            m = re.search(r"(\d+)%", line)
+            if m and m.group(1) != shown:
+                shown = m.group(1)
+                status("restoring", f"{shown}% copied")
+                if sys.stdout.isatty():
+                    print(f"\r  {line.strip()}", end="", flush=True)
+        rc = p.wait()
+    finally:
+        try:
+            os.remove(RESTORING)
+        except OSError:
+            pass
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    if sys.stdout.isatty():
+        print()
+    if rc not in (0, 24):
+        status("error", f"restore failed (rsync exit {rc}); see `codesync restore` in a terminal")
+        sys.exit(rc)
+    status("ok", "restored")
+    log(f"restored {DST} -> {SRC}")
+    pid = service_pid()
+    if pid:
+        os.kill(pid, signal.SIGUSR1)  # the service was holding: sync now
 
 
 def ask(question, default):
@@ -425,27 +571,19 @@ def setup():
     src = os.path.abspath(ask("Where is your code, on the fast drive?", _m.get("src", "~/code")))
     dst = os.path.abspath(ask("Where should the backup go, on the other drive?",
                               _m.get("dst", "/mnt/data/code")))
-    if src == dst or dst.startswith(src + os.sep) or src.startswith(dst + os.sep):
-        sys.exit("the code folder and the backup folder must be separate (neither inside the other)")
-    mount = mount_of(dst)
-    if mount == mount_of(src):
-        print(f"\n! {dst} is on the same drive as {src} ({mount}).")
-        print("  That protects against deleted files, but not against that drive failing.")
+    error, warning = check_folders(src, dst)
+    if error:
+        sys.exit(error)
+    if warning:
+        print(f"\n! {warning}")
         if input("  Use it anyway? [y/N] › ").strip().lower() != "y":
             sys.exit("not saved")
-    elif mount == "/":
-        print(f"\n! {dst} is on the system drive, not a separate mount. Is the other drive mounted?")
-        if input("  Use it anyway? [y/N] › ").strip().lower() != "y":
-            sys.exit("not saved")
-    os.makedirs(CONF_DIR, exist_ok=True)
-    with open(MACHINE, "w") as f:
-        json.dump({"src": src.replace(os.path.expanduser("~"), "~", 1), "dst": dst, "mount": mount}, f, indent=2)
-        f.write("\n")
-    print(f"\nsaved: {src} → {dst}  (drive: {mount})")
-    if not os.path.isdir(src) and os.path.isdir(dst):
-        print("next: `codesync pull` copies the backup's code to the fast drive, then `codesync enable`")
-    if service_pid():
-        subprocess.run(["systemctl", "--user", "restart", "codesync.service"])
+    running = service_pid()
+    save_machine(src, dst)
+    print(f"\nsaved: {src} → {dst}  (drive: {mount_of(dst)})")
+    if needs_restore(src, dst):
+        print("next: `codesync restore` copies the backup's code to the fast drive, then `codesync enable`")
+    if running:
         print("the running service now uses the new folders")
 
 
@@ -515,10 +653,13 @@ def status_cmd():
         print(f"last sync    {ago(s['last_sync'])} ({last.get('changes', 0)} changes)")
     if s.get("last_error"):
         print(f"last error   {s['last_error']} ({ago(s['last_error_at'])})")
+    if needs_restore() and os.path.ismount(MOUNT):
+        print("next         the code folder is empty: `codesync restore` copies the backup back")
 
 
-ICONS = {"ok": "\U000f04e6", "pending": "\U000f04e6", "syncing": "\U000f04e6",
-         "paused": "\U000f04e8", "error": "\U000f04e7", "off": "\U000f04e8"}  # nf-md-sync / -off / -alert
+ICONS = {"ok": "\U000f04e6", "pending": "\U000f04e6", "syncing": "\U000f04e6", "restoring": "\U000f04e6",
+         "paused": "\U000f04e8", "error": "\U000f04e7", "restore": "\U000f04e7",
+         "off": "\U000f04e8"}  # nf-md-sync / -off / -alert
 
 
 def bar():
@@ -530,9 +671,10 @@ def bar():
     if st != "off" and not service_pid():
         st = "off"
     words = {"ok": "up to date", "pending": "changes waiting", "syncing": "syncing…",
-             "paused": "paused", "error": "problem", "off": "service not running"}
+             "paused": "paused", "error": "problem", "off": "service not running",
+             "restore": "restore needed", "restoring": "restoring…"}
     tip = [f"Code backup · {words.get(st, st)}"]
-    if st == "error" and s.get("detail"):
+    if st in ("error", "restore", "restoring") and s.get("detail"):
         tip.append(s["detail"])
     if s.get("last_sync"):
         last = s.get("last", {})
@@ -564,8 +706,8 @@ def main(argv):
         bar()
     elif cmd == "setup":
         setup()
-    elif cmd == "pull":
-        pull()
+    elif cmd in ("restore", "pull"):
+        restore()
     elif cmd == "enable":
         enable()
     elif cmd == "disable":

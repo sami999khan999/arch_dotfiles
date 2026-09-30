@@ -38,9 +38,32 @@ for ws = 1, 10 do
 end
 
 -- digits by physical keycode (AZERTY-safe, like binds.lua): 1..9 => 10..18, 0 => 19
+-- Alt + N: window N of this workspace, oldest first (same order as `wsgroups focus N`). Done here
+-- rather than in the script so a fullscreen video can be kept fullscreen (binds.lua).
+local function focusNth(n)
+    local ws = hl.get_active_workspace()
+    local wins = {}
+    for _, w in ipairs(ws and ws:get_windows() or {}) do
+        if w.mapped and w.class ~= "TUI.float" then table.insert(wins, w) end
+    end
+    table.sort(wins, function(a, b) return a.stable_id < b.stable_id end)
+    local target = wins[n]
+    if not target then
+        hl.exec_cmd("notify-send -t 1500 Workspaces 'No window " .. n .. " here (" .. #wins .. " open)'")
+        return
+    end
+    local active = hl.get_active_window()
+    if active and active.address == target.address then
+        return -- focusing the focused window on a monocle workspace jumps to another one
+    end
+    switchKeepingFullscreen(function()
+        hl.dispatch(hl.dsp.focus({ window = "address:" .. target.address }))
+    end, target)
+end
+
 for n = 1, 10 do
     local key = "code:" .. (9 + n)
-    hl.bind("ALT + " .. key,          hl.dsp.exec_cmd(wsgroups .. " focus " .. n))
+    hl.bind("ALT + " .. key,          function() focusNth(n) end)
     hl.bind("SUPER + CTRL + " .. key, hl.dsp.exec_cmd(wsgroups .. " go " .. n))
 end
 

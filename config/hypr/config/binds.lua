@@ -95,9 +95,35 @@ bind("SUPER + mouse_up",             hl.dsp.focus({ workspace = "e-1" }))
 bind("SUPER + S",                    hl.dsp.workspace.toggle_special("scratchpad"))
 bind("SUPER + ALT + S",              hl.dsp.window.move({ workspace = "special:scratchpad", follow = false }))
 
+-- Switching windows keeps a fullscreen video fullscreen: before the switch the window leaves
+-- Hyprland's fullscreen but Chrome is still told it's fullscreen (internal 0, client 2), so the
+-- video stays full inside its tile; focusing it again makes it real fullscreen (window.active below).
+-- Without this, misc.on_focus_under_fullscreen = 2 exits the video's fullscreen. Global: wsgroups.lua uses it.
+-- target: the window being switched to (nil = unknown, e.g. cycling). Nothing is parked when
+-- there is nowhere to switch to.
+function switchKeepingFullscreen(switch, target)
+    local w = hl.get_active_window()
+    if w and w.fullscreen == 2 and (not target or target.address ~= w.address) then
+        local others = 0
+        for _, o in ipairs(w.workspace and w.workspace:get_windows() or {}) do
+            if o.mapped and o.address ~= w.address then others = others + 1 end
+        end
+        if others > 0 then
+            hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = 2, window = "address:" .. w.address }))
+        end
+    end
+    switch()
+end
+
+hl.on("window.active", function(w)
+    if w and w.fullscreen_client == 2 and w.fullscreen == 0 then
+        hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 2, client = 2, window = "address:" .. w.address }))
+    end
+end)
+
 -- Window cycling and monitors
-bind("ALT + TAB",                    hl.dsp.window.cycle_next())
-bind("ALT + SHIFT + TAB",            hl.dsp.window.cycle_next({ next = false }))
+bind("ALT + TAB", function() switchKeepingFullscreen(function() hl.dispatch(hl.dsp.window.cycle_next()) end) end)
+bind("ALT + SHIFT + TAB", function() switchKeepingFullscreen(function() hl.dispatch(hl.dsp.window.cycle_next({ next = false })) end) end)
 bind("CTRL + ALT + TAB",             hl.dsp.focus({ monitor = "+1" }))
 bind("CTRL + ALT + SHIFT + TAB",     hl.dsp.focus({ monitor = "-1" }))
 

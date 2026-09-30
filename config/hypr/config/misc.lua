@@ -14,7 +14,7 @@ hl.config({
         enable_swallow = true,
         swallow_regex = "(kitty|ghostty|[Kk]onsole|Alacritty|gnome-terminal|xfce[0-9]?-terminal)",
         vrr = 3,
-        on_focus_under_fullscreen = 2, -- switching windows drops fullscreen (1 handed it to the other Chrome window and broke it)
+        on_focus_under_fullscreen = 2, -- other focus changes drop fullscreen; Alt+N / Alt+Tab keep a video fullscreen (binds.lua)
     },
     render = {
         direct_scanout = 2,

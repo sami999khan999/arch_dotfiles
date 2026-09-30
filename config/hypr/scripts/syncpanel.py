@@ -108,6 +108,7 @@ class SyncPanel(Panel):
         self.flash, self.flash_at, self.flash_color = "", 0, ACCENT
         self.folders, self.trash, self.measured = {}, (0, 0), 0
         self.rows = {}  # screen row -> selectable index, for clicks
+        self.right_x = 0  # first screen column of the right column: clicks left of it select nothing
         self.busy = None       # what a background step is doing ("waiting for the folder dialog…")
         self.proposal = None   # new folders waiting for y / n: dict(src, dst, which, warning, preview, restore)
         self.remeasure = threading.Event()
@@ -282,6 +283,7 @@ class SyncPanel(Panel):
         lw = (width - gap) * 11 // 20
         rw = width - gap - lw
         body_top = 3  # header (2) + blank row; folder and settings rows are clickable from here
+        self.right_x = len(pad) + lw + gap
         L, R = self.left(lw), self.right(rw, body_top, room)
         body = [clip(l or "", lw) + " " * gap + (r or "") for l, r in zip_longest(L, R)]
         room_sub = max(width - len("Code Sync") - 8, 20) // 2
@@ -404,7 +406,7 @@ class SyncPanel(Panel):
             self.change(+1)
         elif k == "ENTER" and self.sel < len(FOLDERS):
             self.choose(FOLDERS[self.sel][0])
-        elif isinstance(k, tuple) and k[2] in self.rows:
+        elif isinstance(k, tuple) and k[2] in self.rows and k[1] >= self.right_x:
             self.sel = self.rows[k[2]]
             if self.sel < len(FOLDERS):
                 self.choose(FOLDERS[self.sel][0])  # a folder row works like a button

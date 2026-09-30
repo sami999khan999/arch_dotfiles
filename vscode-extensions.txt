@@ -8,4 +8,3 @@ golang.go
 ms-azuretools.vscode-docker
 eamodio.gitlens
 tamasfe.even-better-toml
-alefragnani.project-manager

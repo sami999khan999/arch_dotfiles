@@ -193,14 +193,22 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
 
 ### Docker panel (workspace 9)
 
-`scripts/dockerpanel.py`, in the same card style as the Control Center. Left: containers grouped
-by compose project, with a status dot, CPU bar, memory and first published port. Right: the
-selected container's image, uptime, ports, CPU/memory, project folder and its latest logs
-(long lines wrap). Refreshes every second; stats every ~2 s.
+`scripts/dockerpanel.py`, in the same card style as the Control Center. Four tabs (`1`–`4`,
+`Tab`, `←→` or a click), each a list on the left and the selected item's details on the right:
 
-- ↑↓ / click select · `s` start/stop · `r` restart · `p` start/stop the whole compose project
-- `l` all logs in `less` (`F` follows, `Ctrl+C` stops) · `e` shell inside · `o` open the first
-  port in the browser · `L` lazydocker, for everything else (themed by `config/lazydocker/config.yml`)
+| Tab | List | Details |
+|---|---|---|
+| Containers | grouped by compose project: status dot, CPU bar, memory, first port | image, uptime, ports, CPU/memory, project folder, latest logs |
+| Images | in use / unused: size, age | ID, which containers use it, layers |
+| Volumes | grouped by compose project: size, which containers use it | full name, driver, mountpoint |
+| Networks | created / built in: driver, subnet, container count | gateway, the containers on it and their IPs |
+
+- Containers: `s` start/stop · `r` restart · `p` start/stop the whole compose project ·
+  `l` all logs in `less` (`F` follows, `Ctrl+C` stops) · `e` shell inside · `o` open the first
+  port in the browser
+- Images: `u` pull a newer version. Images, volumes, networks: `d` twice removes it (docker
+  refuses if something still uses it).
+- `L` opens lazydocker for everything else (themed by `config/lazydocker/config.yml`).
 
 ### Control Center (workspace 10)
 

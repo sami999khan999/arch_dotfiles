@@ -1,5 +1,5 @@
 -- Workspace groups: reads ~/.config/hypr/workspaces.conf, sends each group's windows to its
--- workspace (maximized), and binds Alt + 1…0 / Super + Ctrl + 1…0 / Super + N to the wsgroups program.
+-- workspace (monocle layout), and binds Alt + 1…0 / Super + Ctrl + 1…0 / Super + N to the wsgroups program.
 -- Edit workspaces.conf, not this file.
 
 local conf     = os.getenv("HOME") .. "/.config/hypr/workspaces.conf"
@@ -7,12 +7,7 @@ local wsgroups = "~/.local/bin/wsgroups"
 
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
-local classes = {} -- lowercase class alternatives ("code|cursor" -> code, cursor) of every group
-
--- workspaces 1..10 always exist, assigned or not, so waybar always shows all ten
-for ws = 1, 10 do
-    hl.workspace_rule({ workspace = tostring(ws), monitor = MONITOR1, default = ws == 1, persistent = true })
-end
+local grouped = {} -- workspace numbers that have a group line
 
 local file = io.open(conf, "r")
 if file then
@@ -22,9 +17,9 @@ if file then
             local ws, _, class = line:match("^(.-)|(.-)|([^|]*)")
             ws = ws and trim(ws)
             if ws and ws:match("^%d+$") then
+                grouped[ws] = true
                 if trim(class) ~= "" then
                     hl.window_rule({ match = { class = "^(" .. trim(class) .. ")$" }, workspace = ws })
-                    for alt in trim(class):gmatch("[^|]+") do classes[#classes + 1] = trim(alt):lower() end
                 end
             end
         end
@@ -32,18 +27,15 @@ if file then
     file:close()
 end
 
--- Maximize group windows once, when they open (waybar and gaps stay). Not a fullscreen_state
--- rule: that pins the state, so a YouTube video asking for real fullscreen stays in the tile.
-hl.on("window.open", function(w)
-    if not w or w.floating then return end
-    local cls = (w.class or ""):lower()
-    for _, pat in ipairs(classes) do
-        if cls:match("^" .. pat .. "$") then
-            hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 1, client = 0, window = "address:" .. w.address }))
-            return
-        end
-    end
-end)
+-- workspaces 1..10 always exist, assigned or not, so waybar always shows all ten.
+-- Group workspaces use monocle: every tiled window fills the area (waybar and gaps stay) and
+-- only the focused one shows. Nothing is maximized, so switching never resizes a window — a
+-- maximize handed back and forth dropped the old window into a half-width tile and made VS Code
+-- squeeze its sidebar and panel.
+for ws = 1, 10 do
+    hl.workspace_rule({ workspace = tostring(ws), monitor = MONITOR1, default = ws == 1, persistent = true,
+                        layout = grouped[tostring(ws)] and "monocle" or nil })
+end
 
 -- digits by physical keycode (AZERTY-safe, like binds.lua): 1..9 => 10..18, 0 => 19
 for n = 1, 10 do

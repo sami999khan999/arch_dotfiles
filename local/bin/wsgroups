@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wsgroups — one workspace per kind of app, every window maximized, Alt + N to switch.
+"""wsgroups — one workspace per kind of app, every window full-size (monocle), Alt + N to switch.
 
   wsgroups                    open the manager UI (also Super + Ctrl + G, or click it in waybar)
   wsgroups focus N            focus window N (1-10) of the current workspace, in the order opened
@@ -103,11 +103,6 @@ def focus(n):
         return
     target = wins[n - 1]
     dispatch(f'hl.dsp.focus({{ window = "address:{target["address"]}" }})')
-    if ws in groups():
-        active = query("activewindow") or {}
-        if (active.get("address") == target["address"] and active.get("fullscreen", 0) == 0
-                and not active.get("floating")):  # floating (Control Center cards) keep their place
-            dispatch('hl.dsp.window.fullscreen({ mode = "maximized" })')
 
 
 def launch(ws, force=False):
@@ -224,7 +219,7 @@ def bar():
                 buf += data
                 *events, buf = buf.split(b"\n")
                 if any(e.decode(errors="ignore").startswith(wanted) for e in events):
-                    time.sleep(0.05)  # let hyprland settle (e.g. maximize after focus)
+                    time.sleep(0.05)  # let hyprland settle
                     emit()
         except OSError:
             time.sleep(2)

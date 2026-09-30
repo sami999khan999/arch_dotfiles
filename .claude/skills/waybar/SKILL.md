@@ -34,7 +34,7 @@ right:  media (play/pause, only while a player is playing/paused) │ clock │ 
 - Clicks that dispatch to Hyprland must use Lua syntax:
   `"on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"1\" })'"`.
   Waybar's built-in Hyprland click actions send legacy commands and silently fail.
-- Scripts live in `config/hypr/scripts/`; `chmod +x` them.
+- Scripts live in `config/hypr/scripts/` (a panel it opens lives in `local/lib/panels/`); `chmod +x` them.
 
 ## Known quirks
 

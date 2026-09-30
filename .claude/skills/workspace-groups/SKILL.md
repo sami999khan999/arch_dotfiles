@@ -16,7 +16,7 @@ workspace | name | window class regex | launch command(s) ; … | new-window com
 
 Readers of that file:
 
-- `config/hypr/config/wsgroups.lua` — sends each class to its workspace, maximizes new windows
+- `config/hypr/modules/wsgroups.lua` — sends each class to its workspace, maximizes new windows
   once (not with `fullscreen_state`, which would block real fullscreen), makes workspaces 1–10
   persistent, binds Alt + 1…0 (window N here), Super + Ctrl + 1…0 (go/launch), Super + N.
 - `local/bin/wsgroups` — the CLI/manager UI and the waybar group label (`wsgroups bar`).
@@ -29,8 +29,8 @@ Readers of that file:
 3. Icon on the bar button: `ICONS` in `config/hypr/scripts/wsbar.py` maps workspace number →
    Nerd Font glyph (unmapped workspaces show their digit). Move icons with the groups.
 4. If the Control Center (class `controlcenter`) moves, also update: the `gaps_out = 0` rule in
-   `config/hypr/config/workspaces.lua`, `wsgroups launch N --background` in `autostart.lua`, and the
-   "(workspace N)" comments in `controlcenter.lua`, `scripts/controlcenter.py`,
+   `config/hypr/modules/workspacerules.lua`, `wsgroups launch N --background` in `autostart.lua`, and the
+   "(workspace N)" comments in `controlcenter.lua`, `local/lib/panels/controlcenter.py`,
    `kitty/controlcenter.conf`.
 5. Update the tables in `README.md` ("Workspace groups", "Control Center").
 6. Apply:

@@ -4,7 +4,7 @@
 #   folderpick.py [start folder] [title]
 #
 # Prints the chosen folder and exits 0; exits 1 when cancelled. Floated and centred by the
-# codesync.folderpick rule in config/hypr/config/windowrules.lua.
+# codesync.folderpick rule in config/hypr/modules/windowrules.lua.
 import os, sys
 
 import gi

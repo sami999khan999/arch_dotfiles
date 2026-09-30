@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Set up the dev toolchains that don't come straight from pacman. Idempotent: safe to re-run.
-# Run by `install.sh --packages` after the packages are installed; can also be run on its own.
+# Run by `setup/install.sh --packages` after the packages are installed; can also be run on its own.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # the repo root; this script lives in setup/
 say()   { printf '  %s\n' "$*"; }
 head_() { printf '\n== %s\n' "$*"; }
 
@@ -43,9 +43,9 @@ if command -v code >/dev/null; then
     [[ -z "$ext" || "$ext" == \#* ]] && continue
     if grep -qix "$ext" <<<"$installed"; then say "ok       $ext"
     elif code --install-extension "$ext" --force >/dev/null 2>&1; then say "installed $ext"
-    else say "FAILED   $ext (network?) - re-run ./setup-dev.sh"
+    else say "FAILED   $ext (network?) - re-run setup/setup-dev.sh"
     fi
-  done < "$REPO/vscode-extensions.txt"
+  done < "$REPO/setup/vscode-extensions.txt"
 else
-  say "code missing - install packages-aur.txt first"
+  say "code missing - install setup/packages-aur.txt first"
 fi

@@ -5,7 +5,7 @@
 import os, re
 
 HYPR = os.path.expanduser("~/.config/hypr")
-BINDS, APPS = f"{HYPR}/config/binds.lua", f"{HYPR}/apps.conf"
+BINDS, APPS = f"{HYPR}/modules/binds.lua", f"{HYPR}/apps.conf"
 WSGROUPS = f"{HYPR}/workspaces.conf"
 
 from panelkit import Panel, run, CARD, CHROME, FG, DIM, ACCENT, KEY, TRACK, BOLD, RESET, fit, frame, card, spread, header, section, hints

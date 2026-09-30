@@ -5,7 +5,7 @@ description: Edit the Hyprland Lua config in this dotfiles repo — keybinds, wi
 
 # Hyprland config (Lua, Hyprland 0.56)
 
-`config/hypr/hyprland.lua` only `require`s modules from `config/hypr/config/`. Put a change in the
+`config/hypr/hyprland.lua` only `require`s modules from `config/hypr/modules/`. Put a change in the
 module it belongs to:
 
 | Module | Holds |
@@ -15,7 +15,7 @@ module it belongs to:
 | `apps.lua` + `../apps.conf` | app hotkeys: edit `apps.conf`, not the Lua |
 | `wsgroups.lua` + `../workspaces.conf` | workspace groups → use the `workspace-groups` skill |
 | `windowrules.lua` | window and layer rules |
-| `workspaces.lua` | extra workspace rules (1–10 come from `wsgroups.lua`) |
+| `workspacerules.lua` | extra workspace rules (1–10 come from `wsgroups.lua`) |
 | `autostart.lua` | `hl.on("hyprland.start", …)` launches |
 | `colors.lua`, `decorations.lua`, `animations.lua`, `inputs.lua`, `misc.lua`, `monitors.lua` | as named |
 
@@ -29,7 +29,7 @@ bind("SUPER + J", hl.dsp.layout("togglesplit"))
 ```
 
 - Digits are bound by keycode (AZERTY-safe): `digitCode(n)` → `code:10`…`code:19`.
-- End the line with `-- description`; `scripts/keys.py` (Super + K) shows it.
+- End the line with `-- description`; `local/lib/panels/keys.py` (Super + K) shows it.
 - Before adding, search for the key in `binds.lua`, `apps.conf` and `wsgroups.lua` (Alt+digits,
   Super+Ctrl+digits and Super+N are taken there). Both actions fire on a duplicate.
 - Launch GUI apps through `launch` (`uwsm app -- `). TUIs in a floating terminal: `tui("cmd")`.

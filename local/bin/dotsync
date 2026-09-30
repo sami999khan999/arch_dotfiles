@@ -21,6 +21,6 @@ if ! git pull --rebase -q; then
   exit 1
 fi
 git push -q
-./install.sh | grep -Ev '^  ok|^$|^==|^Done\.|^\(Without' || true   # link anything new
+./setup/install.sh | grep -Ev '^  ok|^$|^==|^Done\.|^\(Without' || true   # link anything new
 hyprctl reload >/dev/null 2>&1 || true
 echo "dotfiles synced with GitHub"

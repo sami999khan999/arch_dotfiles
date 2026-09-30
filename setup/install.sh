@@ -3,7 +3,7 @@
 # Idempotent: safe to re-run. Existing real files are backed up, never deleted.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # the repo root; this script lives in setup/
 BACKUP="$HOME/.config-backup-$(date +%Y%m%d-%H%M%S)"
 DRY=0 PKGS=0
 for arg in "$@"; do
@@ -20,11 +20,11 @@ head_() { printf '\n== %s\n' "$*"; }
 if (( PKGS )); then
   head_ "packages"
   if (( DRY )); then
-    say "would install $(wc -l < "$REPO/packages.txt") pacman + $(wc -l < "$REPO/packages-aur.txt") AUR packages"
+    say "would install $(wc -l < "$REPO/setup/packages.txt") pacman + $(wc -l < "$REPO/setup/packages-aur.txt") AUR packages"
     say "would copy system/ files into /etc"
   else
-    sudo pacman -S --needed - < "$REPO/packages.txt"
-    paru -S --needed - < "$REPO/packages-aur.txt"
+    sudo pacman -S --needed - < "$REPO/setup/packages.txt"
+    paru -S --needed - < "$REPO/setup/packages-aur.txt"
     sudo install -Dm644 "$REPO/system/disable_ondevice_ai.json" \
       /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
     fc-cache -f >/dev/null
@@ -82,6 +82,9 @@ done
 head_ "scripts ->  ~/.local/bin"
 link_children "$REPO/local/bin" "$HOME/.local/bin"
 
+head_ "panels  ->  ~/.local/lib"
+link_children "$REPO/local/lib" "$HOME/.local/lib"
+
 head_ "cursors ->  ~/.icons"
 link_children "$REPO/icons" "$HOME/.icons"
 
@@ -98,7 +101,7 @@ if (( PKGS )); then
     head_ "dev toolchains"
     say "would run setup-dev.sh (rust stable, node LTS/pnpm/bun, docker, VS Code extensions)"
   else
-    "$REPO/setup-dev.sh"
+    "$REPO/setup/setup-dev.sh"
   fi
 fi
 
@@ -109,5 +112,5 @@ fi
 cat <<'EOF'
 
 Done. Log out and back in so Hyprland reloads.
-(Without --packages, install them with: ./install.sh --packages)
+(Without --packages, install them with: ~/dotfiles/setup/install.sh --packages)
 EOF

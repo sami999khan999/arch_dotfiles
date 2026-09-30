@@ -3,6 +3,7 @@
 
 local launch  = "uwsm app -- " -- if you are not using UWSM, make this empty (e.g. "")
 local scripts = "~/.config/hypr/scripts/"
+local panels  = "~/.local/lib/panels/"
 
 local function bind(keys, action, opts)
     if type(action) == "string" then
@@ -33,7 +34,7 @@ bind("SUPER + SHIFT + F",            launch .. FILE_MANAGER)
 bind("SUPER + SHIFT + N",            launch .. EDITOR)
 bind("SUPER + CTRL + Q",             launch .. CALCULATOR)
 bind("XF86Calculator",               launch .. CALCULATOR)
-bind("SUPER + CTRL + T",             tui(scripts .. "sysmon.py"))
+bind("SUPER + CTRL + T",             tui(panels .. "sysmon.py"))
 bind("CTRL + SHIFT + Escape",        tui("btop"))
 bind("SUPER + CTRL + A",             tui("wiremix"))
 bind("SUPER + CTRL + B",             tui("bluetui"))
@@ -44,7 +45,7 @@ bind("SUPER + CTRL + W",             tui("nmtui"))
 ---------------
 
 bind("SUPER + SPACE",                "walker")
-bind("SUPER + K",                    tui(scripts .. "keys.py")) -- shortcut list
+bind("SUPER + K",                    tui(panels .. "keys.py")) -- shortcut list
 bind("SUPER + CTRL + G",             tui("~/.local/bin/wsgroups")) -- workspace groups manager
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")

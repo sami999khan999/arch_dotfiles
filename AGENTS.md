@@ -18,11 +18,11 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 ## How the repo is wired
 
 - `config/*` is symlinked into `~/.config/*`, `local/bin/*` into `~/.local/bin/`, `local/share/*/*`
-  into `~/.local/share/*/`, by `install.sh` (idempotent; backs up whatever is in the way).
+  into `~/.local/share/*/`, `local/lib/*` into `~/.local/lib/`, by `setup/install.sh` (idempotent; backs up whatever is in the way).
   Editing `~/.config/hypr/…` and `~/dotfiles/config/hypr/…` edits the same file.
 - **Never replace a symlink with a regular file.** Write files in place (`open(path, "w")`), not by
   write-to-temp-then-rename onto the link. Check with `ls -l ~/.config`.
-- A new top-level entry in `config/` or `local/bin/` needs `./install.sh` once to get linked.
+- A new top-level entry in `config/`, `local/bin/` or `local/lib/` needs `setup/install.sh` once to get linked.
   VS Code settings are not in this repo: they come from VS Code Settings Sync.
 - `dotsync` (in `local/bin/`) = `git add -A`, commit, pull --rebase, push, relink, `hyprctl reload`.
 - Generated or per-machine files are gitignored (see `.gitignore`): Noctalia colour files,
@@ -32,16 +32,17 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 
 | Path | What |
 |---|---|
-| `config/hypr/hyprland.lua` | entry point: `require`s the modules in `config/hypr/config/` |
-| `config/hypr/config/*.lua` | binds, window rules, workspaces, autostart, colours, animations… |
-| `config/hypr/apps.conf` | app hotkeys (focus-or-launch), read by `config/apps.lua` |
-| `config/hypr/workspaces.conf` | workspace groups, read by `config/wsgroups.lua` and `local/bin/wsgroups` |
-| `config/hypr/scripts/` | helper scripts + Python TUI panels (`panelkit.py` is the shared framework) |
+| `config/hypr/hyprland.lua` | entry point: `require`s the modules in `config/hypr/modules/` |
+| `config/hypr/modules/*.lua` | binds, window rules, workspaces, autostart, colours, animations… |
+| `config/hypr/apps.conf` | app hotkeys (focus-or-launch), read by `modules/apps.lua` |
+| `config/hypr/workspaces.conf` | workspace groups, read by `modules/wsgroups.lua` and `local/bin/wsgroups` |
+| `config/hypr/scripts/` | shell helpers (tui.sh, panel.sh, toggles, screenshots…) + waybar modules (wsbar, wintitle) |
+| `local/lib/panels/` | the Python TUI panels: Control Center, Docker, sync, sysmon, keys (`panelkit.py` is the shared framework) |
 | `config/waybar/` | `config.jsonc` + `style.css` |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
-| `packages.txt`, `packages-aur.txt` | what `install.sh --packages` installs |
-| `system/` | root-only bits (Chrome policy); `root-setup.sh` is machine-specific |
+| `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |
+| `system/` | root-only bits: Chrome policy, this PC's data-drive fstab line; `root-setup.sh` applies both (machine-specific) |
 
 ## Apply and verify every change
 

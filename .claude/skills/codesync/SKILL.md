@@ -29,7 +29,7 @@ override **both** `HOME` and `XDG_STATE_HOME`, or it writes the real status file
 
 The service rereads `settings.json` every loop. Signals to the service: `SIGUSR1` = sync now,
 `SIGUSR2` = pause state/settings changed. It signals waybar with `RTMIN+11` on status changes.
-UI: waybar `custom/codesync` (`codesync bar`), panel `config/hypr/scripts/syncpanel.py`.
+UI: waybar `custom/codesync` (`codesync bar`), panel `local/lib/panels/syncpanel.py`.
 The panel changes the folders: `folderpick.py` (GTK4 dialog, floated by a window rule) →
 `check_folders()` → `preview()` (rsync `-n`, file counts) → `y` → `save_machine()` (writes
 machine.json, restarts the service) and reloads the codesync module.

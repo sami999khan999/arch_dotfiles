@@ -52,7 +52,7 @@
     "return-type": "json",
     "interval": 20,
     "signal": 11,
-    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/syncpanel.py",
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.local/lib/panels/syncpanel.py",
     "on-click-right": "~/.local/bin/codesync now",
     "on-click-middle": "~/.local/bin/codesync toggle"
   },
@@ -176,7 +176,7 @@
     "interval": 5,
     "format": "󰘚 {percentage}%",
     "tooltip-format": "{used:0.1f}G / {total:0.1f}G",
-    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/sysmon.py"
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.local/lib/panels/sysmon.py"
   },
   "temperature": {
     "interval": 5,
@@ -192,7 +192,7 @@
     "states": {
       "critical": 90
     },
-    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/sysmon.py"
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.local/lib/panels/sysmon.py"
   },
   "clock": {
     "format": "<span color='#565f89'>{:L%a %d %b</span>  <b>%H:%M</b>}",
@@ -322,7 +322,7 @@
   "custom/keys": {
     "format": "",
     "tooltip-format": "Shortcuts (Super + K)",
-    "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/keys.py"
+    "on-click": "~/.config/hypr/scripts/tui.sh ~/.local/lib/panels/keys.py"
   },
   "custom/expand-icon": {
     "format": "",

@@ -1,0 +1,4 @@
+# This PC's data HDD (NTFS) at /mnt/data: the codesync backup, docker, games.
+# By UUID, never /dev/sdX: disk names can change between boots, and the wrong one could be Windows.
+# nofail + a short timeout: boot doesn't hang if the drive is missing. root-setup.sh adds this to /etc/fstab.
+UUID=6422C6A022C67718  /mnt/data  ntfs3  defaults,noatime,nofail,x-systemd.device-timeout=5,uid=1000,gid=1000  0 0

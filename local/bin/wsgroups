@@ -226,7 +226,7 @@ def bar():
 
 
 # ---- manager UI --------------------------------------------------------------------------------
-sys.path.insert(0, os.path.expanduser("~/.config/hypr/scripts"))  # shared Control Center look
+sys.path.insert(0, os.path.expanduser("~/.local/lib/panels"))  # shared Control Center look
 from panelkit import (Panel, run, CARD, FG, DIM, ACCENT, KEY, TRACK, GREEN as GOOD, RED as BAD, BOLD, RESET,
                       fit, frame, card, spread, header, section, hints, highlight)
 

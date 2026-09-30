@@ -10,27 +10,28 @@ Install CachyOS with Hyprland, then:
 ```bash
 git clone https://github.com/sami999khan999/arch_dotfiles.git ~/dotfiles
 cd ~/dotfiles
-./install.sh --dry-run --packages   # preview, changes nothing
-./install.sh --packages             # packages + /etc files + symlinks
+setup/install.sh --dry-run --packages   # preview, changes nothing
+setup/install.sh --packages             # packages + /etc files + symlinks
 ```
 
-Then log out and back in. Re-run `./install.sh` (no flag) any time to relink.
+Then log out and back in. Re-run `setup/install.sh` (no flag) any time to relink.
 
-`system/root-setup.sh` also mounts this PC's data drive — machine-specific, don't
-run it elsewhere.
+`system/root-setup.sh` (run once with `pkexec`) writes the Chrome policy and adds this PC's
+data drive (`system/fstab-data`) to `/etc/fstab` — machine-specific, don't run it elsewhere.
 
 ## Layout
 
 | Path | Links to | Contains |
 |---|---|---|
 | `config/` | `~/.config/` | settings — hypr, noctalia, gtk, qt, terminals, fish |
+| `local/bin/` | `~/.local/bin/` | commands — `wsgroups`, `codesync`, `dotsync` |
+| `local/lib/panels/` | `~/.local/lib/panels/` | the terminal panels — Control Center, Docker, sync, sysmon, shortcuts (`panelkit.py` is their shared look) |
 | `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
-| `system/` | *manual, needs root* | `/etc` files — Chrome policy |
-| `packages.txt` | — | explicit pacman packages |
-| `packages-aur.txt` | — | AUR packages (install with `paru`) |
+| `system/` | *manual, needs root* | `/etc` files — Chrome policy, this PC's data-drive fstab line |
+| `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
 
-`install.sh` is idempotent and never deletes: anything real it finds in the way
+`setup/install.sh` is idempotent and never deletes: anything real it finds in the way
 is moved to `~/.config-backup-<timestamp>/` first.
 
 ## Settings vs assets
@@ -41,7 +42,7 @@ Two different things, two locations:
 - **`local/share/`** holds the theme itself
 
 A setting pointing at an absent asset fails silently. Most themes here come from
-packages (`/usr/share/themes`, `/usr/share/icons`), so `packages.txt` matters as
+packages (`/usr/share/themes`, `/usr/share/icons`), so `setup/packages.txt` matters as
 much as the files. The exception is **Bibata-Modern-Ice**, which was hand-placed
 and belongs to no package — it is committed here because nothing else restores it.
 
@@ -59,12 +60,12 @@ directly into each app. Nothing generates them:
 
 | App | File |
 |---|---|
-| Hyprland borders | `config/hypr/config/colors.lua` |
+| Hyprland borders | `config/hypr/modules/colors.lua` |
 | waybar, swayosd | `config/waybar/style.css`, `config/swayosd/style.css` |
 | walker | `config/walker/themes/omarchy-default/style.css` |
 | mako | `config/mako/config` |
 | hyprlock | `config/hypr/hyprlock.conf` |
-| sysmon | `config/hypr/scripts/sysmon.py` |
+| sysmon | `local/lib/panels/sysmon.py` |
 | kitty, alacritty, btop | `themes/tokyo-night.*` in each |
 | GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
 | KDE apps (Dolphin) | `config/kdeglobals` |
@@ -77,13 +78,13 @@ Noctalia is still installed but no longer autostarted.
 
 ## Development
 
-`./install.sh --packages` installs everything below, then runs `setup-dev.sh`
+`setup/install.sh --packages` installs everything below, then runs `setup/setup-dev.sh`
 for the toolchains that don't come from pacman.
 
 | Tool | Installed by | Update with |
 |---|---|---|
-| docker (+ compose, buildx, lazydocker), go, uv, cmake, ninja, CLI tools | pacman (`packages.txt`) | `sudo pacman -Syu` |
-| VS Code (Microsoft build) | AUR (`packages-aur.txt`) | `paru -Syu` |
+| docker (+ compose, buildx, lazydocker), go, uv, cmake, ninja, CLI tools | pacman (`setup/packages.txt`) | `sudo pacman -Syu` |
+| VS Code (Microsoft build) | AUR (`setup/packages-aur.txt`) | `paru -Syu` |
 | Node LTS (+ npm), pnpm, bun | mise (`config/mise/config.toml`) | `mise upgrade` |
 | Rust stable, clippy, rustfmt, rust-analyzer | rustup | `rustup update` |
 | Python 3 | system python; use `uv` for venvs and tools | `sudo pacman -Syu` |
@@ -91,7 +92,7 @@ for the toolchains that don't come from pacman.
 - Git settings (identity, delta diffs, rebase on pull): `config/git/config`.
   The gh login helper stays in `~/.gitconfig`, which is per machine.
 - VS Code: settings and keybindings are not in this repo; they come from VS Code Settings Sync
-  (GitHub account). Extensions are listed in `vscode-extensions.txt`.
+  (GitHub account). Extensions are listed in `setup/vscode-extensions.txt`.
 - Per-project versions: put a `mise.toml` in the project (`mise use node@22`).
 - `Super + Shift + C` jumps to or opens VS Code.
 
@@ -146,7 +147,7 @@ where the backup goes (on the other drive), and saves that to `config/codesync/m
 gitignored, so every PC keeps its own paths while the ignore list and timing stay shared.
 `codesync setup` (or the panel) changes them later. If that PC's backup already holds code, run
 `codesync restore` first to copy it to the fast drive. Until codesync is enabled on a PC, its waybar icon stays hidden.
-The backup drive must be mounted at boot on that PC (an `/etc/fstab` line, not in these dotfiles).
+The backup drive must be mounted at boot on that PC: an `/etc/fstab` line (this PC's is `system/fstab-data`).
 The program is `local/bin/codesync`.
 
 ## App hotkeys (AutoHotkey-style)
@@ -160,7 +161,7 @@ SUPER + B    | google-chrome     | google-chrome-stable
 The key jumps to that app's window on any workspace, cycles through its windows
 on repeat presses, and launches it if nothing is open. Find a window's class with
 `hyprctl clients | grep class`, then `hyprctl reload`. Loaded by
-`config/hypr/config/apps.lua`, run by `scripts/focus-or-launch.sh`.
+`config/hypr/modules/apps.lua`, run by `scripts/focus-or-launch.sh`.
 
 ## Workspace groups
 
@@ -200,11 +201,11 @@ hover for the numbered window list.
 
 Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
 taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
-Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`.
+Loaded by `config/hypr/modules/wsgroups.lua`; the program is `local/bin/wsgroups`.
 
 ### Docker panel (workspace 9)
 
-`scripts/dockerpanel.py`, in the same card style as the Control Center. Four tabs (`1`–`4`,
+`panels/dockerpanel.py`, in the same card style as the Control Center. Four tabs (`1`–`4`,
 `Tab`, `←→` or a click), each a list on the left and the selected item's details on the right:
 
 | Tab | List | Details |
@@ -220,7 +221,7 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
   if anything in it runs (else starts all of it), `r` restarts it, `l` follows all its logs in
   one stream, and `Enter`/`Space` folds it. Only the containers that are changing say
   "stopping…"/"starting…".
-- Logs are formatted by `scripts/dockerlogs.py`: local time, a coloured level badge (ERR / WRN /
+- Logs are formatted by `panels/dockerlogs.py`: local time, a coloured level badge (ERR / WRN /
   INF / DBG), the message, then `key=value` details dimmed; long lines wrap under the message and
   repeats collapse to `×N`. It reads JSON logs, logfmt, postgres / pgbouncer / redis / nginx
   prefixes and plain text. `l` opens them full screen in `less`, following new lines
@@ -236,9 +237,9 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
 ### Control Center (workspace 10)
 
 One window, five cards: workspace groups manager and system monitor on top; shortcuts, audio
-and network below. `scripts/controlcenter.py` draws them all on one character grid, so the
+and network below. `panels/controlcenter.py` draws them all on one character grid, so the
 gaps between cards are equal and every card has the same border, padding, header, section
-titles and key-hint footer (`scripts/panelkit.py`). It starts at login in the background
+titles and key-hint footer (`panels/panelkit.py`). It starts at login in the background
 (`wsgroups launch 10 --background` in `autostart.lua`); `Super + Ctrl + 0` reopens it.
 
 - `Tab` / `Shift + Tab` or a click moves between cards (blue border = focused); every other
@@ -248,14 +249,14 @@ titles and key-hint footer (`scripts/panelkit.py`). It starts at login in the ba
 - Network: Enter opens nmtui.
 - The cards also run on their own as popups: `sysmon.py`, `keys.py`, `netpanel.py`,
   `audiopanel.py`, `wsgroups`.
-- Spacing: `config/kitty/controlcenter.conf` (padding) and `config/hypr/config/controlcenter.lua`
+- Spacing: `config/kitty/controlcenter.conf` (padding) and `config/hypr/modules/controlcenter.lua`
   (no window border, no outer gap on workspace 10).
 
 ## Shortcut list
 
 `Super + K` (or the keyboard icon in waybar) opens a floating list of every
 shortcut, read live from `binds.lua` and `apps.conf`. Type to search, Esc closes.
-A bind's description comes from a built-in table in `scripts/keys.py`; to label
+A bind's description comes from a built-in table in `panels/keys.py`; to label
 a new bind yourself, end its line with a comment:
 
 ```lua

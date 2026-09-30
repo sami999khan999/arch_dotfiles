@@ -5,7 +5,7 @@ description: Build or change a terminal panel in this dotfiles repo — the Cont
 
 # TUI panels (panelkit)
 
-All panels are Python in `config/hypr/scripts/`, drawn with ANSI in a kitty window, sharing
+All panels are Python in `local/lib/panels/` (linked to `~/.local/lib/panels`), drawn with ANSI in a kitty window, sharing
 `panelkit.py` for the look (Tokyo Night) and the terminal plumbing.
 
 ## A panel
@@ -39,10 +39,10 @@ if __name__ == "__main__":
 
 ## Showing it
 
-- Popup: `~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/thing.py` (second run closes it).
+- Popup: `~/.config/hypr/scripts/tui.sh ~/.local/lib/panels/thing.py` (second run closes it).
   Window: class `TUI.float`, title `thing.py`, 875×600 by default. Other size: a rule in
-  `config/hypr/config/windowrules.lua` matching `tag = "floating-window", title = "^(thing\\.py)$"`.
-- Bind it in `binds.lua` (`tui(scripts .. "thing.py")`) or a waybar `on-click`.
+  `config/hypr/modules/windowrules.lua` matching `tag = "floating-window", title = "^(thing\\.py)$"`.
+- Bind it in `binds.lua` (`tui(panels .. "thing.py")`) or a waybar `on-click`.
 - Control Center card: add the panel to `cards` and to `layout()` in `controlcenter.py`
   (top row: two halves; bottom row: three equal columns). Inside the Control Center
   `CONTROL_CENTER=1` makes cards draw edge to edge.

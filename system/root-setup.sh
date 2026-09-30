@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# Steps that require root. Run with: pkexec /home/sami/dotfiles/system/root-setup.sh
+# Steps that require root, for THIS PC (the fstab line is its data drive). Idempotent.
+# Run with: pkexec /home/sami/dotfiles/system/root-setup.sh
 set -euo pipefail
 
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 echo "== 1. Chrome: block on-device AI model re-download"
-mkdir -p /etc/opt/chrome/policies/managed
-cat > /etc/opt/chrome/policies/managed/disable_ondevice_ai.json <<'JSON'
-{
-  "GenAILocalFoundationalModelSettings": 1
-}
-JSON
-chmod 644 /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
+install -Dm644 "$REPO/system/disable_ondevice_ai.json" /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
 echo "   wrote /etc/opt/chrome/policies/managed/disable_ondevice_ai.json"
 
-echo "== 2. Mount the data HDD (NTFS, by UUID) at /mnt/data"
-mkdir -p /mnt/data
-if mountpoint -q /mnt/data; then
-  echo "   already mounted"
+echo "== 2. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
+if grep -q "^$uuid[[:space:]]" /etc/fstab; then
+  echo "   already in /etc/fstab"
 else
-  # by UUID, never /dev/sdX: disk names can change between boots, and the wrong one could be Windows
-  mount -t ntfs3 -o uid=1000,gid=1000,umask=022,windows_names,noatime UUID=6422C6A022C67718 /mnt/data
-  echo "   mounted"
+  cp /etc/fstab /etc/fstab.bak
+  { echo; cat "$REPO/system/fstab-data"; } >> /etc/fstab
+  systemctl daemon-reload
+  echo "   added to /etc/fstab (old one saved as /etc/fstab.bak)"
 fi
+mkdir -p /mnt/data
+mountpoint -q /mnt/data || mount /mnt/data
 findmnt /mnt/data || true
 
 echo

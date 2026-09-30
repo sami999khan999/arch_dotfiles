@@ -1,5 +1,5 @@
 # lazydocker — Tokyo Night, using the repo palette (AGENTS.md > Conventions).
-# Opened with L from the Docker panel (scripts/dockerpanel.py). Defaults: `lazydocker --config`.
+# Opened with L from the Docker panel (local/lib/panels/dockerpanel.py). Defaults: `lazydocker --config`.
 
 gui:
   border: single                           # square corners, like the rest of the desktop

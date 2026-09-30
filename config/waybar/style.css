@@ -1,6 +1,6 @@
 /* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
    Control Center.
-   Layout:  logo | workspaces | title            group | controls | stats | media | clock | power */
+   Layout:  logo | workspaces | title          media | clock | group | controls | stats | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -134,7 +134,7 @@ window#waybar {
   border: none;
 }
 
-/* ---- right, before power: media, clock ------------------------------------------------- */
+/* ---- right section, first: media, clock ------------------------------------------------ */
 /* media button: takes no room unless something is playing or paused. A stopped player (a Chrome
    tab that once played) has no icon, and its padding and divider showed as an empty box */
 #mpris {

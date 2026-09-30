@@ -3,12 +3,12 @@
 
 Replaces waybar's hyprland/window. That module ellipsizes inside GTK, and GTK would rather shrink
 an ellipsizing label than move the centre island. Cutting the text here instead gives the label
-its full width, so a longer title pushes the clock island right until it meets the right island.
+its full width; MAX keeps it short enough that the right section never runs off the screen.
 Prints one JSON line per change (return-type json).
 """
 import json, os, re, socket, subprocess, time
 
-MAX = 46  # longest title that still fits beside the clock island on a 1366px screen
+MAX = 34  # longest title that fits on a 1366px screen with the clock's long view (click) on the right
 
 CLEANUP = [
     re.compile(r"^[^\w(]+\s+"),                      # spinner / status glyphs: "✳ Claude Code"

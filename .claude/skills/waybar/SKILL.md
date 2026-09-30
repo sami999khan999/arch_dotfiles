@@ -10,8 +10,8 @@ One full-width strip (no outer margins, 1px line along the bottom), square corne
 ```
 left:   logo │ workspace buttons (custom/ws1…10) │ window title (custom/window)
 centre: (empty)
-right:  group label │ codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │
-        media (play/pause, only while a player is playing/paused) │ clock │ power
+right:  media (play/pause, only while a player is playing/paused) │ clock │ group label │
+        codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │ power
 ```
 
 ## Adding a module
@@ -45,7 +45,8 @@ right:  group label │ codesync, keys, tray, bt, net, volume │ stats (cpu mem
 - Changing the bar's own geometry (`margin-*`, `height`, `layer`, `position`) with a live
   `pkill -SIGUSR2 waybar` can crash waybar. After such a change relaunch it instead:
   `pkill -x waybar; hyprctl dispatch 'hl.dsp.exec_cmd("uwsm app -- waybar")'`, then check `pgrep waybar`.
-- The screen is 1366px wide; long content in the left island squeezes everything.
+- The screen is 1366px wide. Worst case = longest window title (`wintitle.py` MAX) + the clock's
+  long view (click): check both together so the power button stays on screen.
 
 ## Apply and verify
 

@@ -16,6 +16,10 @@
   ],
   "modules-center": [],
   "modules-right": [
+    "mpris",
+    "clock",
+    "custom/idle-indicator",
+    "custom/notification-silencing-indicator",
     "custom/wsgroups",
     "custom/codesync",
     "custom/keys",
@@ -24,10 +28,6 @@
     "network",
     "pulseaudio",
     "group/stats",
-    "mpris",
-    "clock",
-    "custom/idle-indicator",
-    "custom/notification-silencing-indicator",
     "custom/power"
   ],
   "group/stats": {
@@ -196,9 +196,10 @@
   },
   "clock": {
     "format": "<span color='#565f89'>{:L%a %d %b</span>  <b>%H:%M</b>}",
-    // click: the long view — weekday, full date, week number, time. The chrono spec must start
+    // click: the long view — weekday, date, week number, time (kept short: see wintitle.py MAX).
+    // The chrono spec must start
     // with %, so the first <span> opens outside the braces (same trick as "format")
-    "format-alt": "<span color='#565f89'>{:L%A</span>  %d %B %Y  <span color='#3b4261'>&#x2502;</span>  <span color='#565f89'>week</span> %V  <span color='#3b4261'>&#x2502;</span>  <b>%H:%M</b>}",
+    "format-alt": "<span color='#565f89'>{:L%A</span>  %d %b  <span color='#565f89'>wk</span> %V  <b>%H:%M</b>}",
     "tooltip-format": "<tt>{calendar}</tt>",
     "calendar": {
       "mode": "month",

@@ -1,6 +1,6 @@
 /* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
    Control Center.
-   Layout:  logo | workspaces | title      media | clock      group | controls | stats | power */
+   Layout:  logo | workspaces | title            group | controls | stats | media | clock | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -21,7 +21,7 @@
 
 /* one strip, edge to edge; the line along the bottom matches the window borders */
 window#waybar {
-  background: alpha(@base, 0.78);  /* see-through enough for the layer blur (windowrules.lua) */
+  background: alpha(@base, 0.60);  /* see-through for the layer blur (windowrules.lua); readable on any wallpaper */
   border-bottom: 1px solid alpha(@line, 0.7);
   color: @subtext;
 }
@@ -54,12 +54,11 @@ window#waybar {
 }
 
 /* dividers between sections: 1px, full height, same colour as the bottom line */
-#custom-window, #stats, #custom-power, #custom-wsgroups,
+#custom-window, #stats, #custom-power, #custom-wsgroups, #clock,
 #mpris.playing, #mpris.paused {
   border-left: 1px solid alpha(@line, 0.7);
 }
-#custom-wsgroups,
-#mpris.playing, #mpris.paused {
+#custom-wsgroups {
   border-right: 1px solid alpha(@line, 0.7);
 }
 
@@ -135,7 +134,7 @@ window#waybar {
   border: none;
 }
 
-/* ---- center: media, clock --------------------------------------------------------------- */
+/* ---- right, before power: media, clock ------------------------------------------------- */
 /* media button: takes no room unless something is playing or paused. A stopped player (a Chrome
    tab that once played) has no icon, and its padding and divider showed as an empty box */
 #mpris {
@@ -146,7 +145,7 @@ window#waybar {
 }
 
 #mpris.playing, #mpris.paused {
-  margin: 0 4px 0 1px;
+  margin: 0 1px 0 4px;
   padding: 0 11px 0 9px;
 }
 
@@ -156,7 +155,8 @@ window#waybar {
 
 #clock {
   color: @text;
-  padding: 0 10px;
+  margin-left: 4px;
+  padding: 0 12px;
 }
 
 #custom-idle-indicator,

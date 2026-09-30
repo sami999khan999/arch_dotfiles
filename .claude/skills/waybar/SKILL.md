@@ -9,8 +9,9 @@ One full-width strip (no outer margins, 1px line along the bottom), square corne
 
 ```
 left:   logo │ workspace buttons (custom/ws1…10) │ window title (custom/window)
-centre: media (play/pause icon) │ clock
-right:  group label │ codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │ power
+centre: (empty)
+right:  group label │ codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │
+        media (play/pause, only while a player is playing/paused) │ clock │ power
 ```
 
 ## Adding a module
@@ -20,7 +21,7 @@ right:  group label │ codesync, keys, tray, bt, net, volume │ stats (cpu mem
    shared `:hover` rule near the top, then any specific colours below. Use the `@define-color`
    tokens (`@muted`, `@subtext`, `@text`, `@accent`, `@alert`, `@overlay`, `@line`), not hex.
 3. Section dividers are `border-left/right: 1px solid alpha(@line, 0.7)` on the first/last module
-   of a section (see `#stats`, `#custom-wsgroups`, `#mpris`).
+   of a section (see `#stats`, `#custom-wsgroups`, `#clock`, `#mpris`).
 
 ## Custom (script) modules
 

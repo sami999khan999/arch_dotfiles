@@ -14,12 +14,7 @@
     "group/wsbuttons",
     "custom/window"
   ],
-  "modules-center": [
-    "mpris",
-    "clock",
-    "custom/idle-indicator",
-    "custom/notification-silencing-indicator"
-  ],
+  "modules-center": [],
   "modules-right": [
     "custom/wsgroups",
     "custom/codesync",
@@ -29,6 +24,10 @@
     "network",
     "pulseaudio",
     "group/stats",
+    "mpris",
+    "clock",
+    "custom/idle-indicator",
+    "custom/notification-silencing-indicator",
     "custom/power"
   ],
   "group/stats": {

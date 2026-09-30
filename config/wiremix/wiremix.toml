@@ -1,6 +1,11 @@
 # wiremix — Tokyo Night, matching the Control Center cards (panelkit.py) and waybar.
 # Only what differs from the defaults; reference: https://github.com/tsowell/wiremix/blob/main/wiremix.toml
 
+# Esc closes the mixer like every other panel (q still works too)
+keybindings = [
+  { key = "Esc", action = "Exit" },
+]
+
 [themes.default]
 default_device = { fg = "#e0af68" }
 default_stream = { fg = "#e0af68" }

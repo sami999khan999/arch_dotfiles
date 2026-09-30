@@ -4,7 +4,7 @@
   "layer": "top",
   "position": "top",
   "spacing": 0,
-  "height": 27,
+  "height": 30,
   "margin-top": 4,
   "margin-left": 4,
   "margin-right": 4,
@@ -175,7 +175,7 @@
   },
   "memory": {
     "interval": 5,
-    "format": "󰘚 {percentage}%",
+    "format": "<span color='#bb9af7'>󰘚</span> {percentage:>2}%",
     "tooltip-format": "{used:0.1f}G / {total:0.1f}G",
     "on-click": "~/.config/hypr/scripts/tui.sh ~/.config/hypr/scripts/sysmon.py"
   },
@@ -184,12 +184,12 @@
     "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
     "input-filename": "temp1_input",
     "critical-threshold": 85,
-    "format": "󰔏 {temperatureC}°",
+    "format": "<span color='#e0af68'>󰔏</span> {temperatureC}°",
     "tooltip-format": "CPU package {temperatureC}°C"
   },
   "cpu": {
     "interval": 5,
-    "format": "󰍛 {usage}%",
+    "format": "<span color='#7aa2f7'>󰍛</span> {usage:>2}%",
     "states": {
       "critical": 90
     },
@@ -286,7 +286,7 @@
     "on-click": "~/.config/hypr/scripts/tui.sh bluetui"
   },
   "pulseaudio": {
-    "format": "{icon}  {volume}%",
+    "format": "<span color='#7dcfff'>{icon}</span>  {volume}%",
     "on-click": "~/.config/hypr/scripts/tui.sh wiremix",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",

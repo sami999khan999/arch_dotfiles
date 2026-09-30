@@ -182,6 +182,8 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 ```
 
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
+A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `Alt + Tab`,
+and is fullscreen again when you come back (a mouse click on another window exits it).
 The waybar module on the right shows the current group and window, e.g. `Code 2/3`;
 hover for the numbered window list.
 
@@ -189,6 +191,7 @@ hover for the numbered window list.
 |---|---|
 | `Super + Ctrl + G`, or click it in waybar | open the manager: map open apps to workspaces, edit, launch |
 | `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened) |
+| `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
 | `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…) |
 | `wsgroups launch N\|all [-f]` | launch a group's programs |

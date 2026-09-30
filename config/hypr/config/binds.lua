@@ -98,32 +98,61 @@ bind("SUPER + ALT + S",              hl.dsp.window.move({ workspace = "special:s
 -- Switching windows keeps a fullscreen video fullscreen: before the switch the window leaves
 -- Hyprland's fullscreen but Chrome is still told it's fullscreen (internal 0, client 2), so the
 -- video stays full inside its tile; focusing it again makes it real fullscreen (window.active below).
--- Without this, misc.on_focus_under_fullscreen = 2 exits the video's fullscreen. Global: wsgroups.lua uses it.
--- target: the window being switched to (nil = unknown, e.g. cycling). Nothing is parked when
--- there is nowhere to switch to.
-function switchKeepingFullscreen(switch, target)
-    local w = hl.get_active_window()
-    if w and w.fullscreen == 2 and (not target or target.address ~= w.address) then
-        local others = 0
-        for _, o in ipairs(w.workspace and w.workspace:get_windows() or {}) do
-            if o.mapped and o.address ~= w.address then others = others + 1 end
-        end
-        if others > 0 then
-            hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = 2, window = "address:" .. w.address }))
-        end
+-- Without this, misc.on_focus_under_fullscreen = 2 exits the video's fullscreen.
+-- Globals: wsgroups.lua (Alt + N) uses workspaceWindows and focusKeepingFullscreen.
+
+local function setFullscreen(w, internal)
+    hl.dispatch(hl.dsp.window.fullscreen_state({ internal = internal, client = 2, window = "address:" .. w.address }))
+end
+
+-- Windows of the active workspace, oldest first: the order Alt + N counts and Alt + Tab cycles.
+function workspaceWindows()
+    local ws = hl.get_active_workspace()
+    local wins = {}
+    for _, w in ipairs(ws and ws:get_windows() or {}) do
+        if w.mapped and w.class ~= "TUI.float" then table.insert(wins, w) end
     end
-    switch()
+    table.sort(wins, function(a, b) return a.stable_id < b.stable_id end)
+    return wins
+end
+
+-- Focuses target by address (not cycle_next: it doesn't move on a monocle workspace once the
+-- fullscreen window is parked, which left the video in its tile, shifted under the bar).
+function focusKeepingFullscreen(target)
+    local w = hl.get_active_window()
+    if not target or (w and w.address == target.address) then
+        return -- focusing the focused window on a monocle workspace jumps to another one
+    end
+    if w and w.fullscreen == 2 then
+        setFullscreen(w, 0)
+    end
+    hl.dispatch(hl.dsp.focus({ window = "address:" .. target.address }))
+    -- safety net: if focus didn't move, the parked video would stay shifted in its tile
+    hl.timer(function()
+        local now = hl.get_active_window()
+        if now and now.fullscreen_client == 2 and now.fullscreen == 0 then setFullscreen(now, 2) end
+    end, { timeout = 150, type = "oneshot" })
 end
 
 hl.on("window.active", function(w)
     if w and w.fullscreen_client == 2 and w.fullscreen == 0 then
-        hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 2, client = 2, window = "address:" .. w.address }))
+        setFullscreen(w, 2)
     end
 end)
 
+local function cycle(step)
+    local wins, active = workspaceWindows(), hl.get_active_window()
+    if #wins < 2 then return end
+    local i = 0
+    for k, w in ipairs(wins) do
+        if active and w.address == active.address then i = k end
+    end
+    focusKeepingFullscreen(wins[(i - 1 + step) % #wins + 1])
+end
+
 -- Window cycling and monitors
-bind("ALT + TAB", function() switchKeepingFullscreen(function() hl.dispatch(hl.dsp.window.cycle_next()) end) end)
-bind("ALT + SHIFT + TAB", function() switchKeepingFullscreen(function() hl.dispatch(hl.dsp.window.cycle_next({ next = false })) end) end)
+bind("ALT + TAB",                    function() cycle(1) end)
+bind("ALT + SHIFT + TAB",            function() cycle(-1) end)
 bind("CTRL + ALT + TAB",             hl.dsp.focus({ monitor = "+1" }))
 bind("CTRL + ALT + SHIFT + TAB",     hl.dsp.focus({ monitor = "-1" }))
 

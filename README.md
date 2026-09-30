@@ -204,8 +204,16 @@ Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`
 | Networks | created / built in: driver, subnet, container count | gateway, the containers on it and their IPs |
 
 - Containers: `s` start/stop · `r` restart · `p` start/stop the whole compose project ·
-  `l` all logs in `less` (`F` follows, `Ctrl+C` stops) · `e` shell inside · `o` open the first
-  port in the browser
+  `o` open the first port in the browser
+- Logs are formatted by `scripts/dockerlogs.py`: local time, a coloured level badge (ERR / WRN /
+  INF / DBG), the message, then `key=value` details dimmed; long lines wrap under the message and
+  repeats collapse to `×N`. It reads JSON logs, logfmt, postgres / pgbouncer / redis / nginx
+  prefixes and plain text. `l` opens them full screen in `less`, following new lines
+  (`Ctrl+C` stops following, `F` resumes, `/` searches, `q` goes back).
+- `e` exec: a prompt in the footer, pre-filled with the container's shell (bash, else ash / sh).
+  Type any command instead, `↑↓` for history and presets (`env`, `ps aux`, `df -h`…), `Tab` to
+  run it as root, `Enter` to run. A one-off command waits for Enter afterwards so you can read
+  the output.
 - Images: `u` pull a newer version. Images, volumes, networks: `d` twice removes it (docker
   refuses if something still uses it).
 - `L` opens lazydocker for everything else (themed by `config/lazydocker/config.yml`).

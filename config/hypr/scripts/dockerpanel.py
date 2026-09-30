@@ -8,11 +8,14 @@
 # lazydocker is one key away (L) for anything this doesn't do.
 #
 #   1–4 / Tab / click  switch tab     ↑↓ / click  select     d d  remove (press twice)
-#   containers: s start/stop  r restart  p project start/stop  l logs  e shell  o open port
+#   containers: s start/stop  r restart  p project start/stop  o open port
+#               l full-screen logs (formatted by dockerlogs.py, following)
+#               e exec: run a command inside (default: its shell; Tab = as root; ↑↓ history)
 #   images: u pull (update)            L lazydocker            q close
-import json, os, re, signal, subprocess, threading, time
+import json, os, re, shlex, shutil, signal, subprocess, sys, threading, time
 from itertools import zip_longest
 
+import dockerlogs
 from panelkit import (Panel, run as show, suspend, FG, DIM, ACCENT, TRACK, GREEN, YELLOW, RED, CYAN,
                       BOLD, RESET, clip, fit, frame, card, header, section, hints, highlight, visible_len)
 
@@ -20,7 +23,9 @@ HOME = os.path.expanduser("~")
 FORMAT = ('{{json .}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}'
           '\t{{.Label "com.docker.compose.project.working_dir"}}')
 PORT = re.compile(r"(?:[\d.]+|\[[^\]]*\]):(\d+(?:-\d+)?)->(\d+(?:-\d+)?)/(\w+)")
-ANSI = re.compile(r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|.)")
+DOCKERLOGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dockerlogs.py")
+SHELLS = {"bash", "sh", "ash", "zsh", "fish", "dash"}
+EXEC_PRESETS = ["env", "ps aux", "df -h", "cat /etc/os-release", "ls -la"]
 TABS = ["containers", "images", "volumes", "networks"]
 BUILTIN_NETWORKS = {"bridge", "host", "none"}
 
@@ -44,15 +49,6 @@ def short_size(s):
         return s.split("/")[0].strip()
     n, unit = float(m.group(1)), m.group(2).upper() or "B"
     return f"{n:.1f}{unit}" if n < 10 else f"{n:.0f}{unit}"
-
-
-def wrap(line, w):
-    """A long line as several rows, continuations indented."""
-    rows, line = [line[:w]], line[w:]
-    while line and w > 2:
-        rows.append("  " + line[:w - 2])
-        line = line[w - 2:]
-    return rows
 
 
 def percent(s):
@@ -105,7 +101,9 @@ class DockerPanel(Panel):
         self.sel = {t: None for t in TABS}              # selected ID per tab (survives refreshes)
         self.scroll = {t: 0 for t in TABS}
         self.stats = {}
-        self.logs, self.logs_for = [], None
+        self.logs, self.logs_for = [], None           # dockerlogs.Record list of the selected container
+        self.prompt = None                              # the exec prompt while it's open
+        self.exec_history = []
         self.history = {}                               # image ID -> [(size, command)]
         self.busy = {}                                  # ID -> "removing…" while an action runs
         self.armed = None                               # (tab, ID, time): d was pressed once
@@ -213,11 +211,10 @@ class DockerPanel(Panel):
             tab, sid = self.tab, self.sel[self.tab]
             try:
                 if tab == "containers" and sid:
-                    r = subprocess.run(["docker", "logs", "--tail", "200", sid], stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, timeout=10)
-                    text = ANSI.sub("", r.stdout.decode(errors="replace"))
-                    lines = [l.split("\r")[-1].expandtabs(4) for l in text.splitlines()]
-                    self.logs = [l for l in lines if l.strip()] or ["(no output yet)"]
+                    r = subprocess.run(["docker", "logs", "--timestamps", "--tail", "300", sid],
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+                    records = map(dockerlogs.parse, r.stdout.decode(errors="replace").splitlines())
+                    self.logs = dockerlogs.collapse([x for x in records if not dockerlogs.blank(x)])
                     self.logs_for = sid
                 elif tab == "images" and sid and sid not in self.history:
                     r = docker("history", "--no-trunc", "--format", "{{.Size}}\t{{.CreatedBy}}", sid)
@@ -347,12 +344,6 @@ class DockerPanel(Panel):
         return {"containers": self.container_detail, "images": self.image_detail,
                 "volumes": self.volume_detail, "networks": self.network_detail}[self.tab](e, w, room)
 
-    def fill(self, rows, lines, w, room, empty):
-        """Append wrapped lines, keeping the last ones that fit."""
-        n = max(room - len(rows), 0)
-        tail = [r for l in lines[-n:] for r in wrap(l, w)][-n:] if n else []
-        return rows + ([f"{FG}{clip(r, w)}{RESET}" for r in tail] or [f"{DIM}{empty}{RESET}"])
-
     def container_detail(self, c, w, room):
         color, dot, words = status(c)
         s = self.stats.get(c["ID"]) if c["State"] == "running" else None
@@ -372,9 +363,17 @@ class DockerPanel(Panel):
             kv.append(("Net I/O", s["NetIO"].replace(" / ", " in · ") + " out"))
         if c["workdir"]:
             kv.append(("Project", c["workdir"].replace(HOME, "~")))
-        rows += kv_rows(kv, w) + ["", section("Logs", w, "l opens all")]
-        logs = self.logs if self.logs_for == c["ID"] else ["loading…"]
-        return self.fill(rows, logs, w, room, "no output")
+        rows += kv_rows(kv, w) + ["", section("Logs", w, "l full screen")]
+        if self.logs_for != c["ID"]:
+            return rows + [f"{DIM}loading…{RESET}"]
+        if not self.logs:
+            return rows + [f"{DIM}no output yet{RESET}"]
+        n, tail = max(room - len(rows), 0), []
+        for rec in reversed(self.logs):  # newest at the bottom; stop once the pane is full
+            tail = dockerlogs.rows(rec, w) + tail
+            if len(tail) >= n:
+                break
+        return rows + [clip(r, w) for r in tail[len(tail) - n:]] if n else rows
 
     def image_detail(self, i, w, room):
         state = f"{GREEN}● in use{RESET}" if i["used"] else f"{YELLOW}◌ dangling{RESET}" if i["dangling"] \
@@ -436,12 +435,14 @@ class DockerPanel(Panel):
         body += [clip(l or "", lw) + " " * gap + (r or "") for l, r in zip_longest(L, R)]
         up = sum(c["State"] == "running" for c in self.items)
         sub = f"{up} running · {len(self.items) - up} stopped"
-        head = header("", "Docker", sub, width)
-        if self.flash and time.time() - self.flash_at < 4:
+        head = header("\uf308", "Docker", sub, width)
+        if self.prompt:
+            foot = self.prompt_line(width)
+        elif self.flash and time.time() - self.flash_at < 4:
             foot = self.flash
         else:
             keys = {"containers": [("s", "start/stop"), ("r", "restart"), ("p", "project"), ("l", "logs"),
-                                   ("e", "shell"), ("o", "open port")],
+                                   ("e", "exec"), ("o", "open port")],
                     "images": [("u", "pull"), ("d d", "remove")],
                     "volumes": [("d d", "remove")],
                     "networks": [("d d", "remove")]}[self.tab]
@@ -503,6 +504,8 @@ class DockerPanel(Panel):
             self.say(f"press d again to remove {name}", YELLOW)
 
     def key(self, k):
+        if self.prompt:
+            return self.prompt_key(k)
         if k == "q":
             return "quit"
         if k in ("1", "2", "3", "4"):
@@ -554,13 +557,12 @@ class DockerPanel(Panel):
             self.act([x["ID"] for x in group], "stopping…" if running else "starting…",
                      ["compose", "-p", c["project"], verb], f"{c['project']}: {verb}{'ped' if running else 'ed'}")
         elif k == "l":
-            self.external(["sh", "-c", 'docker logs --tail 5000 "$1" 2>&1 | less -R +G', "sh", c["ID"]])
-        elif k == "e":
+            self.full_logs(c)
+        elif k in ("e", "x"):
             if c["State"] != "running":
                 self.say("start the container first (s)", YELLOW)
                 return
-            self.external(["docker", "exec", "-it", c["ID"], "sh", "-c",
-                           "command -v bash >/dev/null && exec bash || exec sh"])
+            self.open_prompt(c)
         elif k == "o":
             pp = ports(c["Ports"])
             if not pp:
@@ -570,6 +572,95 @@ class DockerPanel(Panel):
             subprocess.Popen(["xdg-open", url], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.say(f"opened {url}")
+
+
+    # ---- full-screen logs ------------------------------------------------------------------------
+    def full_logs(self, c):
+        """Formatted logs in less, following new lines (F / Ctrl+C toggle). dockerlogs.py writes
+        to a file that less follows; it runs in its own session so Ctrl+C in less doesn't stop it."""
+        cols = shutil.get_terminal_size().columns
+        path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), f"dockerpanel-{c['ID']}.log")
+        with open(path, "w") as out:
+            p = subprocess.Popen([sys.executable, DOCKERLOGS, "--follow", c["ID"], "--width", str(cols)],
+                                 stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
+        time.sleep(0.4)  # let the backlog arrive so less opens at the end of it
+        try:
+            self.external(["less", "-R", "--mouse", "+F",
+                           f"-Ps{c['Names']} logs · F follow · Ctrl+C stop following · / search · q back$", path])
+        finally:
+            try:
+                os.killpg(p.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            p.wait()
+            os.remove(path)
+
+    # ---- exec ------------------------------------------------------------------------------------
+    def open_prompt(self, c):
+        """The exec prompt in the footer, pre-filled with the container's best shell."""
+        self.prompt = dict(c=c, text="sh", shell="sh", touched=False, root=False, pick=-1)
+        prompt = self.prompt
+
+        def detect():
+            try:
+                r = docker("exec", c["ID"], "sh", "-c", "command -v bash || command -v ash || command -v sh",
+                           timeout=5)
+                shell = os.path.basename(r.stdout.split()[0]) if r.returncode == 0 and r.stdout.split() else ""
+            except (OSError, subprocess.TimeoutExpired):
+                shell = ""
+            if shell:
+                prompt["shell"] = shell
+                if not prompt["touched"]:
+                    prompt["text"] = shell
+        threading.Thread(target=detect, daemon=True).start()
+
+    def prompt_line(self, w):
+        p = self.prompt
+        who = f"{RED}root{RESET}" if p["root"] else f"{DIM}default user{RESET}"
+        left = (f"{ACCENT}{BOLD}exec{RESET} {FG}{p['c']['short']}{RESET} {DIM}as{RESET} {who} "
+                f"{ACCENT}❯{RESET} {FG}{p['text']}{RESET}{ACCENT}▏{RESET}")
+        right = hints([("Enter", "run"), ("Tab", "root"), ("↑↓", "history"), ("Esc", "cancel")],
+                      max(w - visible_len(left) - 2, 0))
+        return left + " " * max(w - visible_len(left) - visible_len(right), 2) + right
+
+    def prompt_key(self, k):
+        p = self.prompt
+        choices = self.exec_history + [x for x in EXEC_PRESETS if x not in self.exec_history]
+        if k == "ESC":
+            self.prompt = None
+        elif k == "ENTER":
+            self.prompt = None
+            self.run_exec(p["c"], p["text"].strip() or "sh", p["root"])
+        elif k in ("TAB", "BTAB"):
+            p["root"] = not p["root"]
+        elif k in ("UP", "DOWN") and choices:
+            p["pick"] = max(-1, min(len(choices) - 1, p["pick"] + (1 if k == "UP" else -1)))
+            p["text"] = choices[p["pick"]] if p["pick"] >= 0 else p["shell"]
+            p["touched"] = p["pick"] >= 0  # back at the suggestion: typing replaces it again
+        elif k == "BACKSPACE":
+            p["text"], p["touched"] = (p["text"][:-1] if p["touched"] else ""), True
+        elif isinstance(k, str) and len(k) == 1 and k.isprintable():
+            p["text"] = (p["text"] if p["touched"] else "") + k  # typing replaces the suggestion
+            p["touched"] = True
+
+    def run_exec(self, c, command, root):
+        try:
+            words = shlex.split(command)
+        except ValueError as e:
+            self.say(f"can't parse the command: {e}", RED)
+            return
+        if command in self.exec_history:
+            self.exec_history.remove(command)
+        self.exec_history.insert(0, command)
+        argv = ["docker", "exec", "-it"] + (["-u", "0"] if root else []) + [c["ID"]] + words
+        shell = words[0] in SHELLS and len(words) == 1
+        # a title line first; afterwards wait for Enter unless it was an interactive shell that went fine
+        script = (f'printf "\\033[2J\\033[H\\033[38;2;107;143;224mexec\\033[0m %s \\033[2m%s\\033[0m\\n\\n" '
+                  f'{shlex.quote(c["Names"])} {shlex.quote(("as root · " if root else "") + command)}; '
+                  f'{shlex.join(argv)}; s=$?; '
+                  f'if [ $s -ne 0 ] || [ {0 if shell else 1} = 1 ]; then '
+                  f'printf "\\n\\033[2m── exit %s · Enter to go back ──\\033[0m" $s; read _; fi')
+        self.external(["sh", "-c", script])
 
 
 if __name__ == "__main__":

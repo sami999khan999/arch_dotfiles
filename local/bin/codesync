@@ -124,7 +124,10 @@ def ignore_patterns():
 
 
 def rsync_filters():
-    args = ["--filter=:- .syncignore"]  # per-folder ignore files
+    # --chmod: a read-only folder (e.g. copied from Windows) would otherwise be created read-only on
+    # the NTFS drive, and rsync copies that mode onto the matching .code-trash folders — after which
+    # it can't create anything inside them, and every sync with a deletion fails
+    args = ["--chmod=Du+w", "--filter=:- .syncignore"]  # per-folder ignore files
     if os.path.exists(IGNORE):
         args.append(f"--exclude-from={IGNORE}")
     return args
@@ -176,8 +179,12 @@ def sync(reason="manual"):
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
     if r.returncode not in (0, 24):  # 24: a file vanished mid-sync — fine, the next sync catches up
-        err = (r.stderr.strip().splitlines() or ["rsync failed"])[-1]
-        log(f"FAILED ({reason}): {err}")
+        lines = r.stderr.strip().splitlines()
+        # when the receiving side dies, the last line is only the sender's "Broken pipe" or
+        # "rsync error: ..." trailer: show the first line that says what actually went wrong
+        err = next((l for l in lines if not re.search(r"Broken pipe|^rsync error:|connection unexpectedly", l)),
+                   lines[-1] if lines else f"rsync failed (exit {r.returncode})")
+        log(f"FAILED ({reason}): {err}" + "".join(f"\n  {l}" for l in lines[-15:]))
         save_state(last_error=err, last_error_at=time.time())
         status("error", err)
         return False
@@ -342,7 +349,13 @@ def watch():
                 failures += 1
                 if failures == 3:
                     notify(f"Backup to the HDD is failing: {problem() or 'see codesync log'}", "critical")
-                time.sleep(min(10 * failures, 120))  # don't hammer a missing HDD
+                until = time.time() + min(10 * failures, 120)  # don't hammer a missing HDD...
+                while "now" not in asked and time.time() < until:  # ...but "sync now" still works
+                    if select.select([wake_r], [], [], max(until - time.time(), 0))[0]:
+                        try:
+                            os.read(wake_r, 512)
+                        except BlockingIOError:
+                            pass
         if time.time() - last_clean > 86400:
             clean_trash(cfg["trash_days"])
             last_clean = time.time()
@@ -359,7 +372,7 @@ def now_cmd():
     pid = service_pid()
     if not pid:
         return sync("manual")
-    before = load_state().get("last_sync", 0)
+    before, asked_at = load_state().get("last_sync", 0), time.time()
     os.kill(pid, signal.SIGUSR1)  # let the service do it: it owns the watcher and the state
     for _ in range(600):
         time.sleep(0.2)
@@ -368,7 +381,7 @@ def now_cmd():
             last = s.get("last", {})
             log(f"synced: {last.get('changes', 0)} change(s) in {last.get('took', 0)}s")
             return True
-        if s.get("status") == "error":
+        if s.get("status") == "error" and s.get("status_at", 0) > asked_at:  # not an older failure
             log(f"failed: {s.get('detail')}")
             return False
     log("still syncing — see `codesync log`")

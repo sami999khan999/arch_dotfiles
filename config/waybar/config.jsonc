@@ -197,7 +197,9 @@
   },
   "clock": {
     "format": "<span color='#565f89'>{:L%a %d %b</span>  <b>%H:%M</b>}",
-    "format-alt": "{:L%A %d %B %Y  W%V}",
+    // click: the long view — weekday, full date, week number, time. The chrono spec must start
+    // with %, so the first <span> opens outside the braces (same trick as "format")
+    "format-alt": "<span color='#565f89'>{:L%A</span>  %d %B %Y  <span color='#3b4261'>&#x2502;</span>  <span color='#565f89'>week</span> %V  <span color='#3b4261'>&#x2502;</span>  <b>%H:%M</b>}",
     "tooltip-format": "<tt>{calendar}</tt>",
     "calendar": {
       "mode": "month",

@@ -61,7 +61,8 @@ window#waybar {
 #custom-window, #stats, #custom-power {
   border-left: 1px solid alpha(@line, 0.7);
 }
-#mpris, #custom-wsgroups {
+#custom-wsgroups,
+#mpris.playing, #mpris.paused {
   border-right: 1px solid alpha(@line, 0.7);
 }
 
@@ -138,10 +139,17 @@ window#waybar {
 }
 
 /* ---- center: media, clock --------------------------------------------------------------- */
+/* media button: takes no room unless something is playing or paused. A stopped player (a Chrome
+   tab that once played) has no icon, and its padding and divider showed as an empty box */
 #mpris {
   color: @accent;
   font-size: 13px;
-  margin-right: 4px;
+  margin: 0;
+  padding: 0;
+}
+
+#mpris.playing, #mpris.paused {
+  margin: 3px 4px 3px 1px;
   padding: 0 11px 0 9px;
 }
 

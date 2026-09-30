@@ -23,7 +23,7 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 - **Never replace a symlink with a regular file.** Write files in place (`open(path, "w")`), not by
   write-to-temp-then-rename onto the link. Check with `ls -l ~/.config`.
 - A new top-level entry in `config/` or `local/bin/` needs `./install.sh` once to get linked.
-  `config/Code` is special: only `User/settings.json` and `keybindings.json` are linked.
+  VS Code settings are not in this repo: they come from VS Code Settings Sync.
 - `dotsync` (in `local/bin/`) = `git add -A`, commit, pull --rebase, push, relink, `hyprctl reload`.
 - Generated or per-machine files are gitignored (see `.gitignore`): Noctalia colour files,
   `__pycache__/`, `config/codesync/machine.json`, `fish_variables`.

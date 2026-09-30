@@ -90,8 +90,8 @@ for the toolchains that don't come from pacman.
 
 - Git settings (identity, delta diffs, rebase on pull): `config/git/config`.
   The gh login helper stays in `~/.gitconfig`, which is per machine.
-- VS Code: only `User/settings.json` and `keybindings.json` are linked, since VS Code
-  keeps caches in `~/.config/Code`. Extensions are listed in `vscode-extensions.txt`.
+- VS Code: settings and keybindings are not in this repo; they come from VS Code Settings Sync
+  (GitHub account). Extensions are listed in `vscode-extensions.txt`.
 - Per-project versions: put a `mise.toml` in the project (`mise use node@22`).
 - `Super + Shift + C` jumps to or opens VS Code.
 

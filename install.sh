@@ -64,17 +64,12 @@ link_children() {
   local entry
   for entry in "$srcdir"/*; do
     [[ -e "$entry" ]] || continue
-    [[ "$entry" == "$REPO/config/Code" ]] && continue   # linked file-by-file below
     link "$entry" "$dstdir/$(basename "$entry")"
   done
 }
 
 head_ "config  ->  ~/.config"
 link_children "$REPO/config" "$HOME/.config"
-# VS Code keeps caches and state in ~/.config/Code: link only the settings files
-for f in settings.json keybindings.json; do
-  link "$REPO/config/Code/User/$f" "$HOME/.config/Code/User/$f"
-done
 
 head_ "assets  ->  ~/.local/share"
 # icons/ themes/ fonts/ are SHARED namespaces - packages install into them too.

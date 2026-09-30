@@ -165,7 +165,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 3 | Terminal | kitty |
 | 7 | Files | Dolphin |
 | 8 | Discord | Discord |
-| 9 | Docker | lazydocker (Tokyo Night theme in `config/lazydocker/config.yml`) |
+| 9 | Docker | the Docker panel (below) |
 | 10 (key 0) | Control | the Control Center (below) |
 
 ```
@@ -190,6 +190,17 @@ hover for the numbered window list.
 Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
 taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
 Loaded by `config/hypr/config/wsgroups.lua`; the program is `local/bin/wsgroups`.
+
+### Docker panel (workspace 9)
+
+`scripts/dockerpanel.py`, in the same card style as the Control Center. Left: containers grouped
+by compose project, with a status dot, CPU bar, memory and first published port. Right: the
+selected container's image, uptime, ports, CPU/memory, project folder and its latest logs
+(long lines wrap). Refreshes every second; stats every ~2 s.
+
+- ↑↓ / click select · `s` start/stop · `r` restart · `p` start/stop the whole compose project
+- `l` all logs in `less` (`F` follows, `Ctrl+C` stops) · `e` shell inside · `o` open the first
+  port in the browser · `L` lazydocker, for everything else (themed by `config/lazydocker/config.yml`)
 
 ### Control Center (workspace 10)
 

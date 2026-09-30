@@ -5,7 +5,7 @@ description: Add, move or restyle a waybar module in this dotfiles repo (config/
 
 # Waybar
 
-Three floating islands, square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
+One full-width strip (no outer margins, 1px line along the bottom), square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
 
 ```
 left:   logo │ workspace buttons (custom/ws1…10) │ window title (custom/window)
@@ -41,8 +41,9 @@ right:  group label │ codesync, keys, tray, bt, net, volume │ stats (cpu mem
 - `mpris` `tooltip-format` is plain text; tags show up literally.
 - GTK ellipsizes a `max-length` label before it moves the centre island. To let text push the
   centre island, truncate in the script instead (`wintitle.py`, `MAX`).
-- `.modules-center { margin: 0 6px }` keeps the islands from touching (two 1px borders read as one
-  thick one). Keep it.
+- Changing the bar's own geometry (`margin-*`, `height`, `layer`, `position`) with a live
+  `pkill -SIGUSR2 waybar` can crash waybar. After such a change relaunch it instead:
+  `pkill -x waybar; hyprctl dispatch 'hl.dsp.exec_cmd("uwsm app -- waybar")'`, then check `pgrep waybar`.
 - The screen is 1366px wide; long content in the left island squeezes everything.
 
 ## Apply and verify

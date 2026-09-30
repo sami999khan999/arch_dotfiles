@@ -55,7 +55,7 @@ directly into each app. Nothing generates them:
 | background / surface | `#1a1b26` / `#24283b` / `#292e42` |
 | text / dim | `#a9b1d6`, bright `#c0caf5` / `#565f89` |
 | accent | `#6b8fe0` blue (a bit darker than stock Tokyo Night), `#bb9af7` magenta |
-| window & popup borders | `#3b4261` at 70%, 1px — same as the waybar islands |
+| window & popup borders | `#3b4261` at 70%, 1px — same as the waybar bottom line |
 
 | App | File |
 |---|---|

@@ -1,5 +1,6 @@
-/* Waybar — Tokyo Night, floating islands, square corners. Colors match walker, mako and the Control Center.
-   Layout:  [logo | workspaces | title]     [media | clock]     [group | controls | stats | power] */
+/* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
+   Control Center.
+   Layout:  logo | workspaces | title      media | clock      group | controls | stats | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -18,23 +19,18 @@
   font-size: 12px;
 }
 
+/* one strip, edge to edge; the line along the bottom matches the window borders */
 window#waybar {
-  background: transparent;
+  background: alpha(@base, 0.92);
+  border-bottom: 1px solid alpha(@line, 0.7);
   color: @subtext;
 }
 
-/* ---- the three islands ------------------------------------------------------------------ */
 .modules-left,
 .modules-center,
 .modules-right {
-  background: alpha(@base, 0.92);
-  border: 1px solid alpha(@line, 0.7);
   padding: 0 4px;
 }
-
-/* the centre island keeps 6px from its neighbours even when a long title pushes it,
-   so two 1px borders never meet as one thick line */
-.modules-center { margin: 0 6px; }
 
 .modules-left  { padding-left: 0; }
 .modules-right { padding-right: 0; }

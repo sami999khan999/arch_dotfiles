@@ -77,8 +77,7 @@ window#waybar {
 #custom-visualizer {
   color: @accent;
   font-size: 13px;
-  padding: 0 14px;      /* 28 px in total: PADDING in visualizer.py */
-  letter-spacing: 1px;
+  padding: 0 14px;      /* 28 px in total: PADDING in visualizer.py; bar spacing comes from it */
 }
 #custom-visualizer:hover {
   color: @accent;       /* the bars keep their colour on hover; only the block lights up */

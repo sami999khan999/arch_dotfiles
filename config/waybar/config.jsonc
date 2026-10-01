@@ -184,7 +184,7 @@
   },
   "memory": {
     "interval": 5,
-    "format": "󰘚 {percentage}%",
+    "format": "󰘚 {percentage:>2}%",
     "tooltip-format": "{used:0.1f}G / {total:0.1f}G",
     "on-click": "~/.local/lib/panels/sysgui.py"
   },
@@ -193,12 +193,12 @@
     "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
     "input-filename": "temp1_input",
     "critical-threshold": 85,
-    "format": "󰔏 {temperatureC}°",
+    "format": "󰔏 {temperatureC:>2}°",
     "tooltip-format": "CPU package {temperatureC}°C"
   },
   "cpu": {
     "interval": 5,
-    "format": "󰍛 {usage}%",
+    "format": "󰍛 {usage:>2}%",
     "states": {
       "critical": 90
     },
@@ -296,7 +296,7 @@
     "on-click": "~/.config/hypr/scripts/tui.sh bluetui"
   },
   "pulseaudio": {
-    "format": "{icon}  {volume}%",
+    "format": "{icon}  {volume:>3}%",
     "on-click": "~/.local/lib/panels/audiogui.py",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",

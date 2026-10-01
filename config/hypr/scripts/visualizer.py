@@ -12,15 +12,20 @@ plays again. Prints one JSON line per change (return-type json).
 import importlib.util, json, os, shutil, socket, subprocess, threading, time
 
 # Measured on the 1366 px screen: the gap is 211 px with a 30-character title and the play
-# button showing. Each title character is CHAR_PX wide; a hidden title (empty workspace) also
-# frees its padding; no player frees the play button. A wider screen adds its extra width.
+# button showing. Each title character is CHAR_PX wide; on an empty workspace the title hides
+# (freeing its padding too) and the group count shrinks to its icon; no player frees the play
+# button. A wider screen adds its extra width.
+# The numbers on the right are fixed-width (config.jsonc), so nothing else moves the gap, and the
+# bars fill it to the pixel: the spacing between them stretches to use up what whole bars leave.
 GAP_REF, TITLE_REF = 211, 30
-CHAR_PX = 7.2         # px per title character (JetBrains Mono, 12 px)
-TITLE_PAD = 16        # px: the title's padding (style.css #custom-window)
+CHAR_PX = 7.3         # px per title character (JetBrains Mono, 12 px)
+TITLE_PAD = 14        # px: the title's padding (style.css #custom-window)
+COUNT_PX = 19         # px: the group count's " 1/1", gone on an empty workspace (wsgroups bar)
 PLAYER_PX = 30        # px: the play button with its divider
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
-BAR_PX = 8.94         # px per bar: one block character at 13 px plus 1 px letter spacing
-SAFETY = 1            # bars left out, for numbers on the right that grow a digit (cpu, volume)
+GLYPH_PX = 7.94       # px: one block character at 13 px
+MIN_GAP_PX = 1.0      # px: the least space between two bars
+PANGO_PER_PX = 768    # Pango letter_spacing units per pixel (1024 per point, 96 dpi)
 
 RAW_BARS = 64         # what cava makes; more than ever fit
 FPS = 25              # frames per second (cava's framerate; also how often waybar can redraw)
@@ -64,18 +69,20 @@ def screen_width():
 
 
 WIDTH = screen_width()
-state = {"title": "x" * TITLE_REF, "player": True, "shown": 16}
+state = {"title": "x" * TITLE_REF, "player": True, "shown": 16, "spacing": 1.0}
 
 
 def recount():
-    """How many bars fit now: state["shown"], read by the frame loop."""
+    """How many bars fit now and how far apart, so they fill the gap exactly (read by the loop)."""
     length = len(state["title"])
     gap = GAP_REF + WIDTH - 1366 + (TITLE_REF - length) * CHAR_PX
     if not length:
-        gap += TITLE_PAD
+        gap += TITLE_PAD + COUNT_PX
     if not state["player"]:
         gap += PLAYER_PX
-    state["shown"] = max(4, int((gap - PADDING) / BAR_PX) - SAFETY)
+    room = gap - PADDING
+    n = max(4, int(room / (GLYPH_PX + MIN_GAP_PX)))
+    state["shown"], state["spacing"] = n, max(room / n - GLYPH_PX, 0)
 
 
 def follow_title():
@@ -134,7 +141,10 @@ def main():
         else:
             n, raw = state["shown"], len(levels)
             bars = (max(levels[i * raw // n:(i + 1) * raw // n] or [0]) for i in range(n))
-            out = ("".join(BLOCKS[min(v, len(BLOCKS) - 1)] for v in bars), "playing")
+            # a silent bar is blank, not ▁: no grey floor line along an idle stretch
+            text = "".join(BLOCKS[min(v, len(BLOCKS) - 1)] if v else " " for v in bars)
+            spacing = round(state["spacing"] * PANGO_PER_PX)
+            out = (f'<span letter_spacing="{spacing}">{text}</span>', "playing")
         if out != last:
             emit(*out)
             last = out

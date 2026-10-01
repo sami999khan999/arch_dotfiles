@@ -5,7 +5,17 @@ mkdir -p "$dir"
 file="$dir/screenshot-$(date +%Y-%m-%d_%H-%M-%S).png"
 
 case "${1:-region}" in
-  region) geom=$(slurp -d) || exit 0; grim -g "$geom" "$file" ;;
+  region)
+    # freeze the screen first, like Windows' Snipping Tool: hyprpicker -r shows a still copy of
+    # the screen on top of everything, so you select (and grim captures) that moment, not a live
+    # screen that keeps changing under the cursor. Always unfrozen again, also on Esc.
+    hyprpicker -r -z >/dev/null 2>&1 &
+    freeze=$!
+    trap 'kill "$freeze" 2>/dev/null' EXIT
+    sleep 0.15   # let the frozen copy appear before selecting
+    geom=$(slurp -d) || exit 0
+    grim -g "$geom" "$file"
+    kill "$freeze" 2>/dev/null ;;
   output) grim -o "$(hyprctl activeworkspace -j | jq -r .monitor)" "$file" ;;
 esac
 

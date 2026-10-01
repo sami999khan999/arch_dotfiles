@@ -84,7 +84,8 @@ end
 -- next window of that workspace (same order and pairing as Alt + Tab, via cycle below)
 local cycle   -- defined with Alt + Tab further down
 
-local function goOrCycle(ws)
+-- global: waybar's workspace buttons call it too (hyprctl eval), so clicking works like the keys
+function goOrCycle(ws)
     local active = hl.get_active_workspace()
     if active and tostring(active.id) == ws then
         cycle(1)

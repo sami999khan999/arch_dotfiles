@@ -71,7 +71,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"1\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"1\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -80,7 +80,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"2\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"2\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -89,7 +89,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"3\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"3\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -98,7 +98,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"4\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"4\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -107,7 +107,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"5\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"5\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -116,7 +116,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"6\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"6\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -125,7 +125,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"7\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"7\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -134,7 +134,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"8\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"8\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -143,7 +143,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"9\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"9\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
@@ -152,7 +152,7 @@
     "return-type": "json",
     "interval": "once",
     "signal": 8,
-    "on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"10\" })'",
+    "on-click": "hyprctl eval 'goOrCycle(\"10\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },

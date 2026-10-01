@@ -30,6 +30,7 @@ data drive (`system/fstab-data`) to `/etc/fstab` — machine-specific, don't run
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
 | `system/` | *manual, needs root* | `/etc` files — Chrome policy, this PC's data-drive fstab line |
 | `system/greeter/` | *manual, needs root* | login screen (noctalia-greeter): Tokyo Night, the desktop's wallpaper blurred and darkened — `pkexec ~/dotfiles/system/greeter/install.sh` |
+| `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
 
 `setup/install.sh` is idempotent and never deletes: anything real it finds in the way

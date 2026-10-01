@@ -48,8 +48,8 @@
   },
   // workspace buttons: hyprland/workspaces' click sends a legacy dispatch the Lua config rejects,
   // so each button is a custom module that reads its state from wsbar.py and dispatches in Lua
-  // (click: goOrCycle in binds.lua). exec-on-event off: re-reading on every click re-set the
-  // tooltip and made it flicker; wsbar.py's signal updates them when something really changes
+  // (click: goOrCycle in binds.lua). No tooltip: GTK hides it on every click, so it blinked while
+  // clicking to cycle windows. exec-on-event off: wsbar.py's signal updates them on real changes
   // code backup (~/code -> HDD): status icon, details on hover, panel on click
   "custom/codesync": {
     "exec": "~/.local/bin/codesync bar",
@@ -74,6 +74,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"1\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -84,6 +85,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"2\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -94,6 +96,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"3\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -104,6 +107,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"4\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -114,6 +118,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"5\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -124,6 +129,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"6\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -134,6 +140,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"7\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -144,6 +151,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"8\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -154,6 +162,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"9\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
@@ -164,6 +173,7 @@
     "interval": "once",
     "signal": 8,
     "exec-on-event": false,
+    "tooltip": false,
     "on-click": "hyprctl eval 'goOrCycle(\"10\")'",
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"

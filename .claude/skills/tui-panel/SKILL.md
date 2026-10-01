@@ -8,6 +8,24 @@ description: Build or change a terminal panel in this dotfiles repo — the Cont
 All panels are Python in `local/lib/panels/` (linked to `~/.local/lib/panels`), drawn with ANSI in a kitty window, sharing
 `panelkit.py` for the look (Tokyo Night) and the terminal plumbing.
 
+**GUI panels are what's in use now** (GTK 4, `*gui.py`); the terminal ones below are the older
+versions. A GUI panel is a `gtkkit.View`: `build()` returns the content, `refresh()` runs every
+`interval` s while shown, `say()` writes the status line, `close()` closes a popup (no-op in the
+Control Center), `css` adds view-specific style. Each module has `make()` (the view; `ccgui.py`
+uses it) and `main()` → `run(make(), "panels.<name>", (W, H))`. The app id is the window class:
+`modules/windowrules.lua` floats and centres every `panels.*` window (add a size rule per panel);
+running a popup again closes it (single-instance app), so binds call it directly — no tui.sh.
+Workspace apps (Docker, Control Center) use `toggle=False` and an id outside `panels.`
+(`sami.docker`, `sami.controlcenter`) so they tile and count on their workspace.
+Style (the user's call): the look of the Control Center cards everywhere — icon + bold title with
+dim details on the right and a blue-then-grey underline (gtkkit draws it), blue section headings
+with a rule (`rule_heading`), amber for keys and window classes, green / amber / red for levels
+(`level()`), solid #292e42 selection, key hints with " · " on the last line. Storage tab: per drive a Space
+bar (partition map) and an Activity bar (I/O busy % from /proc/diskstats), both in level colours.
+Check one without putting a window on the user's screen: run it under `gtk4-broadwayd :7` with
+`GDK_BACKEND=broadway BROADWAY_DISPLAY=:7`, snapshot the window with `Gtk.WidgetPaintable` and save
+the texture as PNG.
+
 ## A panel
 
 ```python

@@ -14,6 +14,8 @@
 * {
   border: none;
   border-radius: 0;
+  box-shadow: none;
+  outline: none;
   min-height: 0;
   font-family: 'JetBrainsMono Nerd Font';
   font-size: 12px;
@@ -26,29 +28,28 @@ window#waybar {
   color: @subtext;
 }
 
+/* no padding or margins anywhere between chips: each chip's own padding is all the spacing, so a
+   hover block always reaches exactly to the dividers next to it */
 .modules-left,
 .modules-center,
 .modules-right {
-  padding: 0 4px;
+  padding: 0;
 }
-
-.modules-left  { padding-left: 0; }
-.modules-right { padding-right: 0; }
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
 #clock, #custom-wsgroups, #custom-keys, #custom-expand-icon, #tray,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
 #custom-idle-indicator, #custom-notification-silencing-indicator,
-#custom-window, #mpris, #custom-power, #custom-codesync {
-  padding: 0 8px;
-  margin: 0 1px;  /* full bar height: dividers and hover blocks all reach top to bottom */
+#custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
+  padding: 0 10px;
+  margin: 0;      /* full bar height, no gaps: dividers and hover blocks meet exactly */
   color: @subtext;
   transition: background-color 150ms, color 150ms;
 }
 
 #clock:hover, #custom-wsgroups:hover, #custom-keys:hover, #custom-expand-icon:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
-#memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover {
+#memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover, #custom-visualizer:hover {
   background: @overlay;
   color: @text;
 }
@@ -79,14 +80,17 @@ window#waybar {
   padding: 0 14px;      /* 28 px in total: PADDING in visualizer.py */
   letter-spacing: 1px;
 }
+#custom-visualizer:hover {
+  color: @accent;       /* the bars keep their colour on hover; only the block lights up */
+}
 
 /* ---- left: logo, workspaces -------------------------------------------------------------- */
 #custom-logo {
   background: @accent;
   color: @base;
   font-size: 13px;
-  padding: 0 10px 0 9px;
-  margin: 0 6px 0 0;
+  padding: 0 11px;
+  margin: 0;
   transition: background-color 150ms;
 }
 
@@ -109,14 +113,14 @@ window#waybar {
 
 #wsbuttons {
   margin: 0;
-  padding-right: 4px;
+  padding: 0;
 }
 
 #wsbuttons label {
   font-size: 12px;
   color: @subtext;
-  padding: 0 8px;
-  margin: 0 1px;
+  padding: 0 9px;
+  margin: 0;
   min-width: 12px;
   transition: background-color 150ms, color 150ms;
 }
@@ -145,7 +149,7 @@ window#waybar {
 #custom-window {
   color: @text;
   margin: 0;
-  padding: 0 12px 0 4px;
+  padding: 0 10px 0 4px;   /* 4 px on the left: it reads as one block with the group count */
 }
 
 /* ---- right section, first: media, clock ------------------------------------------------ */
@@ -159,8 +163,8 @@ window#waybar {
 }
 
 #mpris.playing, #mpris.paused {
-  margin: 0 4px 0 1px;
-  padding: 0 11px 0 9px;
+  margin: 0;
+  padding: 0 10px;
 }
 
 #mpris.paused {
@@ -169,21 +173,21 @@ window#waybar {
 
 #clock {
   color: @text;
-  margin-left: 4px;
+  margin: 0;
   padding: 0 12px;
 }
 
 #custom-idle-indicator,
 #custom-notification-silencing-indicator {
   font-size: 11px;
-  padding: 0 4px;
+  padding: 0 6px;
 }
 
 /* ---- right: group, controls, stats, power ---------------------------------------------- */
 #custom-wsgroups {
   color: @text;
-  margin: 0 0 0 4px;
-  padding: 0 6px 0 12px;
+  margin: 0;
+  padding: 0 6px 0 10px;   /* 6 px on the right: one block with the title */
 }
 
 #custom-wsgroups.none {
@@ -203,8 +207,8 @@ window#waybar {
 }
 
 #stats {
-  margin-left: 4px;
-  padding-left: 4px;
+  margin: 0;
+  padding: 0;
 }
 
 #cpu, #memory, #temperature, #battery {
@@ -212,8 +216,8 @@ window#waybar {
 }
 
 #custom-power {
-  margin: 0 0 0 4px;
-  padding: 0 11px 0 10px;
+  margin: 0;
+  padding: 0 11px;
   color: @accent;
   font-size: 13px;
 }

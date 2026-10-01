@@ -11,13 +11,13 @@ plays again. Prints one JSON line per change (return-type json).
 """
 import importlib.util, json, os, shutil, socket, subprocess, threading, time
 
-# Measured on the 1366 px screen: the gap is 187 px with a 30-character title and the play
+# Measured on the 1366 px screen: the gap is 211 px with a 30-character title and the play
 # button showing. Each title character is CHAR_PX wide; a hidden title (empty workspace) also
 # frees its padding; no player frees the play button. A wider screen adds its extra width.
-GAP_REF, TITLE_REF = 187, 30
+GAP_REF, TITLE_REF = 211, 30
 CHAR_PX = 7.2         # px per title character (JetBrains Mono, 12 px)
 TITLE_PAD = 16        # px: the title's padding (style.css #custom-window)
-PLAYER_PX = 34        # px: the play button with its dividers
+PLAYER_PX = 30        # px: the play button with its divider
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 BAR_PX = 8.94         # px per bar: one block character at 13 px plus 1 px letter spacing
 SAFETY = 1            # bars left out, for numbers on the right that grow a digit (cpu, volume)

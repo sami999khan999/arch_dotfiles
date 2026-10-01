@@ -29,11 +29,13 @@ EMPTY_PX = 38         # px freed on an empty workspace besides the title text: t
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
 INDICATOR_PX = 19     # px per active indicator (idle off / do not disturb)
-PADDING = 24          # px: this module's own left + right padding (style.css #custom-visualizer)
+PADDING = 27          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars
-FIT_SLACK = 4         # px kept free: a label even 1 px too wide is ellipsized by GTK (a lone "…")
-PANGO_PER_PX = 1024   # Pango letter_spacing units per pixel (measured)
+FIT_SLACK = 1         # px kept free, for rounding
+HAIR = "\u200a"       # hair space: exactly 1 px in this font (measured with Pango). The bars are
+                      # spaced with these, not with Pango letter_spacing: a label with letter spacing
+                      # gets its last character cut ("…") even when it has all the room it asked for
 
 RAW_BARS = 64         # what cava makes; more than ever fit
 FPS = 25              # frames per second (cava's framerate; also how often waybar can redraw)
@@ -90,7 +92,7 @@ def screen_width():
 
 WIDTH = screen_width()
 state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True,
-         "indicators": 0, "clock": CLOCK_REF_LEN, "shown": 16, "spacing": 1.0}
+         "indicators": 0, "clock": CLOCK_REF_LEN, "shown": 16, "gaps": [1] * 15}
 
 
 def recount():
@@ -109,7 +111,11 @@ def recount():
     # n bars and the n - 1 spaces between them fill the room; none after the last bar, so both
     # ends of the block have the same padding
     n = fit(room)
-    s["shown"], s["spacing"] = n, (max((room - n * GLYPH_PX) / (n - 1), 0) if n > 1 else 0)
+    # the px left after the bars, shared out over the n - 1 gaps as whole hair spaces (some gaps one
+    # wider than others), so the bars fill the room to the pixel; none after the last bar
+    spare = max(int(room - n * GLYPH_PX), 0)
+    s["shown"], s["gaps"] = n, [spare * (i + 1) // max(n - 1, 1) - spare * i // max(n - 1, 1)
+                                for i in range(max(n - 1, 0))]
     try:   # what it thinks the bar looks like, for debugging (cat $XDG_RUNTIME_DIR/waybar-visualizer.state)
         with open(STATE_FILE, "w") as f:
             json.dump({**s, "gap": round(gap, 1), "room": round(room, 1)}, f, ensure_ascii=False)
@@ -216,9 +222,8 @@ def main():
             raw = len(levels)
             bars = (max(levels[i * raw // n:(i + 1) * raw // n] or [0]) for i in range(n))
             chars = [BLOCKS[min(v, len(BLOCKS) - 1)] if v else " " for v in bars]   # silent: blank
-            spacing = round(state["spacing"] * PANGO_PER_PX)
-            # letter spacing goes after each character: leave it off the last one
-            out = (f'<span letter_spacing="{spacing}">{"".join(chars[:-1])}</span>{chars[-1]}', "playing")
+            gaps = state["gaps"]
+            out = (chars[0] + "".join(HAIR * g + c for g, c in zip(gaps, chars[1:])), "playing")
         if out != last:
             emit(*out)
             last = out

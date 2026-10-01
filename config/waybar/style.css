@@ -72,12 +72,12 @@ window#waybar {
 }
 
 /* ---- left, after the workspaces: audio visualizer (scripts/visualizer.py, while sound plays) */
-/* it follows the workspace buttons, so the few px visualizer.py keeps free (FIT_SLACK) end up on
-   its right: 4 px less padding there keeps both sides at 14 px */
+/* it follows the workspace buttons, so the 1 px visualizer.py keeps free (FIT_SLACK) ends up on its
+   right: 1 px less padding there keeps both sides at 14 px */
 #custom-visualizer {
   color: @accent;
   font-size: 13px;
-  padding: 0 10px 0 14px;   /* PADDING in visualizer.py */
+  padding: 0 13px 0 14px;   /* PADDING in visualizer.py */
 }
 #custom-visualizer:hover {
   color: @accent;       /* the bars keep their colour on hover; only the block lights up */

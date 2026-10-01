@@ -1,32 +1,55 @@
+# Starship prompt (fish) — Tokyo Night, one line:
+#   <folder icon> project/sub  <branch icon> branch  ~2 +1 ?3 ⇡1  ❯          (took 4s on the right)
+# Git counts: ~ changed, + staged, - deleted, » renamed, ? untracked, = conflicted, * stashed,
+# ⇡ ahead / ⇣ behind the remote. ❯ turns red when the last command failed.
+# Colours as in AGENTS.md: accent #6b8fe0, magenta #bb9af7, amber #e0af68, green #9ece6a,
+# alert #f7768e, cyan #7dcfff, muted #565f89, subtext #a9b1d6.
+
 add_newline = true
 command_timeout = 200
-format = "[$directory$git_branch$git_status]($style)$character"
-
-[character]
-error_symbol = "[✗](bold cyan)"
-success_symbol = "[❯](bold cyan)"
+format = "$directory$git_branch$git_status$character"
+right_format = "$cmd_duration$jobs"
 
 [directory]
-truncation_length = 2
+truncation_length = 3
 truncation_symbol = "…/"
-repo_root_style = "bold cyan"
-repo_root_format = "[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "
+style = "#a9b1d6"
+read_only = " "
+read_only_style = "#f7768e"
+format = "[ ](#6b8fe0)[$path]($style)[$read_only]($read_only_style) "
+repo_root_style = "bold #6b8fe0"
+repo_root_format = "[ ](#6b8fe0)[$repo_root]($repo_root_style)[$path]($style)[$read_only]($read_only_style) "
 
 [git_branch]
-format = "[$branch]($style) "
-style = "italic cyan"
+symbol = " "
+style = "#bb9af7"
+format = "[$symbol$branch]($style) "
 
 [git_status]
-format     = '[$all_status]($style)'
-style      = "cyan"
-ahead      = "⇡${count} "
-diverged   = "⇕⇡${ahead_count}⇣${behind_count} "
-behind     = "⇣${count} "
-conflicted = " "
-up_to_date = " "
-untracked  = "? "
-modified   = " "
-stashed    = ""
-staged     = ""
-renamed    = ""
-deleted    = ""
+format = "$all_status$ahead_behind"
+conflicted = "[=$count ](bold #f7768e)"
+deleted = "[-$count ](#f7768e)"
+renamed = "[»$count ](#e0af68)"
+modified = "[~$count ](#e0af68)"
+staged = "[+$count ](#9ece6a)"
+untracked = "[?$count ](#565f89)"
+stashed = "[*$count ](#565f89)"
+ahead = "[⇡$count ](#7dcfff)"
+behind = "[⇣$count ](#7dcfff)"
+diverged = "[⇡$ahead_count⇣$behind_count ](#7dcfff)"
+up_to_date = ""
+
+[character]
+success_symbol = "[❯](bold #9ece6a)"
+error_symbol = "[❯](bold #f7768e)"
+
+# right side: only when there's something to say
+[cmd_duration]
+min_time = 2000
+style = "#e0af68"
+format = "[ $duration]($style)"
+
+[jobs]
+symbol = " "
+style = "#565f89"
+format = " [$symbol$number]($style)"

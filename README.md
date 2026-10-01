@@ -194,7 +194,7 @@ The waybar module on the right shows the current group and window, e.g. `Code 2/
 hover for the numbered window list.
 
 **Code workspace: VS Code + kitty pairs.** Every VS Code window (Super + N, `code`, File > New
-Window…) opens with its own kitty beside it: kitty 30 % on the left, VS Code 70 %, together the
+Window…) opens with its own kitty beside it: kitty 45 % on the left, VS Code 55 %, together the
 whole screen. kitty starts in that window's project folder (found from the window title under
 `~/code`; an empty window gets `~/code`) and runs as its own app, so a dev server that runs out of
 memory takes down that kitty, not VS Code. The workspace uses Hyprland's scrolling layout: pairs

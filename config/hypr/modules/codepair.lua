@@ -1,5 +1,5 @@
 -- Code + terminal pairs on the Code workspace: every VS Code window gets its own kitty beside it,
--- kitty 30 % on the left and VS Code 70 %, so one pair fills the screen. The workspace uses the
+-- kitty 45 % on the left and VS Code 55 %, so one pair fills the screen. The workspace uses the
 -- scrolling layout: pairs sit side by side as columns, and Alt + N (VS Code windows only) slides
 -- the view to pair N. kitty-pair (local/bin) opens each kitty in its window's project folder, as
 -- its own app, with the class code-term-<VS Code address>: that's how a pair is found again.
@@ -11,7 +11,7 @@ PAIR_WS = "1"
 -- VS Code's window class: "code" in older versions, "com.microsoft.VSCode" in newer ones
 local CODE = { ["code"] = true, ["com.microsoft.VSCode"] = true }
 local TERM = "code-term-"
-local TERM_WIDTH = 0.3
+local TERM_WIDTH = 0.45
 
 hl.config({ scrolling = { column_width = 1 - TERM_WIDTH, focus_fit_method = 1 } })
 -- a pair's kitty stays with its VS Code (other kitty windows go to the Terminal workspace)

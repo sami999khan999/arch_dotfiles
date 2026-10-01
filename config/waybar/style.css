@@ -88,7 +88,7 @@ window#waybar {
   background: @accent;
   color: @base;
   font-size: 13px;
-  padding: 0 11px;
+  padding: 0 14px 0 8px;   /* the icon spills 5 px right of its glyph box (see "icons" below) */
   margin: 0;
   transition: background-color 150ms;
 }
@@ -235,6 +235,16 @@ window#waybar {
   background: @alert;
   color: @base;
 }
+
+/* ---- icons: centred by their ink -------------------------------------------------------------
+   Nerd Font icons are drawn wider than the glyph box they reserve and spill out to the right
+   (measured with Pango: keyboard 6 px, wifi 5, ethernet 3), so equal padding left them off-centre.
+   Each gets that much less padding on the left and more on the right; the total stays the same,
+   so the bar's widths (and visualizer.py's sums) don't change. */
+#custom-keys      { padding: 0 12px 0 8px; }
+#network.wifi,
+#network.disconnected { padding: 0 13px 0 7px; }
+#network.ethernet { padding: 0 12px 0 8px; }
 
 /* ---- states ------------------------------------------------------------------------------ */
 #custom-idle-indicator.active,

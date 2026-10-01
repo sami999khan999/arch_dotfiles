@@ -80,10 +80,22 @@ for key, dir in pairs({ LEFT = "l", RIGHT = "r", UP = "u", DOWN = "d" }) do
     bind("SUPER + ALT + " .. key,         hl.dsp.window.move({ into_group = dir }))
 end
 
--- Workspaces 1..10
+-- Workspaces 1..10. Super + N goes to workspace N; pressed again while there, it moves on to the
+-- next window of that workspace (same order and pairing as Alt + Tab, via cycle below)
+local cycle   -- defined with Alt + Tab further down
+
+local function goOrCycle(ws)
+    local active = hl.get_active_workspace()
+    if active and tostring(active.id) == ws then
+        cycle(1)
+    else
+        hl.dispatch(hl.dsp.focus({ workspace = ws }))
+    end
+end
+
 for ws = 1, 10 do
     local key = digitCode(ws % 10)
-    bind("SUPER + " .. key,               hl.dsp.focus({ workspace = tostring(ws) }))
+    bind("SUPER + " .. key,               function() goOrCycle(tostring(ws)) end) -- go to workspace, again: next window
     bind("SUPER + SHIFT + " .. key,       hl.dsp.window.move({ workspace = tostring(ws) }))
     bind("SUPER + SHIFT + ALT + " .. key, hl.dsp.window.move({ workspace = tostring(ws), follow = false }))
 end
@@ -143,7 +155,7 @@ hl.on("window.active", function(w)
     end
 end)
 
-local function cycle(step)
+function cycle(step)   -- assigns the local declared above the workspace binds
     local wins, active = workspaceWindows(), hl.get_active_window()
     if #wins < 2 then return end
     active = active and pairMain(active)   -- in a VS Code + kitty pair, the kitty counts as its VS Code

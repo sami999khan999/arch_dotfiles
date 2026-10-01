@@ -11,7 +11,7 @@ dialog {
 
 /* room around the text and the field, and between them and the buttons */
 dialog .dialog-vbox > grid {
-  margin: 22px 26px 6px 20px;
+  margin: 28px 32px 10px 26px;
 }
 
 dialog label {
@@ -20,8 +20,8 @@ dialog label {
 
 /* the password field: darker than the dialog, a thin line, blue when typing */
 dialog entry {
-  min-height: 34px;
-  padding: 0 10px;
+  min-height: 38px;
+  padding: 0 14px;
   border-radius: 0;
   border: 1px solid alpha(#3b4261, 0.9);
   background: #16161e;
@@ -50,13 +50,13 @@ dialog check {
 
 /* buttons: flat, square; Unlock / Continue (the default) in the accent */
 dialog .dialog-action-area {
-  margin: 10px 26px 22px;
+  margin: 14px 32px 28px;
 }
 
 dialog .dialog-action-area button {
-  min-height: 32px;
-  min-width: 84px;
-  padding: 0 18px;
+  min-height: 36px;
+  min-width: 96px;
+  padding: 0 24px;
   border-radius: 0;
   border: none;
   box-shadow: none;

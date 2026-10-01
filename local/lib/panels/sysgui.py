@@ -246,8 +246,11 @@ def rate(bps):
 
 
 class Proc(GObject.Object):
-    """One row of the process table (ColumnView needs GObjects)."""
+    """One row of the process table (ColumnView needs GObjects). Kept from one refresh to the next:
+    `d` is updated in place and "changed" tells the cells on screen to redraw, which is far cheaper
+    than replacing every row (that rebuilt and re-sorted ~300 rows per refresh: ~30 % of a core)."""
     __gtype_name__ = "SysguiProc"
+    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, ())}
 
     def __init__(self, d):
         super().__init__()
@@ -482,7 +485,8 @@ class System(View):
             factory.connect("setup", lambda _f, item, right=right, dim=dim, width=width:
                             item.set_child(label("", *(["dim"] if dim else []), xalign=1.0 if right else 0.0,
                                                  ellipsize=not width)))
-            factory.connect("bind", lambda _f, item, text=text: item.get_child().set_text(text(item.get_item().d)))
+            factory.connect("bind", self.bind_cell, text)
+            factory.connect("unbind", self.unbind_cell)
             col = Gtk.ColumnViewColumn(title=title, factory=factory, expand=not width)
             if width:
                 col.set_fixed_width(width * 9 + 16)
@@ -597,18 +601,47 @@ class System(View):
         item = self.selection.get_selected_item()
         return item.d["pid"] if item else None
 
+    def bind_cell(self, _factory, item, text):
+        """A cell on screen shows its row, and redraws when that row's numbers change."""
+        cell, proc = item.get_child(), item.get_item()
+        cell.set_text(text(proc.d))
+        cell._proc = proc
+        cell._changed = proc.connect("changed", lambda p: cell.set_text(text(p.d)))
+
+    def unbind_cell(self, _factory, item):
+        cell = item.get_child()
+        if getattr(cell, "_proc", None) is not None:
+            cell._proc.disconnect(cell._changed)
+            cell._proc = None
+
     def paint_processes(self, s):
         if not s["procs"]:
             return
-        keep = self.selected_pid()
-        self.store.splice(0, self.store.get_n_items(), [Proc(d) for d in s["procs"]])
+        fresh = {d["pid"]: d for d in s["procs"]}
+        # processes that ended: drop their rows (from the end, so indices stay valid)
+        for i in range(self.store.get_n_items() - 1, -1, -1):
+            if self.store.get_item(i).d["pid"] not in fresh:
+                self.store.remove(i)
+        # the rest: new numbers in place, then one redraw signal each (only cells on screen listen)
+        known = set()
+        for i in range(self.store.get_n_items()):
+            proc = self.store.get_item(i)
+            proc.d = fresh[proc.d["pid"]]
+            known.add(proc.d["pid"])
+            proc.emit("changed")
+        new = [Proc(d) for pid, d in fresh.items() if pid not in known]
+        if new:
+            self.store.splice(self.store.get_n_items(), 0, new)
+        # CPU / memory moved: re-sort. GTK keeps the row at the top of the view in view while rows
+        # move, so the list scrolled along with whatever sank (all start at 0 %). Reading from the
+        # top (the usual case): stay at the top, on the busiest processes
+        vadj = self.table.get_vadjustment()
+        at_top = not vadj or vadj.get_value() < 1
+        self.table.get_sorter().changed(Gtk.SorterChange.DIFFERENT)
+        if at_top and self.sorted.get_n_items():
+            self.table.scroll_to(0, None, Gtk.ListScrollFlags.NONE, None)
         shown = self.sorted.get_n_items()
         self.count.set_text(f"{shown} of {len(s['procs'])}" if shown != len(s["procs"]) else f"{shown} processes")
-        if keep is not None:   # the list was replaced: select the same process again
-            for i in range(shown):
-                if self.sorted.get_item(i).d["pid"] == keep:
-                    self.selection.set_selected(i)
-                    break
 
     def paint_storage(self, s):
         """Each drive as a block: its name and type, read / write now, a map of its partitions

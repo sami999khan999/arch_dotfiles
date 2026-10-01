@@ -22,6 +22,11 @@ dim details on the right and a blue-then-grey underline (gtkkit draws it), blue 
 with a rule (`rule_heading`), amber for keys and window classes, green / amber / red for levels
 (`level()`), solid #292e42 selection, key hints with " · " on the last line. Storage tab: per drive a Space
 bar (partition map) and an Activity bar (I/O busy % from /proc/diskstats), both in level colours.
+Big live lists (ColumnView): don't replace every row on each refresh (`store.splice` of new
+objects cost ~30 % of a core for ~300 processes); keep the row objects, update their data and emit
+a per-row signal the bound cells listen to (see `Proc` in `sysgui.py`), then
+`sorter.changed(DIFFERENT)`. GTK keeps the top visible row in view while rows move, so after a
+re-sort `scroll_to(0, …)` if the list was at the top.
 Check one without putting a window on the user's screen: run it under `gtk4-broadwayd :7` with
 `GDK_BACKEND=broadway BROADWAY_DISPLAY=:7`, snapshot the window with `Gtk.WidgetPaintable` and save
 the texture as PNG.

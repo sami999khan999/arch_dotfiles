@@ -108,12 +108,14 @@ def follow(addr):
     r = kitty(addr, "ls")
     if r.returncode != 0:
         return  # no kitty with a socket for this window (opened before this existed, or closed)
+    # the tab and window shown in the kitty: "active" (not "focused" — the focus is in VS Code)
     tabs = json.loads(r.stdout)[0]["tabs"]
-    active = next(w for t in tabs if t["is_focused"] for w in t["windows"] if w["is_focused"])
+    tab = next((t for t in tabs if t["is_active"]), tabs[0])
+    active = next((w for w in tab["windows"] if w["is_active"]), tab["windows"][0])
     fg = {os.path.basename(p["cmdline"][0]) for p in active["foreground_processes"] if p["cmdline"]}
     if fg and fg <= SHELLS:
         # idle at its prompt: clear whatever is half-typed (Ctrl+U), then cd there
-        kitty(addr, "send-text", "--match", "state:focused", f"\x15cd -- {shlex.quote(folder)}\r")
+        kitty(addr, "send-text", "--match", f"id:{active['id']}", f"\x15cd -- {shlex.quote(folder)}\r")
     else:
         kitty(addr, "launch", "--type=tab", "--cwd", folder)  # busy: keep it running, new tab
     remember(addr, folder)

@@ -126,21 +126,27 @@ hl.on("window.open", function(w)
         -- a new column opens right of the focused one: if that was another pair's kitty, this
         -- window landed between the kitty and its VS Code; hop over to the right of that pair
         local left = leftOf(w)
+        focus(w)
         if isPairTerm(left) then
-            focus(w)
             hl.dispatch(hl.dsp.layout("swapcol r"))
         end
+        -- full width until its kitty is there, so it never shows half-width beside the old pair
+        hl.dispatch(hl.dsp.layout("colresize 1.0"))
         hl.exec_cmd("~/.local/bin/kitty-pair " .. w.address)
     elseif isPairTerm(w) then
         -- kitty-pair focused the VS Code window, so the kitty opened as the column to its right:
-        -- make it the narrow column on the left, then give the focus back to VS Code
+        -- make it the narrow column on the left, VS Code the rest, then show the pair and give
+        -- the focus back to VS Code
         focus(w)
         hl.dispatch(hl.dsp.layout("colresize " .. TERM_WIDTH))
         hl.dispatch(hl.dsp.layout("swapcol l"))
-        -- kitty takes the focus again while it finishes starting up: hand it back, twice
         local code = codeOf(w)
         if code then
             focus(code)
+            hl.dispatch(hl.dsp.layout("colresize " .. (1 - TERM_WIDTH)))
+            focus(w)      -- the view to the pair's left edge (see focusPair)
+            focus(code)
+            -- kitty takes the focus again while it finishes starting up: hand it back, twice
             for _, ms in ipairs({ 250, 700 }) do
                 hl.timer(function() focus(code) end, { timeout = ms, type = "oneshot" })
             end

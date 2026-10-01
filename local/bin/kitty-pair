@@ -4,11 +4,12 @@
   kitty-pair <VS Code window address>            open it
   kitty-pair --follow <VS Code window address>   that window opened another project: follow it
 
-Open: waits for the window's title to name its folder ("file - cloud_track - Visual Studio Code"),
-finds that folder under ~/code, focuses the VS Code window (a new column opens beside the focused
-one) and starts kitty there as its own app (uwsm), with the class code-term-<address>: that's how
-codepair.lua knows which VS Code window the kitty belongs to. An empty window, or a folder it can't
-find, gets ~/code itself. Does nothing if that window already has its kitty.
+Open: starts kitty right away (a new VS Code window shows alone until its kitty is there), as its
+own app (uwsm), with the class code-term-<address>: that's how codepair.lua knows which VS Code
+window the kitty belongs to. It starts in the folder the window's title names
+("file - cloud_track - Visual Studio Code") if it already does, else in ~/code; once VS Code shows
+its project, codepair.lua runs --follow and the kitty cd's there. Does nothing if that window
+already has its kitty. The VS Code window is focused first: a new column opens beside the focused one.
 
 Follow: if the shell is idle at its prompt it cd's into the new project; if something is running
 there (a dev server, tests) that's left alone and a new kitty tab opens in the new project instead.
@@ -20,7 +21,7 @@ ROOT = os.path.expanduser("~/code")
 APP = " - Visual Studio Code"
 SKIP = {"node_modules", ".git", ".next", "dist", "build", "out", ".venv", "venv", "target", "vendor"}
 SHELLS = {"fish", "zsh", "bash", "sh"}
-WAIT = 3.0  # seconds for the title to name a folder (an empty window never does)
+STARTUP = 5.0  # seconds --follow waits for a kitty that's still starting
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 
 
@@ -78,20 +79,14 @@ def kitty(addr, *args):
 
 def open_pair(addr):
     term_class = f"code-term-{addr}"
-    folder, end = None, time.time() + WAIT
-    while time.time() < end:
-        wins = clients()
-        if any(c["class"] == term_class for c in wins):
-            return  # already paired
-        win = next((c for c in wins if c["address"] == addr), None)
-        if win is None:
-            return  # the VS Code window closed meanwhile
-        name = root_name(win["title"])
-        folder = find_folder(name) if name else None
-        if folder:
-            break
-        time.sleep(0.2)
-    folder = folder or ROOT
+    wins = clients()
+    if any(c["class"] == term_class for c in wins):
+        return  # already paired
+    win = next((c for c in wins if c["address"] == addr), None)
+    if win is None:
+        return  # the VS Code window closed meanwhile
+    name = root_name(win["title"])
+    folder = (find_folder(name) if name else None) or ROOT
     remember(addr, folder)
     subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ window = "address:{addr}" }})'],
                    capture_output=True)
@@ -105,7 +100,12 @@ def follow(addr):
     folder = find_folder(name) if name else None
     if not folder or folder == remembered(addr):
         return  # not a project we know, or the same one
-    r = kitty(addr, "ls")
+    end = time.time() + STARTUP
+    while True:   # a new window's title can name its project before its kitty is up
+        r = kitty(addr, "ls")
+        if r.returncode == 0 or time.time() > end:
+            break
+        time.sleep(0.25)
     if r.returncode != 0:
         return  # no kitty with a socket for this window (opened before this existed, or closed)
     # the tab and window shown in the kitty: "active" (not "focused" — the focus is in VS Code)

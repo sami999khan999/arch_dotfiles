@@ -5,28 +5,26 @@ Runs cava with raw text output and turns each frame ("0;3;7;…") into block cha
 The bars fill the gap between the workspace buttons and the right section of the bar, to the pixel.
 Everything on the right that can change width is followed live, so the bars make room and nothing
 gets pushed off the screen: the window title and the group count (their text), the play button,
-the tray icons, the idle / do-not-disturb indicators and the clock's view (short or long).
+the idle / do-not-disturb indicators and the clock's view (short or long).
 cava always makes RAW_BARS; each shown bar is the loudest of its share of them.
 Silent for SILENT_AFTER seconds: prints empty text, so waybar hides the module until something
 plays again. Prints one JSON line per change (return-type json). SIGUSR1: recount now (clock.py
 and toggle.sh send it when the clock's view or an indicator changes, to the pid in PID_FILE).
 
-It sits in the bar's centre slot and may shrink (max-length in config.jsonc): GTK lays it out in
-the space the two sides leave and never lets it push them, so the clock and the power button can't
-move whatever happens. The sums below just make it fill that space exactly.
+It's the last module of the left section and may shrink (max-length; the bar has no centre
+section, see config.jsonc): GTK then shrinks it rather than push the right section, so the clock and
+the power button can't move whatever happens. The sums below just make it fill the gap exactly.
 """
 import importlib.machinery, importlib.util, json, os, shutil, signal, socket, subprocess, threading, time
 
 # The reference: on the 1366 px screen the gap is GAP_REF px with a TITLE_REF-character title, the
-# group count "⊞ 1/1", the play button showing, TRAY_REF tray icons, no indicator and the short
-# clock. Every difference from that is added or taken off below. A wider screen adds its width.
-GAP_REF, TITLE_REF = 192, 30
+# group count "⊞ 1/1", the play button showing, no indicator and the short clock. Every difference
+# from that is added or taken off below. A wider screen adds its width. (The bar has no tray: apps
+# with a tray icon have their own workspace.)
+GAP_REF, TITLE_REF = 224, 30
 COUNT_REF = "\U000f0570 1/1"   # the group count's text in the reference
 CLOCK_REF_LEN = 17             # "Thu 01 Oct  22:43": the short clock
 CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; measured with Pango)
-TRAY_REF = 1          # tray icons in the reference
-TRAY_ICON_PX = 29     # px per tray icon: 12 px icon + 17 px spacing (config.jsonc "tray")
-TRAY_PAD = 3          # px: the tray's own padding (20) less one spacing; 0 with no icons (hidden)
 EMPTY_PX = 38         # px freed on an empty workspace besides the title text: the title's padding
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
@@ -66,6 +64,7 @@ noise_reduction = 77
 HERE = os.path.dirname(os.path.abspath(__file__))
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 PID_FILE = os.path.join(RUN, "waybar-visualizer.pid")   # clock.py / toggle.sh signal this pid
+STATE_FILE = os.path.join(RUN, "waybar-visualizer.state")
 
 
 def load(name, path):
@@ -90,12 +89,8 @@ def screen_width():
 
 
 WIDTH = screen_width()
-state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "tray": TRAY_REF,
+state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True,
          "indicators": 0, "clock": CLOCK_REF_LEN, "shown": 16, "spacing": 1.0}
-
-
-def tray_px(icons):
-    return icons * TRAY_ICON_PX + TRAY_PAD if icons else 0
 
 
 def recount():
@@ -108,7 +103,6 @@ def recount():
         gap += TITLE_REF * CHAR_PX + EMPTY_PX
     if not s["player"]:
         gap += PLAYER_PX
-    gap += tray_px(TRAY_REF) - tray_px(s["tray"])
     gap -= s["indicators"] * INDICATOR_PX
     gap -= (s["clock"] - CLOCK_REF_LEN) * CHAR_PX
     room = gap - PADDING - FIT_SLACK
@@ -116,6 +110,11 @@ def recount():
     # ends of the block have the same padding
     n = fit(room)
     s["shown"], s["spacing"] = n, (max((room - n * GLYPH_PX) / (n - 1), 0) if n > 1 else 0)
+    try:   # what it thinks the bar looks like, for debugging (cat $XDG_RUNTIME_DIR/waybar-visualizer.state)
+        with open(STATE_FILE, "w") as f:
+            json.dump({**s, "gap": round(gap, 1), "room": round(room, 1)}, f, ensure_ascii=False)
+    except OSError:
+        pass
 
 
 def fit(room):
@@ -166,14 +165,6 @@ def follow_player():
         time.sleep(2)
 
 
-def tray_icons():
-    """How many tray icons there are: the StatusNotifier watcher's list, the same one waybar shows."""
-    out = subprocess.run(["busctl", "--user", "get-property", "org.kde.StatusNotifierWatcher",
-                          "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher",
-                          "RegisteredStatusNotifierItems"], capture_output=True, text=True).stdout.split()
-    return int(out[1]) if len(out) > 1 and out[1].isdigit() else 0
-
-
 def indicators():
     """Active indicators, by the same tests as scripts/indicator.sh."""
     idle_off = subprocess.run(["pgrep", "-x", "hypridle"], capture_output=True).returncode != 0
@@ -182,13 +173,12 @@ def indicators():
 
 
 def read_rest():
-    state["tray"] = tray_icons()
     state["indicators"] = indicators()
     state["clock"] = len(clock.plain_text(clock.load()["long"]))
 
 
 def tick():
-    """Tray icons, indicators and the clock's view: every second (and at once on SIGUSR1)."""
+    """Indicators and the clock's view: every second (and at once on SIGUSR1)."""
     while True:
         read_rest()
         recount()
@@ -225,11 +215,10 @@ def main():
         else:
             raw = len(levels)
             bars = (max(levels[i * raw // n:(i + 1) * raw // n] or [0]) for i in range(n))
-            # a silent bar is blank, not ▁: no grey floor line along an idle stretch
-            text = "".join(BLOCKS[min(v, len(BLOCKS) - 1)] if v else " " for v in bars)
+            chars = [BLOCKS[min(v, len(BLOCKS) - 1)] if v else " " for v in bars]   # silent: blank
             spacing = round(state["spacing"] * PANGO_PER_PX)
             # letter spacing goes after each character: leave it off the last one
-            out = (f'<span letter_spacing="{spacing}">{text[:-1]}</span>{text[-1]}', "playing")
+            out = (f'<span letter_spacing="{spacing}">{"".join(chars[:-1])}</span>{chars[-1]}', "playing")
         if out != last:
             emit(*out)
             last = out

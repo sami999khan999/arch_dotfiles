@@ -37,7 +37,7 @@ window#waybar {
 }
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
-#custom-clock, #custom-wsgroups, #custom-keys, #tray,
+#custom-clock, #custom-wsgroups, #custom-keys,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
 #custom-idle-indicator, #custom-notification-silencing-indicator,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
@@ -72,12 +72,12 @@ window#waybar {
 }
 
 /* ---- left, after the workspaces: audio visualizer (scripts/visualizer.py, while sound plays) */
-/* GTK sets the centre module against the right section, so the few px visualizer.py keeps free
-   (FIT_SLACK) always end up on its left: 4 px less padding there keeps both sides at 14 px */
+/* it follows the workspace buttons, so the few px visualizer.py keeps free (FIT_SLACK) end up on
+   its right: 4 px less padding there keeps both sides at 14 px */
 #custom-visualizer {
   color: @accent;
   font-size: 13px;
-  padding: 0 14px 0 10px;   /* PADDING in visualizer.py */
+  padding: 0 10px 0 14px;   /* PADDING in visualizer.py */
 }
 #custom-visualizer:hover {
   color: @accent;       /* the bars keep their colour on hover; only the block lights up */

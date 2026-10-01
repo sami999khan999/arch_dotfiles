@@ -11,18 +11,18 @@
   "modules-left": [
     "custom/logo",
     "custom/wsbar",
-    "group/wsbuttons"
-  ],
-  "modules-center": [
+    "group/wsbuttons",
     "custom/visualizer"
   ],
+  // no centre section at all: an (even empty) centre stops a shrinkable left module at the middle
+  // of the bar, and a module in the centre gets placed overlapping an off-centre right side
+  "no-center": true,
   "modules-right": [
     "mpris",
     "custom/wsgroups",
     "custom/window",
     "custom/codesync",
     "custom/keys",
-    "tray",
     "bluetooth",
     "network",
     "pulseaudio",
@@ -163,9 +163,8 @@
   },
   // bars that move with whatever is playing (cava), filling the gap between the workspace buttons
   // and the right section; hidden while it's silent. Click: play/pause.
-  // In the centre slot: GTK lays the centre module out in whatever the two sides leave (off-centre
-  // if need be), and max-length lets it shrink, so it can never push a side — the clock and power
-  // button stay put whatever happens. (On a side, a shrinkable label stops at the bar's middle.)
+  // max-length lets it shrink: when the bar runs out of room GTK shrinks it rather than push the
+  // right section, so the clock and power button stay put whatever happens (needs "no-center")
   "custom/visualizer": {
     "exec": "~/.config/hypr/scripts/visualizer.py",
     "return-type": "json",
@@ -328,10 +327,6 @@
     "signal": 10,
     "interval": 10,
     "return-type": "json"
-  },
-  "tray": {
-    "icon-size": 12,
-    "spacing": 17
   },
   "custom/logo": {
     "format": "",

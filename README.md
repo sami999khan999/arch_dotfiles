@@ -25,7 +25,7 @@ data drive (`system/fstab-data`) to `/etc/fstab` — machine-specific, don't run
 |---|---|---|
 | `config/` | `~/.config/` | settings — hypr, noctalia, gtk, qt, terminals, fish |
 | `local/bin/` | `~/.local/bin/` | commands — `wsgroups`, `codesync`, `dotsync` |
-| `local/lib/panels/` | `~/.local/lib/panels/` | the terminal panels — Control Center, Docker, sync, sysmon, shortcuts (`panelkit.py` is their shared look) |
+| `local/lib/panels/` | `~/.local/lib/panels/` | the panels — GTK windows (`*gui.py`, shared look in `gtkkit.py`) and their older terminal versions (`panelkit.py`) |
 | `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
 | `system/` | *manual, needs root* | `/etc` files — Chrome policy, this PC's data-drive fstab line |
@@ -65,7 +65,7 @@ directly into each app. Nothing generates them:
 | walker | `config/walker/themes/omarchy-default/style.css` |
 | mako | `config/mako/config` |
 | hyprlock | `config/hypr/hyprlock.conf` |
-| sysmon | `local/lib/panels/sysmon.py` |
+| panels (GTK) | `local/lib/panels/gtkkit.py` (`CSS`) |
 | kitty, alacritty, btop | `themes/tokyo-night.*` in each |
 | GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
 | KDE apps (Dolphin) | `config/kdeglobals` |
@@ -93,6 +93,9 @@ for the toolchains that don't come from pacman.
   The gh login helper stays in `~/.gitconfig`, which is per machine.
 - VS Code: settings and keybindings are not in this repo; they come from VS Code Settings Sync
   (GitHub account). Extensions are listed in `setup/vscode-extensions.txt`.
+- VS Code `Ctrl+Shift+C` opens kitty in the project folder (`local/bin/kitty-here`, set as
+  `terminal.external.linuxExec`). Run dev servers and tests there: kitty is its own app, so when
+  memory runs out systemd-oomd kills that, not the editor (the built-in terminal is part of VS Code).
 - Per-project versions: put a `mise.toml` in the project (`mise use node@22`).
 - `Super + Shift + C` jumps to or opens VS Code.
 
@@ -124,7 +127,7 @@ Code lives on the SSD in `~/code` (fast); `codesync` copies every change to the 
 
 **Waybar:** the sync icon next to the logo shows the state: grey (up to date), white (changes waiting),
 blue (syncing or restoring), amber (paused, or restore needed), red (problem). Hover for a summary;
-click opens the Code Sync panel (backed-up files/folders/size, what the ignore list skips, free space,
+click opens the Code Sync panel (a window, `panels/syncgui.py`: backed-up files/folders/size, what the ignore list skips, free space,
 old versions, per-folder breakdown, today's activity, recent changed files, the two folders and the
 timing settings: ↑↓ pick, ←→ change a setting). Right-click syncs now, middle-click pauses/resumes.
 Timing is stored in `config/codesync/settings.json`.
@@ -190,7 +193,7 @@ hover for the numbered window list.
 
 | Key / command | Does |
 |---|---|
-| `Super + Ctrl + G`, or click it in waybar | open the manager: map open apps to workspaces, edit, launch |
+| `Super + Ctrl + G`, or click it in waybar | open (or close) the manager window: map open apps to workspaces, edit, launch, tidy |
 | `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened) |
 | `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
@@ -199,63 +202,72 @@ hover for the numbered window list.
 | `wsgroups tidy` | move already-open windows to their workspaces |
 | `wsgroups list` | show groups and numbered windows |
 
+The manager is a real window (GTK, `local/lib/panels/wsgui.py`): the ten workspaces on the left,
+the selected one's settings, actions and open windows on the right. Edit a field and press Enter
+(or Save); "Use an open app" puts a running app on the workspace; Remove asks for a second click;
+click an open window to jump to it. Keys when no field is focused: `1`–`0` select, `l` launch,
+`g` go, `t` tidy, `Delete` remove, `Esc` close. `wsgroups tui` is the old terminal version.
+
 Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
 taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
 Loaded by `config/hypr/modules/wsgroups.lua`; the program is `local/bin/wsgroups`.
 
+### Panels
+
+Every panel is a GTK window (`local/lib/panels/*gui.py`) in the look of the Control Center cards:
+icon and title with details on the right, a blue underline, blue section headings, amber keys and
+window classes, green / amber / red levels, key hints at the bottom. The popups float in the middle of the screen; running one again (its
+key or waybar click) closes it, and so does `Esc`. The hints at the bottom list each panel's keys.
+
+| Panel | Opens with | Does |
+|---|---|---|
+| Workspaces (`wsgui.py`) | `Super + Ctrl + G`, waybar groups icon | above |
+| System (`sysgui.py`) | `Super + Ctrl + T`, waybar CPU / memory | tabs (`1`–`3`): **Overview** (CPU, memory, GPU — a 90 s graph and the details: temperature, clocks, swap, video memory, power…), **Processes** (every process; sort by a column, `/` search, End process / Kill on a second click), **Storage** (each drive: SSD / HDD, read / write now, each partition's usage) |
+| Audio (`audiogui.py`) | `Super + Ctrl + A`, waybar volume | outputs, inputs, what's playing: volume, mute, make default; the Wiremix button opens wiremix |
+| Network (`netgui.py`) | `Super + Ctrl + W`, waybar network | connection, traffic graph, addresses; "Manage connections" opens nmtui |
+| Shortcuts (`keysgui.py`) | `Super + K`, waybar keyboard icon | every shortcut, live from the config; type to search |
+| Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
+
+The older terminal versions (`sysmon.py`, `keys.py`, `audiopanel.py`, `netpanel.py`,
+`syncpanel.py`, `dockerpanel.py`, `controlcenter.py`, `wsgroups tui`) still work if run directly.
+
 ### Docker panel (workspace 9)
 
-`panels/dockerpanel.py`, in the same card style as the Control Center. Four tabs (`1`–`4`,
-`Tab`, `←→` or a click), each a list on the left and the selected item's details on the right:
+`panels/dockergui.py`, workspace 9's app (a tiled window, class `sami.docker`). Tabs for
+Containers, Images, Volumes and Networks (`1`–`4`, `Tab`, `←→` or a click); the list on the left,
+the selected item's details, actions and logs on the right.
 
-| Tab | List | Details |
-|---|---|---|
-| Containers | grouped by compose project: status dot, CPU bar, memory, first port | image, uptime, ports, CPU/memory, project folder, latest logs |
-| Images | in use / unused: size, age | ID, which containers use it, layers |
-| Volumes | grouped by compose project: size, which containers use it | full name, driver, mountpoint |
-| Networks | created / built in: driver, subnet, container count | gateway, the containers on it and their IPs |
-
-- Containers: `s` start/stop · `r` restart · `o` open the first port in the browser
-- Compose projects work like Docker Desktop: each project's heading is a row you can select.
-  Its details show the folder, totals and every container's state. There, `s` stops the project
-  if anything in it runs (else starts all of it), `r` restarts it, `l` follows all its logs in
-  one stream, and `Enter`/`Space` folds it. Only the containers that are changing say
-  "stopping…"/"starting…".
-- Logs are formatted by `panels/dockerlogs.py`: local time, a coloured level badge (ERR / WRN /
-  INF / DBG), the message, then `key=value` details dimmed; long lines wrap under the message and
-  repeats collapse to `×N`. It reads JSON logs, logfmt, postgres / pgbouncer / redis / nginx
-  prefixes and plain text. `l` opens them full screen in `less`, following new lines
-  (`Ctrl+C` stops following, `F` resumes, `/` searches, `q` goes back).
-- `e` exec: a prompt in the footer, pre-filled with the container's shell (bash, else ash / sh).
-  Type any command instead, `↑↓` for history and presets (`env`, `ps aux`, `df -h`…), `Tab` to
-  run it as root, `Enter` to run. A one-off command waits for Enter afterwards so you can read
-  the output.
-- Images: `u` pull a newer version. Images, volumes, networks: `d` twice removes it (docker
-  refuses if something still uses it).
-- `L` opens lazydocker for everything else (themed by `config/lazydocker/config.yml`).
+- Containers are grouped by compose project. A project is a row too: Stop all / Start all,
+  Restart all, Logs (all its containers in one stream), and Fold (`Enter`) to hide its containers.
+- Container: `s` start/stop · `r` restart · `l` logs · `e` exec · `o` open the first port.
+  Logs are formatted by `panels/dockerlogs.py` (local time, level, message, details dimmed);
+  `l` follows them in `less` in a floating terminal. Exec offers the container's shell, presets
+  and "as root".
+- Images: `u` pull. Images, volumes, networks: `d` twice removes it (docker refuses if in use).
+- `L` (or the lazydocker button) opens lazydocker in a floating terminal.
 
 ### Control Center (workspace 10)
 
-One window, five cards: workspace groups manager and system monitor on top; shortcuts, audio
-and network below. `panels/controlcenter.py` draws them all on one character grid, so the
-gaps between cards are equal and every card has the same border, padding, header, section
-titles and key-hint footer (`panels/panelkit.py`). It starts at login in the background
-(`wsgroups launch 10 --background` in `autostart.lua`); `Super + Ctrl + 0` reopens it.
+`panels/ccgui.py`, workspace 10's app (class `sami.controlcenter`): one GTK window, five cards,
+all visible at once, in the look of the original terminal version (`controlcenter.py`) —
+Workspaces and System on top; Shortcuts, Audio and Network below. Every card has an icon and
+title with details on the right, a blue-then-grey underline, and its own key hints at the bottom.
 
-- `Tab` / `Shift + Tab` or a click moves between cards (blue border = focused); every other
-  key goes to that card.
-- Audio: ←→ volume, m mute, Enter makes a device the default, w opens wiremix
-  (themed by `config/wiremix/wiremix.toml`).
-- Network: Enter opens nmtui.
-- The cards also run on their own as popups: `sysmon.py`, `keys.py`, `netpanel.py`,
-  `audiopanel.py`, `wsgroups`.
-- Spacing: `config/kitty/controlcenter.conf` (padding) and `config/hypr/modules/controlcenter.lua`
-  (no window border, no outer gap on workspace 10).
+| Card | Shows | Keys |
+|---|---|---|
+| Workspaces | the ten workspaces: name, window class, a dot per open window; the selected one's launch command | `↑↓` / `1`–`0` select, `g` / Enter go, `l` launch, `t` tidy; `a` `e` `d` open the full manager |
+| System | CPU, memory, disk, GPU (bar in green / amber / red), the biggest apps; load in the footer | — |
+| Shortcuts | search and every shortcut | type to search, `esc` clear |
+| Audio | outputs, inputs, what's playing; ● marks the default | `←→` volume, `m` mute, Enter default, `w` wiremix |
+| Network | the connection, down / up with the last minute as bars, the details | Enter manage connections |
+
+Click a card (or Tab into it) to focus it — blue border; keys go to it. It starts at login in the
+background (`wsgroups launch 10 --background` in `autostart.lua`); `Super + Ctrl + 0` goes there.
 
 ## Shortcut list
 
-`Super + K` (or the keyboard icon in waybar) opens a floating list of every
-shortcut, read live from `binds.lua` and `apps.conf`. Type to search, Esc closes.
+`Super + K` (or the keyboard icon in waybar) opens a window listing every
+shortcut, read live from `binds.lua` and `apps.conf`. Type to search, Esc clears / closes.
 A bind's description comes from a built-in table in `panels/keys.py`; to label
 a new bind yourself, end its line with a comment:
 

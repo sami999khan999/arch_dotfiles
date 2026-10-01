@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Open kitty in the current folder (or the one given), as its own app.
+#   kitty-here [folder]
+# VS Code's "Open New External Terminal" (Ctrl+Shift+C) runs this. Launched through uwsm, kitty
+# gets its own systemd scope instead of joining VS Code's: when memory runs out, systemd-oomd then
+# kills the dev server in kitty, not the whole editor.
+exec uwsm app -- kitty --directory "${1:-$PWD}"

@@ -19,7 +19,9 @@ Readers of that file:
 - `config/hypr/modules/wsgroups.lua` — sends each class to its workspace, maximizes new windows
   once (not with `fullscreen_state`, which would block real fullscreen), makes workspaces 1–10
   persistent, binds Alt + 1…0 (window N here), Super + Ctrl + 1…0 (go/launch), Super + N.
-- `local/bin/wsgroups` — the CLI/manager UI and the waybar group label (`wsgroups bar`).
+- `local/bin/wsgroups` — the CLI, the waybar group label (`wsgroups bar`) and the terminal manager
+  (`wsgroups tui`, also the Control Center card). The manager window is `local/lib/panels/wsgui.py`
+  (GTK); `wsgroups` with no arguments opens it.
 - `config/hypr/scripts/wsbar.py` — the waybar workspace buttons; tooltips show the group name.
 
 ## Steps
@@ -28,10 +30,9 @@ Readers of that file:
 2. Edit the line(s) in `workspaces.conf`. Workspace 10 is the `0` key.
 3. Icon on the bar button: `ICONS` in `config/hypr/scripts/wsbar.py` maps workspace number →
    Nerd Font glyph (unmapped workspaces show their digit). Move icons with the groups.
-4. If the Control Center (class `controlcenter`) moves, also update: the `gaps_out = 0` rule in
+4. If the Control Center (class `sami.controlcenter`) moves, also update: its rule in
    `config/hypr/modules/workspacerules.lua`, `wsgroups launch N --background` in `autostart.lua`, and the
-   "(workspace N)" comments in `controlcenter.lua`, `local/lib/panels/controlcenter.py`,
-   `kitty/controlcenter.conf`.
+   "(workspace N)" comments in `local/lib/panels/ccgui.py`.
 5. Update the tables in `README.md` ("Workspace groups", "Control Center").
 6. Apply:
 

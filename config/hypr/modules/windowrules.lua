@@ -104,11 +104,18 @@ hl.window_rule({
 })
 
 -- Omarchy-style floating windows: TUIs, viewers, file dialogs
-hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk|codesync\\.folderpick)$" }, tag = "+floating-window" })
+hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk|codesync\\.folderpick|panels\\..*)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?|Save.*As|Save|All Files|[Cc]hoose.*)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
 -- the code sync panel (waybar sync icon): two columns of details
 hl.window_rule({ match = { tag = "floating-window", title = "^(syncpanel\\.py)$" }, size = { 1180, 640 } })
+-- GUI panels (local/lib/panels, GTK): sized here, not by the app, so they open the same every time
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.workspaces)$" }, size = { 900, 560 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$" }, size = { 980, 680 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.network)$" }, size = { 680, 590 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
 hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 

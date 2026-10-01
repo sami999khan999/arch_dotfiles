@@ -79,6 +79,7 @@ gst-plugin-pipewire
 gst-plugins-bad
 gst-plugins-ugly
 gst-plugin-va
+gtk4
 hdparm
 httpie
 hwdetect
@@ -167,6 +168,7 @@ power-profiles-daemon
 pv
 python
 python-defusedxml
+python-gobject
 python-packaging
 realtime-privileges
 rebuild-detector

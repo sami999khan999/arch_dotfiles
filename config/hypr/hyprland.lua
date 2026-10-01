@@ -11,7 +11,6 @@ require("modules.binds")
 require("modules.apps")
 require("modules.codepair")   -- before wsgroups: it sets PAIR_WS
 require("modules.wsgroups")
-require("modules.controlcenter")
 require("modules.misc")
 require("modules.monitors")
 require("modules.windowrules")

@@ -37,7 +37,7 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `config/hypr/apps.conf` | app hotkeys (focus-or-launch), read by `modules/apps.lua` |
 | `config/hypr/workspaces.conf` | workspace groups, read by `modules/wsgroups.lua` and `local/bin/wsgroups` |
 | `config/hypr/scripts/` | shell helpers (tui.sh, panel.sh, toggles, screenshots…) + waybar modules (wsbar, wintitle) |
-| `local/lib/panels/` | the Python TUI panels: Control Center, Docker, sync, sysmon, keys (`panelkit.py` is the shared framework) |
+| `local/lib/panels/` | the panels: GTK windows `*gui.py` (in use; shared `gtkkit.py`, Control Center `ccgui.py`) and the older terminal versions (`panelkit.py`) |
 | `config/waybar/` | `config.jsonc` + `style.css` |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
@@ -54,7 +54,7 @@ Don't report a change as done without seeing it work:
 | waybar | `pkill -SIGUSR2 waybar` (reloads config + CSS, restarts custom scripts) | screenshot |
 | a waybar custom script | same | run the script by hand; its output is JSON |
 | codesync | `systemctl --user restart codesync` | `codesync status`, `journalctl --user -u codesync` |
-| Control Center code | restart it (see the `tui-panel` skill) | screenshot workspace 10 |
+| a GTK panel | close and reopen it (Control Center / Docker: kill its PID, `wsgroups launch 10 --background`) | off-screen screenshot (see the `tui-panel` skill) — don't pop windows on the user's screen |
 
 Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768), `grim out.png`
 (whole screen). Crop/zoom with `magick in.png -crop WxH+X+Y -scale 300% out.png`, then look at it.
@@ -101,7 +101,7 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
   through `codesync`; its `.code-trash/` holds recoverable old versions.
 - Don't start `pkexec`/`sudo` prompts you then kill: three failed auths lock the account for
   10 minutes (faillock). Ask the user to run root commands themselves (`! sudo …`).
-- Workspace 10 is the Control Center, started at login; restarting it is fine, closing its kitty
+- Workspace 10 is the Control Center, started at login; restarting it is fine, closing its
   window just means relaunching it (`wsgroups launch 10 --background`).
 
 ## Commits

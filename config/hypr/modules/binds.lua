@@ -34,19 +34,19 @@ bind("SUPER + SHIFT + F",            launch .. FILE_MANAGER)
 bind("SUPER + SHIFT + N",            launch .. EDITOR)
 bind("SUPER + CTRL + Q",             launch .. CALCULATOR)
 bind("XF86Calculator",               launch .. CALCULATOR)
-bind("SUPER + CTRL + T",             tui(panels .. "sysmon.py"))
+bind("SUPER + CTRL + T",             panels .. "sysgui.py") -- System monitor
 bind("CTRL + SHIFT + Escape",        tui("btop"))
-bind("SUPER + CTRL + A",             tui("wiremix"))
+bind("SUPER + CTRL + A",             panels .. "audiogui.py") -- Audio (Wiremix button for streams)
 bind("SUPER + CTRL + B",             tui("bluetui"))
-bind("SUPER + CTRL + W",             tui("nmtui"))
+bind("SUPER + CTRL + W",             panels .. "netgui.py") -- Network (Manage connections opens nmtui)
 
 ---------------
 ---- MENUS ----
 ---------------
 
 bind("SUPER + SPACE",                "walker")
-bind("SUPER + K",                    tui(panels .. "keys.py")) -- shortcut list
-bind("SUPER + CTRL + G",             tui("~/.local/bin/wsgroups")) -- workspace groups manager
+bind("SUPER + K",                    panels .. "keysgui.py") -- shortcut list
+bind("SUPER + CTRL + G",             "~/.local/bin/wsgroups") -- workspace groups manager
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")
 bind("SUPER + V",                    "walker -m clipboard")

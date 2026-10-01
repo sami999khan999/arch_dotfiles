@@ -18,8 +18,10 @@ if file then
             ws = ws and trim(ws)
             if ws and ws:match("^%d+$") then
                 grouped[ws] = true
-                if trim(class) ~= "" then
-                    hl.window_rule({ match = { class = "^(" .. trim(class) .. ")$" }, workspace = ws })
+                -- several apps are "a, b" in the file (| separates its columns): regex a|b here
+                class = trim(class):gsub("%s*,%s*", "|")
+                if class ~= "" then
+                    hl.window_rule({ match = { class = "^(" .. class .. ")$" }, workspace = ws })
                 end
             end
         end

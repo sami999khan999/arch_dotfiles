@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """wsgroups — one workspace per kind of app, every window full-size (monocle), Alt + N to switch.
 
-  wsgroups                    open the manager UI (also Super + Ctrl + G, or click it in waybar)
+  wsgroups                    open (or close) the manager window (Super + Ctrl + G, or click it in waybar)
+  wsgroups tui                the same manager in the terminal
   wsgroups focus N            focus window N (1-10) of the current workspace, in the order opened
   wsgroups go N               go to workspace N; launch its apps if none are open there yet
   wsgroups new                open another window of the current workspace's app (Super + N)
@@ -43,8 +44,8 @@ def windows(ws, clients=None):
     """Windows on workspace ws, oldest first — that order is what Alt + N counts."""
     clients = query("clients") if clients is None else clients
     wins = [c for c in clients or [] if c["workspace"]["id"] == ws and c["mapped"]
-            and c["class"] != "TUI.float" and not c["class"].startswith("code-term-")]
-    # popups (this UI, sysmon, shortcut list) and the kitty beside each VS Code window (codepair.lua) don't count
+            and not c["class"].startswith(("TUI.float", "panels.", "code-term-"))]
+    # popups, panel windows and the kitty beside each VS Code window (codepair.lua) don't count
     return sorted(wins, key=lambda c: c.get("stableId", 0))
 
 
@@ -70,7 +71,9 @@ def read_conf():
         if s and not s.startswith("#") and len(parts) >= 3 and parts[0].isdigit():
             body = True
             launch = [c.strip() for c in parts[3].split(";")] if len(parts) > 3 else []
-            groups[int(parts[0])] = {"name": parts[1], "cls": parts[2], "launch": [c for c in launch if c],
+            # several apps are "a, b" in the file (| separates its columns) and the regex a|b here
+            cls = "|".join(c.strip() for c in parts[2].split(",") if c.strip())
+            groups[int(parts[0])] = {"name": parts[1], "cls": cls, "launch": [c for c in launch if c],
                                      "new": parts[4] if len(parts) > 4 else ""}
         elif not body:
             header.append(line)
@@ -88,7 +91,8 @@ def write_conf(groups_):
     rows = []
     for ws in sorted(groups_):
         g = groups_[ws]
-        row = f"{ws} | {g['name']:<8} | {g['cls']:<13} | {' ; '.join(g['launch'])}"
+        cls = ", ".join(g["cls"].split("|"))
+        row = f"{ws} | {g['name']:<8} | {cls:<13} | {' ; '.join(g['launch'])}"
         rows.append((row + f" | {g['new']}" if g.get("new") else row).rstrip())
     with open(CONF, "w") as f:           # write in place: the file is a symlink into ~/dotfiles
         f.write("\n".join(header) + "\n\n" + "\n".join(rows) + "\n")
@@ -179,6 +183,59 @@ def show():
         for i, w in enumerate(windows(ws, clients), 1):
             state = " [max]" if w.get("fullscreen") else ""
             print(f"      Alt+{i % 10}  {w['class']}: {w['title'][:50]}{state}")
+
+
+def guess_launch(cls, pid=None):
+    """The app's command from its .desktop entry (matched by StartupWMClass or file name)."""
+    dirs = [os.path.expanduser("~/.local/share/applications"), "/usr/share/applications"]
+    for d in dirs:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            continue
+        for n in names:
+            if not n.endswith(".desktop"):
+                continue
+            try:
+                text = open(os.path.join(d, n), errors="ignore").read()
+            except OSError:
+                continue
+            wm = re.search(r"^StartupWMClass=(.+)$", text, re.M)
+            exe = re.search(r"^Exec=(.+)$", text, re.M)
+            if exe and ((wm and wm.group(1).strip().lower() == cls.lower())
+                        or n[:-8].lower() == cls.lower()):
+                cmd = re.sub(r"\s*%[a-zA-Z]", "", exe.group(1)).strip()
+                return os.path.basename(cmd.split()[0]) + cmd[len(cmd.split()[0]):]
+    try:
+        return os.path.basename(os.readlink(f"/proc/{pid}/exe"))
+    except (OSError, TypeError):
+        return cls.lower()
+
+
+def assign(groups_, ws, cls, pid=None):
+    """Put window class cls on workspace ws (in groups_, not saved); a class belongs to one
+    workspace only. Returns an error message, or None."""
+    try:
+        re.compile(cls)
+    except re.error:
+        return f"not a valid class pattern: {cls}"
+    for other, g in list(groups_.items()):
+        if other == ws:
+            continue
+        parts = [p for p in g["cls"].split("|") if p != cls]
+        if len(parts) != len(g["cls"].split("|")):
+            if parts:
+                g["cls"] = "|".join(parts)
+            else:
+                del groups_[other]
+    g = groups_.get(ws)
+    if g:
+        if cls not in g["cls"].split("|"):
+            g["cls"] = f"{g['cls']}|{cls}"
+    else:
+        name = cls.split(".")[-1].split("-")[-1].capitalize()
+        groups_[ws] = {"name": name, "cls": cls, "launch": [guess_launch(cls, pid)]}
+    return None
 
 
 # ---- waybar module -----------------------------------------------------------------------------
@@ -371,57 +428,12 @@ class UI(Panel):
         write_conf(self.groups)
         self.msg = msg
 
-    @staticmethod
-    def guess_launch(cls, pid=None):
-        """The app's command from its .desktop entry (matched by StartupWMClass or file name)."""
-        dirs = [os.path.expanduser("~/.local/share/applications"), "/usr/share/applications"]
-        for d in dirs:
-            try:
-                names = sorted(os.listdir(d))
-            except OSError:
-                continue
-            for n in names:
-                if not n.endswith(".desktop"):
-                    continue
-                try:
-                    text = open(os.path.join(d, n), errors="ignore").read()
-                except OSError:
-                    continue
-                wm = re.search(r"^StartupWMClass=(.+)$", text, re.M)
-                exe = re.search(r"^Exec=(.+)$", text, re.M)
-                if exe and ((wm and wm.group(1).strip().lower() == cls.lower())
-                            or n[:-8].lower() == cls.lower()):
-                    cmd = re.sub(r"\s*%[a-zA-Z]", "", exe.group(1)).strip()
-                    return os.path.basename(cmd.split()[0]) + cmd[len(cmd.split()[0]):]
-        try:
-            return os.path.basename(os.readlink(f"/proc/{pid}/exe"))
-        except (OSError, TypeError):
-            return cls.lower()
-
     def add_class(self, cls, pid=None):
-        """Put cls on the selected workspace; a class belongs to one workspace only."""
-        try:
-            re.compile(cls)
-        except re.error:
-            self.msg = f"not a valid class pattern: {cls}"
-            return
-        for ws, g in list(self.groups.items()):
-            if ws == self.sel:
-                continue
-            parts = [p for p in g["cls"].split("|") if p != cls]
-            if len(parts) != len(g["cls"].split("|")):
-                if parts:
-                    g["cls"] = "|".join(parts)
-                else:
-                    del self.groups[ws]
-        g = self.groups.get(self.sel)
-        if g:
-            if cls not in g["cls"].split("|"):
-                g["cls"] = f"{g['cls']}|{cls}"
+        err = assign(self.groups, self.sel, cls, pid)
+        if err:
+            self.msg = err
         else:
-            name = cls.split(".")[-1].split("-")[-1].capitalize()
-            self.groups[self.sel] = {"name": name, "cls": cls, "launch": [self.guess_launch(cls, pid)]}
-        self.save(f"{cls} now opens on workspace {self.sel % 10}")
+            self.save(f"{cls} now opens on workspace {self.sel % 10}")
 
     def edit(self):
         g = self.groups.get(self.sel, {"name": "", "cls": "", "launch": [], "new": ""})
@@ -488,13 +500,17 @@ class UI(Panel):
 
 
 def ui():
-    run(UI())
+    import wsgui  # the GTK window, in ~/.local/lib/panels next to panelkit
+    wsgui.main(sys.modules[__name__])
 
 
 # ---- entry -------------------------------------------------------------------------------------
 def main(argv):
     if not argv or argv[0] == "ui":
         ui()
+        return
+    if argv[0] == "tui":
+        run(UI())
         return
     if argv[0] in ("-h", "--help", "help"):
         print(__doc__.strip())

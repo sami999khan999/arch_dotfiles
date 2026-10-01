@@ -10,8 +10,8 @@ One full-width strip (no outer margins, 1px line along the bottom), square corne
 ```
 left:   logo │ workspace buttons (custom/ws1…10) │
 centre: (empty)
-right:  media (play/pause, only while a player is playing/paused) │ clock │ group label │
-        window title (custom/window, hidden on an empty workspace) │
+right:  media (play/pause, only while a player is playing/paused) │ clock │ group label +
+        window title in one block (custom/window, hidden on an empty workspace) │
         codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │ power
 ```
 

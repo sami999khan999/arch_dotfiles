@@ -84,8 +84,10 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
   `wsgroups.lua`).
 - Window rules matched through a tag (`floating-window`) are applied after plain ones; a size
   override for a tagged window must also match the tag.
-- waybar `clock`: only one `{}` time field per format; put markup inside it:
-  `"<span …>{:%a %d</span> <b>%H:%M</b>}"`. `mpris` tooltips are plain text (markup shows raw).
+- The bar's clock is `custom/clock` (`scripts/clock.py`), not waybar's `clock`: the audio
+  visualizer fills the gap to the pixel and must know the clock's view. Anything on the right that
+  changes width must be fixed-width or followed by `scripts/visualizer.py` (see the `waybar` skill).
+  `mpris` tooltips are plain text (markup shows raw).
 - waybar/GTK prefers ellipsizing a label over moving the centre island, so the window title is
   truncated in `scripts/wintitle.py`, not with `max-length`.
 - waybar signals in use: `RTMIN+8` workspace buttons, `+9` idle, `+10` notifications, `+11` codesync.

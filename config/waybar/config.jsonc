@@ -11,10 +11,11 @@
   "modules-left": [
     "custom/logo",
     "custom/wsbar",
-    "group/wsbuttons",
+    "group/wsbuttons"
+  ],
+  "modules-center": [
     "custom/visualizer"
   ],
-  "modules-center": [],
   "modules-right": [
     "mpris",
     "custom/wsgroups",
@@ -26,7 +27,7 @@
     "network",
     "pulseaudio",
     "group/stats",
-    "clock",
+    "custom/clock",
     "custom/idle-indicator",
     "custom/notification-silencing-indicator",
     "custom/power"
@@ -161,14 +162,16 @@
     "escape": true
   },
   // bars that move with whatever is playing (cava), filling the gap between the workspace buttons
-  // and the right section; hidden while it's silent. Click: play/pause. It works out the gap itself
-  // (title length, play button, tray icons), so nothing on the right ever gets pushed. No
-  // max-length: an ellipsizing label can't cross the middle of the bar (GTK caps the left side there)
+  // and the right section; hidden while it's silent. Click: play/pause.
+  // In the centre slot: GTK lays the centre module out in whatever the two sides leave (off-centre
+  // if need be), and max-length lets it shrink, so it can never push a side — the clock and power
+  // button stay put whatever happens. (On a side, a shrinkable label stops at the bar's middle.)
   "custom/visualizer": {
     "exec": "~/.config/hypr/scripts/visualizer.py",
     "return-type": "json",
     "restart-interval": 5,
     "tooltip": false,
+    "max-length": 400,
     "on-click": "playerctl play-pause"
   },
   "mpris": {
@@ -206,27 +209,14 @@
     },
     "on-click": "~/.local/lib/panels/sysgui.py"
   },
-  "clock": {
-    "format": "<span color='#565f89'>{:L%a %d %b</span>  <b>%H:%M</b>}",
-    // click: the long view — weekday, date, week number, time (kept short: see wintitle.py MAX).
-    // The chrono spec must start
-    // with %, so the first <span> opens outside the braces (same trick as "format")
-    "format-alt": "<span color='#565f89'>{:L%A</span>  %d %b  <span color='#565f89'>wk</span> %V  <b>%H:%M</b>}",
-    "tooltip-format": "<tt>{calendar}</tt>",
-    "calendar": {
-      "mode": "month",
-      "weeks-pos": "left",
-      "format": {
-        "months": "<span color='#c0caf5'><b>{}</b></span>",
-        "weekdays": "<span color='#565f89'>{}</span>",
-        "weeks": "<span color='#3b4261'>{}</span>",
-        "today": "<span color='#6b8fe0'><b><u>{}</u></b></span>"
-      }
-    },
-    "actions": {
-      "on-scroll-up": "shift_down",
-      "on-scroll-down": "shift_up"
-    }
+  // the clock is a script (scripts/clock.py) so the visualizer can know which view is on: the long
+  // one (click) is wider. Scroll: the tooltip calendar's month
+  "custom/clock": {
+    "exec": "~/.config/hypr/scripts/clock.py",
+    "return-type": "json",
+    "on-click": "~/.config/hypr/scripts/clock.py toggle",
+    "on-scroll-up": "~/.config/hypr/scripts/clock.py scroll up",
+    "on-scroll-down": "~/.config/hypr/scripts/clock.py scroll down"
   },
   "network": {
     "format-icons": [
@@ -248,10 +238,10 @@
     "on-click": "~/.local/lib/panels/netgui.py"
   },
   "battery": {
-    "format": "{capacity}% {icon}",
+    "format": "{icon}",
     "format-discharging": "{icon}",
     "format-charging": "{icon}",
-    "format-plugged": "",
+    "format-plugged": "{icon}",
     "format-icons": {
       "charging": [
         "󰢜",
@@ -303,7 +293,7 @@
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",
     "scroll-step": 5,
-    "format-muted": "",
+    "format-muted": "\ueee8  {volume:>3}%",
     "format-icons": {
       "headphone": "",
       "headset": "",

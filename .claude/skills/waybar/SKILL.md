@@ -8,13 +8,13 @@ description: Add, move or restyle a waybar module in this dotfiles repo (config/
 One full-width strip (no outer margins, 1px line along the bottom), square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
 
 ```
-left:   logo │ workspace buttons (custom/ws1…10) │ audio visualizer (custom/visualizer: cava,
-        only while sound plays; its bar count follows the title's length to fill the gap)
-centre: (empty)
+left:   logo │ workspace buttons (custom/ws1…10) │
+centre: audio visualizer (custom/visualizer: cava, only while sound plays), filling the gap
+        between the sides; it may shrink (max-length), so it can never push them
 right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
         (custom/window, max 30 chars in wintitle.py, hidden on an empty workspace) │
         codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │
-        clock + idle / notification indicators │ power (far right)
+        clock (custom/clock: scripts/clock.py) + idle / notification indicators │ power (far right)
 ```
 
 ## Adding a module
@@ -24,7 +24,7 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
    shared `:hover` rule near the top, then any specific colours below. Use the `@define-color`
    tokens (`@muted`, `@subtext`, `@text`, `@accent`, `@alert`, `@overlay`, `@line`), not hex.
 3. Section dividers are `border-left/right: 1px solid alpha(@line, 0.7)` on the first/last module
-   of a section (see `#stats`, `#custom-wsgroups`, `#clock`, `#mpris`).
+   of a section (see `#stats`, `#custom-wsgroups`, `#custom-clock`, `#mpris`).
 
 ## Custom (script) modules
 
@@ -41,15 +41,27 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 
 ## Known quirks
 
-- `clock`: one `{}` field only. Markup goes inside it: `"<span color='#565f89'>{:L%a %d %b</span>  <b>%H:%M</b>}"`.
+- The clock is `custom/clock` (`scripts/clock.py`), not waybar's `clock`: the visualizer has to
+  know whether the long view (click) is on. Its tooltip calendar is built there too.
 - `mpris` `tooltip-format` is plain text; tags show up literally.
-- GTK ellipsizes a `max-length` label before it moves the centre island. To let text push the
-  centre island, truncate in the script instead (`wintitle.py`, `MAX`).
+- GTK ellipsizes a `max-length` label before it moves the centre island, and an ellipsizing label
+  in the left section can't cross the middle of the bar. Truncate in the script instead
+  (`wintitle.py`, `MAX`).
 - Changing the bar's own geometry (`margin-*`, `height`, `layer`, `position`) with a live
   `pkill -SIGUSR2 waybar` can crash waybar. After such a change relaunch it instead:
   `pkill -x waybar; hyprctl dispatch 'hl.dsp.exec_cmd("uwsm app -- waybar")'`, then check `pgrep waybar`.
-- The screen is 1366px wide. Worst case = longest window title (`wintitle.py` MAX) + the clock's
-  long view (click): check both together so the power button stays on screen.
+- **The power button never moves.** The visualizer is the centre module with max-length: GTK
+  places a centre module in the space the sides leave (off-centre if needed) and shrinks it rather
+  than push a side. Don't move it into a side section: there a shrinkable label stops at the bar's
+  middle, and an unshrinkable one pushes the right section off when the bar runs out of room.
+- To fill that space exactly (no `…`, no empty strip), `scripts/visualizer.py` follows everything on
+  the right that changes width: title, group count, play button, tray icons, indicators, clock
+  view; the rest is fixed-width (min-width or padded formats: cpu, memory, volume, battery). A new
+  right-side module needs one of the two.
+- Check for a push: the power button's divider must be at x 1335 (`grim` the bar). Calibrate the
+  visualizer's `GAP_REF` only from an un-pushed bar: measured gap minus the push.
+- Signal the visualizer by its pid (`$XDG_RUNTIME_DIR/waybar-visualizer.pid`), never `pkill -f`:
+  a name match also hits an editor that has the file open.
 
 ## Apply and verify
 

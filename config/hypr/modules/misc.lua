@@ -10,6 +10,11 @@ hl.config({
         col = {
             splash = THEME_ACCENT,
         },
+        -- wake a switched-off monitor (hypridle, 5.5 min idle) on any key or mouse move. hypridle's
+        -- own on-resume command is the usual way back; this is the safety net if it doesn't fire,
+        -- which once left the screen black until a power-button shutdown
+        key_press_enables_dpms = true,
+        mouse_move_enables_dpms = true,
         middle_click_paste = false,
         enable_swallow = true,
         swallow_regex = "(kitty|ghostty|[Kk]onsole|Alacritty|gnome-terminal|xfce[0-9]?-terminal)",

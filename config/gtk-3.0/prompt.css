@@ -1,0 +1,83 @@
+/* gcr's password prompt (keyring unlock, SSH / GPG passphrases: /usr/lib/gcr-prompter, GTK 3),
+   styled like the panels: square corners, Tokyo Night, the accent on the one button that matters.
+   Scoped to GTK 3 dialogs: GTK 3 can't select the prompt by its type name (gcr sets no widget name or
+   class), and the only other GTK 3 dialogs here are the occasional message box, which should look
+   the same anyway. Imported by gtk.css. */
+
+dialog {
+  background: #1a1b26;
+  color: #c0caf5;
+}
+
+/* room around the text and the field, and between them and the buttons */
+dialog .dialog-vbox > grid {
+  margin: 22px 26px 6px 20px;
+}
+
+dialog label {
+  color: #a9b1d6;
+}
+
+/* the password field: darker than the dialog, a thin line, blue when typing */
+dialog entry {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 0;
+  border: 1px solid alpha(#3b4261, 0.9);
+  background: #16161e;
+  color: #c0caf5;
+  caret-color: #6b8fe0;
+  box-shadow: none;
+}
+
+dialog entry:focus {
+  border-color: #6b8fe0;
+  box-shadow: inset 0 0 0 1px alpha(#6b8fe0, 0.35);
+}
+
+/* password strength, when a new password is asked for */
+dialog progressbar trough,
+dialog progressbar progress {
+  border-radius: 0;
+  min-height: 3px;
+}
+dialog progressbar trough { background: #292e42; border: none; }
+dialog progressbar progress { background: #6b8fe0; border: none; }
+
+dialog check {
+  border-radius: 0;
+}
+
+/* buttons: flat, square; Unlock / Continue (the default) in the accent */
+dialog .dialog-action-area {
+  margin: 10px 26px 22px;
+}
+
+dialog .dialog-action-area button {
+  min-height: 32px;
+  min-width: 84px;
+  padding: 0 18px;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: #292e42;
+  color: #c0caf5;
+}
+
+dialog .dialog-action-area button:hover {
+  background: #3b4261;
+}
+
+dialog .dialog-action-area button.default {
+  background: #6b8fe0;
+  color: #1a1b26;
+  font-weight: bold;
+}
+
+dialog .dialog-action-area button.default:hover {
+  background: shade(#6b8fe0, 1.12);
+}
+
+dialog .dialog-action-area button.default label {
+  color: #1a1b26;
+}

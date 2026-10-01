@@ -31,7 +31,8 @@ error = "#f7768e"
 on_error = "#1a1b26"
 surface = "#1a1b26"                    # base
 on_surface = "#c0caf5"                 # text
-surface_variant = "#292e42"            # overlay
+surface_variant = "#1a1b26cc"          # the login card: darkest Tokyo Night at 80 %, so the
+                                       # blurred wallpaper shows through (frosted glass)
 on_surface_variant = "#a9b1d6"         # subtext
 outline = "#3b4261"                    # line / border
 shadow = "#16161e"

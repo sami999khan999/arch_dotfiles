@@ -65,7 +65,10 @@ hl.config({
     },
     cursor = {
         hide_on_key_press = true,
-        warp_on_change_workspace = 1,
+        -- the pointer stays where it is: switching windows or workspaces (keys, bar clicks, Alt + Tab)
+        -- doesn't jump it to the centre of the window
+        no_warps = true,
+        warp_on_change_workspace = 0,
     },
     binds = {
         hide_special_on_workspace_change = true,

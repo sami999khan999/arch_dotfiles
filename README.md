@@ -93,9 +93,11 @@ for the toolchains that don't come from pacman.
   The gh login helper stays in `~/.gitconfig`, which is per machine.
 - VS Code: settings and keybindings are not in this repo; they come from VS Code Settings Sync
   (GitHub account). Extensions are listed in `setup/vscode-extensions.txt`.
-- VS Code `Ctrl+Shift+C` opens kitty in the project folder (`local/bin/kitty-here`, set as
-  `terminal.external.linuxExec`). Run dev servers and tests there: kitty is its own app, so when
-  memory runs out systemd-oomd kills that, not the editor (the built-in terminal is part of VS Code).
+- VS Code terminals don't take the editor down when memory runs out: the built-in terminal starts
+  each shell with `systemd-run --user --scope` (VS Code setting `terminal.integrated.profiles.linux`;
+  shell integration is then loaded from `~/.zshrc`), so systemd-oomd kills that terminal, not
+  VS Code. `Ctrl+Shift+C` opens kitty in the project folder instead (`local/bin/kitty-here`, set
+  as `terminal.external.linuxExec`), also as its own app.
 - Per-project versions: put a `mise.toml` in the project (`mise use node@22`).
 - `Super + Shift + C` jumps to or opens VS Code.
 

@@ -5,7 +5,8 @@
 -- its own app, with the class code-term-<VS Code address>: that's how a pair is found again.
 -- Opening another project in a VS Code window takes its kitty there too; closing the window closes it.
 -- Globals: PAIR_WS (wsgroups.lua gives it this layout), isPairTerm and pairMain (binds.lua:
--- Alt + N / Alt + Tab count VS Code windows, not their kittys), focusPair (Alt + N, Alt + Tab).
+-- Alt + N / Alt + Tab count VS Code windows, not their kittys), focusPair (Alt + N, Alt + Tab),
+-- toggleFullscreen (binds.lua: Super + F, Super + Alt + F).
 
 PAIR_WS = "1"
 -- VS Code's window class: "code" in older versions, "com.microsoft.VSCode" in newer ones
@@ -70,6 +71,25 @@ function focusPair(w)
     local term = CODE[w.class] and termOf(w)
     if term then focus(term) end
     focusKeepingFullscreen(w)
+end
+
+-- Super + F (fullscreen) / Super + Alt + F (maximized, bar stays): the focused window fills the
+-- screen; pressed again, a VS Code or its kitty goes back beside its partner. Leaving fullscreen
+-- alone left the view scrolled with the kitty off screen; focusing the kitty first brings the pair
+-- back into view, then the focus returns to the window that was full.
+function toggleFullscreen(mode)
+    local w = hl.get_active_window()
+    if not w then return end
+    local leaving = w.fullscreen ~= 0
+    hl.dispatch(hl.dsp.window.fullscreen({ mode = mode }))
+    if leaving and onPairWs(w) and (CODE[w.class] or isPairTerm(w)) then
+        local main = pairMain(w)
+        local term = main and termOf(main)
+        hl.timer(function()
+            if term then focus(term) end
+            focus(w)
+        end, { timeout = 50, type = "oneshot" })
+    end
 end
 
 hl.on("window.open", function(w)

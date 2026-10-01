@@ -21,7 +21,7 @@
     "custom/window",
     "custom/codesync",
     "custom/keys",
-    "group/tray-expander",
+    "tray",
     "bluetooth",
     "network",
     "pulseaudio",
@@ -161,16 +161,14 @@
     "escape": true
   },
   // bars that move with whatever is playing (cava), filling the gap between the workspace buttons
-  // and the right section; hidden while it's silent. Click: play/pause.
-  // max-length makes the label ellipsize, and GTK shrinks an ellipsizing label when the bar runs out
-  // of room (the tray opening): the visualizer gives way, everything else keeps its width and the
-  // power button stays on screen. (Silent, it's hidden and the gap itself has the room.)
+  // and the right section; hidden while it's silent. Click: play/pause. It works out the gap itself
+  // (title length, play button, tray icons), so nothing on the right ever gets pushed. No
+  // max-length: an ellipsizing label can't cross the middle of the bar (GTK caps the left side there)
   "custom/visualizer": {
     "exec": "~/.config/hypr/scripts/visualizer.py",
     "return-type": "json",
     "restart-interval": 5,
     "tooltip": false,
-    "max-length": 400,
     "on-click": "playerctl play-pause"
   },
   "mpris": {
@@ -316,17 +314,6 @@
       ]
     }
   },
-  "group/tray-expander": {
-    "orientation": "inherit",
-    "drawer": {
-      "transition-duration": 600,
-      "children-class": "tray-group-item"
-    },
-    "modules": [
-      "custom/expand-icon",
-      "tray"
-    ]
-  },
   "custom/wsgroups": {
     "exec": "~/.local/bin/wsgroups bar",
     "return-type": "json",
@@ -337,14 +324,6 @@
     "format": "",
     "tooltip-format": "Shortcuts (Super + K)",
     "on-click": "~/.local/lib/panels/keysgui.py"
-  },
-  "custom/expand-icon": {
-    "format": "",
-    "tooltip": false,
-    "on-scroll-up": "",
-    "on-scroll-down": "",
-    "on-scroll-left": "",
-    "on-scroll-right": ""
   },
   "custom/idle-indicator": {
     "on-click": "~/.config/hypr/scripts/toggle.sh idle",

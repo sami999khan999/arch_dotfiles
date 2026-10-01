@@ -37,7 +37,7 @@ window#waybar {
 }
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
-#clock, #custom-wsgroups, #custom-keys, #custom-expand-icon, #tray,
+#clock, #custom-wsgroups, #custom-keys, #tray,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
 #custom-idle-indicator, #custom-notification-silencing-indicator,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
@@ -47,7 +47,7 @@ window#waybar {
   transition: background-color 150ms, color 150ms;
 }
 
-#clock:hover, #custom-wsgroups:hover, #custom-keys:hover, #custom-expand-icon:hover,
+#clock:hover, #custom-wsgroups:hover, #custom-keys:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
 #memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover, #custom-visualizer:hover {
   background: @overlay;
@@ -193,7 +193,12 @@ window#waybar {
   color: @muted;
 }
 
-#custom-keys, #custom-expand-icon, #bluetooth, #network {
+/* an empty workspace: only the icon, no title beside it, so even padding */
+#custom-wsgroups.empty {
+  padding: 0 10px;
+}
+
+#custom-keys, #bluetooth, #network {
   color: @muted;
 }
 

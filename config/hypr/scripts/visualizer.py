@@ -3,29 +3,34 @@
 
 Runs cava with raw text output and turns each frame ("0;3;7;…") into block characters (▁▂▃…█).
 The bars fill the gap between the workspace buttons and the right section of the bar. That gap
-changes with the window title's length (the title is only as wide as its text) and with whether
-the play button shows, so the script follows both and shows as many bars as fit: cava always
+changes with the window title's length (the title is only as wide as its text), with whether
+the play button shows and with the number of tray icons, so the script follows all three and
+shows as many bars as fit: cava always
 makes RAW_BARS, and each shown bar is the loudest of its share of them.
 Silent for SILENT_AFTER seconds: prints empty text, so waybar hides the module until something
 plays again. Prints one JSON line per change (return-type json).
 """
 import importlib.util, json, os, shutil, socket, subprocess, threading, time
 
-# Measured on the 1366 px screen: the gap is 211 px with a 30-character title and the play
-# button showing. Each title character is CHAR_PX wide; on an empty workspace the title hides
+# Measured on the 1366 px screen: the gap is 210 px with a 30-character title, the play
+# button showing and TRAY_REF tray icons. Each title character is CHAR_PX wide; on an empty workspace the title hides
 # (freeing its padding too) and the group count shrinks to its icon; no player frees the play
 # button. A wider screen adds its extra width.
 # The numbers on the right are fixed-width (config.jsonc), so nothing else moves the gap, and the
 # bars fill it to the pixel: the spacing between them stretches to use up what whole bars leave.
-GAP_REF, TITLE_REF = 211, 30
-CHAR_PX = 7.3         # px per title character (JetBrains Mono, 12 px)
-TITLE_PAD = 14        # px: the title's padding (style.css #custom-window)
-COUNT_PX = 19         # px: the group count's " 1/1", gone on an empty workspace (wsgroups bar)
+GAP_REF, TITLE_REF = 210, 30
+CHAR_PX = 7.0         # px per title character (JetBrains Mono, 12 px; measured with Pango)
+TRAY_REF = 1          # tray icons when GAP_REF was measured
+TRAY_ICON_PX = 29     # px per tray icon: 12 px icon + 17 px spacing (config.jsonc "tray")
+TRAY_PAD = 3          # px: the tray's own padding (20) less one spacing; 0 with no icons (hidden)
+EMPTY_PX = 38         # px freed on an empty workspace besides the title text: the title's padding
+                      # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
-GLYPH_PX = 7.94       # px: one block character at 13 px
+GLYPH_PX = 8.0        # px: one block character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars
-PANGO_PER_PX = 768    # Pango letter_spacing units per pixel (1024 per point, 96 dpi)
+FIT_SLACK = 2         # px kept free: a label even 1 px too wide is ellipsized by GTK (a lone "…")
+PANGO_PER_PX = 1024   # Pango letter_spacing units per pixel (measured)
 
 RAW_BARS = 64         # what cava makes; more than ever fit
 FPS = 25              # frames per second (cava's framerate; also how often waybar can redraw)
@@ -69,7 +74,11 @@ def screen_width():
 
 
 WIDTH = screen_width()
-state = {"title": "x" * TITLE_REF, "player": True, "shown": 16, "spacing": 1.0}
+state = {"title": "x" * TITLE_REF, "player": True, "tray": TRAY_REF, "shown": 16, "spacing": 1.0}
+
+
+def tray_px(icons):
+    return icons * TRAY_ICON_PX + TRAY_PAD if icons else 0
 
 
 def recount():
@@ -77,12 +86,15 @@ def recount():
     length = len(state["title"])
     gap = GAP_REF + WIDTH - 1366 + (TITLE_REF - length) * CHAR_PX
     if not length:
-        gap += TITLE_PAD + COUNT_PX
+        gap += EMPTY_PX
     if not state["player"]:
         gap += PLAYER_PX
-    room = gap - PADDING
-    n = max(4, int(room / (GLYPH_PX + MIN_GAP_PX)))
-    state["shown"], state["spacing"] = n, max(room / n - GLYPH_PX, 0)
+    gap += tray_px(TRAY_REF) - tray_px(state["tray"])
+    room = gap - PADDING - FIT_SLACK
+    # n bars and the n - 1 spaces between them fill the room; none after the last bar, so both
+    # ends of the block have the same padding
+    n = max(4, int((room + MIN_GAP_PX) / (GLYPH_PX + MIN_GAP_PX)))
+    state["shown"], state["spacing"] = n, max((room - n * GLYPH_PX) / (n - 1), 0)
 
 
 def follow_title():
@@ -107,11 +119,21 @@ def follow_title():
             time.sleep(2)
 
 
+def tray_icons():
+    """How many tray icons there are: the StatusNotifier watcher's list, the same one waybar shows."""
+    out = subprocess.run(["busctl", "--user", "get-property", "org.kde.StatusNotifierWatcher",
+                          "/StatusNotifierWatcher", "org.kde.StatusNotifierWatcher",
+                          "RegisteredStatusNotifierItems"], capture_output=True, text=True).stdout.split()
+    return int(out[1]) if len(out) > 1 and out[1].isdigit() else 0
+
+
 def follow_player():
-    """The play button shows while a player is playing or paused: check every 2 s."""
+    """The play button shows while a player is playing or paused, and tray icons come and go with
+    apps: check both every 2 s."""
     while True:
         out = subprocess.run(["playerctl", "status"], capture_output=True, text=True).stdout.strip()
         state["player"] = out in ("Playing", "Paused")
+        state["tray"] = tray_icons()
         recount()
         time.sleep(2)
 
@@ -144,7 +166,8 @@ def main():
             # a silent bar is blank, not ▁: no grey floor line along an idle stretch
             text = "".join(BLOCKS[min(v, len(BLOCKS) - 1)] if v else " " for v in bars)
             spacing = round(state["spacing"] * PANGO_PER_PX)
-            out = (f'<span letter_spacing="{spacing}">{text}</span>', "playing")
+            # letter spacing goes after each character: leave it off the last one
+            out = (f'<span letter_spacing="{spacing}">{text[:-1]}</span>{text[-1]}', "playing")
         if out != last:
             emit(*out)
             last = out

@@ -249,7 +249,8 @@ def bar_status():
     tip = (f"{g['name']} · workspace {ws}" if g else f"Workspace {ws} (no group)")
     tip += "\n" + ("\n".join(lines) if lines else "no windows") + "\n\nClick: manage groups"
     text = f"{ICON} {pos}/{len(wins)}" if wins else ICON  # the group's name is in the tooltip
-    return {"text": text, "tooltip": tip, "class": "group" if g else "none"}
+    # "empty": just the icon (no count, no title beside it), so the bar centres it
+    return {"text": text, "tooltip": tip, "class": ["group" if g else "none"] + ([] if wins else ["empty"])}
 
 
 def bar():

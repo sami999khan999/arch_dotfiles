@@ -34,7 +34,8 @@ end
 -- squeeze its sidebar and panel.
 for ws = 1, 10 do
     hl.workspace_rule({ workspace = tostring(ws), monitor = MONITOR1, default = ws == 1, persistent = true,
-                        layout = grouped[tostring(ws)] and "monocle" or nil })
+                        layout = tostring(ws) == PAIR_WS and "scrolling"   -- VS Code + kitty pairs (codepair.lua)
+                            or grouped[tostring(ws)] and "monocle" or nil })
 end
 
 -- Alt + N: window N of this workspace, oldest first (same order as `wsgroups focus N`). Done here
@@ -45,7 +46,7 @@ local function focusNth(n)
         hl.exec_cmd("notify-send -t 1500 Workspaces 'No window " .. n .. " here (" .. #wins .. " open)'")
         return
     end
-    focusKeepingFullscreen(wins[n])
+    focusPair(wins[n])   -- on the Code workspace: VS Code window n with its kitty
 end
 
 -- digits by physical keycode (AZERTY-safe, like binds.lua): 1..9 => 10..18, 0 => 19

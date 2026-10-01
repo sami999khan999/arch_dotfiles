@@ -43,7 +43,8 @@ def windows(ws, clients=None):
     """Windows on workspace ws, oldest first — that order is what Alt + N counts."""
     clients = query("clients") if clients is None else clients
     wins = [c for c in clients or [] if c["workspace"]["id"] == ws and c["mapped"]
-            and c["class"] != "TUI.float"]  # popups (this UI, sysmon, shortcut list) don't count
+            and c["class"] != "TUI.float" and not c["class"].startswith("code-term-")]
+    # popups (this UI, sysmon, shortcut list) and the kitty beside each VS Code window (codepair.lua) don't count
     return sorted(wins, key=lambda c: c.get("stableId", 0))
 
 

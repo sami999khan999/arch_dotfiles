@@ -9,6 +9,7 @@ require("modules.environment")
 require("modules.inputs")
 require("modules.binds")
 require("modules.apps")
+require("modules.codepair")   -- before wsgroups: it sets PAIR_WS
 require("modules.wsgroups")
 require("modules.controlcenter")
 require("modules.misc")

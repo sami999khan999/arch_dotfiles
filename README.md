@@ -174,7 +174,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 
 | Workspace | Group | Apps |
 |---|---|---|
-| 1 | Code | VS Code windows |
+| 1 | Code | VS Code windows, each with its kitty (below) |
 | 2 | Web | Chrome windows |
 | 3 | Terminal | kitty |
 | 7 | Files | Dolphin |
@@ -192,6 +192,15 @@ A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `
 and is fullscreen again when you come back (a mouse click on another window exits it).
 The waybar module on the right shows the current group and window, e.g. `Code 2/3`;
 hover for the numbered window list.
+
+**Code workspace: VS Code + kitty pairs.** Every VS Code window (Super + N, `code`, File > New
+Window…) opens with its own kitty beside it: kitty 30 % on the left, VS Code 70 %, together the
+whole screen. kitty starts in that window's project folder (found from the window title under
+`~/code`; an empty window gets `~/code`) and runs as its own app, so a dev server that runs out of
+memory takes down that kitty, not VS Code. The workspace uses Hyprland's scrolling layout: pairs
+sit side by side and `Alt + N` / `Alt + Tab` slide to VS Code window N with its kitty (kittys
+aren't counted). Closing a VS Code window closes its kitty. Lost a kitty? `kitty-pair <address>`
+(address from `hyprctl clients`) opens it again. Code: `modules/codepair.lua`, `local/bin/kitty-pair`.
 
 | Key / command | Does |
 |---|---|

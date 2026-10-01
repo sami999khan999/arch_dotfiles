@@ -111,7 +111,7 @@ function workspaceWindows()
     local ws = hl.get_active_workspace()
     local wins = {}
     for _, w in ipairs(ws and ws:get_windows() or {}) do
-        if w.mapped and w.class ~= "TUI.float" then table.insert(wins, w) end
+        if w.mapped and w.class ~= "TUI.float" and not isPairTerm(w) then table.insert(wins, w) end
     end
     table.sort(wins, function(a, b) return a.stable_id < b.stable_id end)
     return wins
@@ -144,11 +144,12 @@ end)
 local function cycle(step)
     local wins, active = workspaceWindows(), hl.get_active_window()
     if #wins < 2 then return end
+    active = active and pairMain(active)   -- in a VS Code + kitty pair, the kitty counts as its VS Code
     local i = 0
     for k, w in ipairs(wins) do
         if active and w.address == active.address then i = k end
     end
-    focusKeepingFullscreen(wins[(i - 1 + step) % #wins + 1])
+    focusPair(wins[(i - 1 + step) % #wins + 1])
 end
 
 -- Window cycling and monitors

@@ -11,7 +11,8 @@
   "modules-left": [
     "custom/logo",
     "custom/wsbar",
-    "group/wsbuttons"
+    "group/wsbuttons",
+    "custom/visualizer"
   ],
   "modules-center": [],
   "modules-right": [
@@ -158,6 +159,15 @@
     "exec": "~/.config/hypr/scripts/wintitle.py",
     "return-type": "json",
     "escape": true
+  },
+  // bars that move with whatever is playing (cava), filling the gap between the workspace buttons
+  // and the right section; hidden while it's silent. Click: play/pause
+  "custom/visualizer": {
+    "exec": "~/.config/hypr/scripts/visualizer.py",
+    "return-type": "json",
+    "restart-interval": 5,
+    "tooltip": false,
+    "on-click": "playerctl play-pause"
   },
   "mpris": {
     "format": "{status_icon}",

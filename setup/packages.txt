@@ -221,3 +221,4 @@ xdg-user-dirs
 xfsprogs
 xl2tpd
 zoxide
+cava

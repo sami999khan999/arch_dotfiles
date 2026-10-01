@@ -8,7 +8,8 @@ description: Add, move or restyle a waybar module in this dotfiles repo (config/
 One full-width strip (no outer margins, 1px line along the bottom), square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
 
 ```
-left:   logo │ workspace buttons (custom/ws1…10) │
+left:   logo │ workspace buttons (custom/ws1…10) │ audio visualizer (custom/visualizer: cava,
+        only while sound plays; its bar count follows the title's length to fill the gap)
 centre: (empty)
 right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
         (custom/window, max 30 chars in wintitle.py, hidden on an empty workspace) │

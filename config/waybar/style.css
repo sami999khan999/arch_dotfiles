@@ -1,6 +1,6 @@
 /* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
    Control Center.
-   Layout:  logo | workspaces               media | group + title | controls | stats | clock | power */
+   Layout:  logo | workspaces | visualizer      media | group + title | controls | stats | clock | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -72,6 +72,14 @@ window#waybar {
   border-right: 1px solid alpha(@line, 0.7);
 }
 
+/* ---- left, after the workspaces: audio visualizer (scripts/visualizer.py, while sound plays) */
+#custom-visualizer {
+  color: @accent;
+  font-size: 13px;
+  padding: 0 14px;      /* 28 px in total: PADDING in visualizer.py */
+  letter-spacing: 1px;
+}
+
 /* ---- left: logo, workspaces -------------------------------------------------------------- */
 #custom-logo {
   background: @accent;
@@ -132,7 +140,8 @@ window#waybar {
   color: @alert;
 }
 
-/* the focused window's title, in one block with the group count (an empty workspace hides it) */
+/* the focused window's title, in one block with the group count (an empty workspace hides it).
+   As wide as its text; the visualizer left of it grows or shrinks to fill what's left */
 #custom-window {
   color: @text;
   margin: 0;

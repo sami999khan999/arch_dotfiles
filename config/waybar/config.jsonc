@@ -16,19 +16,19 @@
   "modules-center": [
     "mpris",
     "custom/wsgroups",
-    "custom/window",
+    "custom/window"
+  ],
+  "modules-right": [
     "custom/codesync",
     "custom/keys",
     "group/tray-expander",
     "bluetooth",
     "network",
     "pulseaudio",
-    "group/stats"
-  ],
-  "modules-right": [
+    "group/stats",
+    "clock",
     "custom/idle-indicator",
     "custom/notification-silencing-indicator",
-    "clock",
     "custom/power"
   ],
   "group/stats": {

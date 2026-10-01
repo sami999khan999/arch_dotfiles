@@ -3,7 +3,7 @@
 -- scrolling layout: pairs sit side by side as columns, and Alt + N (VS Code windows only) slides
 -- the view to pair N. kitty-pair (local/bin) opens each kitty in its window's project folder, as
 -- its own app, with the class code-term-<VS Code address>: that's how a pair is found again.
--- Closing a VS Code window closes its kitty.
+-- Opening another project in a VS Code window takes its kitty there too; closing the window closes it.
 -- Globals: PAIR_WS (wsgroups.lua gives it this layout), isPairTerm and pairMain (binds.lua:
 -- Alt + N / Alt + Tab count VS Code windows, not their kittys), focusPair (Alt + N, Alt + Tab).
 
@@ -100,8 +100,28 @@ hl.on("window.open", function(w)
     end
 end)
 
+-- Another project opened in a VS Code window (its title's folder part changed): the kitty follows,
+-- by cd if it's idle or with a new tab if something is running (kitty-pair --follow). The title
+-- also changes with every file switched to, so only a different folder part counts.
+local folderOf = {}   -- VS Code address -> the folder part of its title last seen
+
+local function titleFolder(title)
+    local rest = title:match("^(.*) %- Visual Studio Code$")
+    return rest and (rest:match(".* %- (.-)$") or rest)
+end
+
+hl.on("window.title", function(w)
+    if not (w and CODE[w.class] and onPairWs(w)) then return end
+    local folder = titleFolder(w.title)
+    if folder and folder ~= folderOf[w.address] then
+        folderOf[w.address] = folder
+        hl.exec_cmd("~/.local/bin/kitty-pair --follow " .. w.address)
+    end
+end)
+
 hl.on("window.close", function(w)
     if w and CODE[w.class] then
+        folderOf[w.address] = nil
         local term = termOf(w)
         if term then hl.dispatch(hl.dsp.window.close({ window = "address:" .. term.address })) end
     end

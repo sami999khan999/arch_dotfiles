@@ -199,7 +199,9 @@ whole screen. kitty starts in that window's project folder (found from the windo
 `~/code`; an empty window gets `~/code`) and runs as its own app, so a dev server that runs out of
 memory takes down that kitty, not VS Code. The workspace uses Hyprland's scrolling layout: pairs
 sit side by side and `Alt + N` / `Alt + Tab` slide to VS Code window N with its kitty (kittys
-aren't counted). Closing a VS Code window closes its kitty. Lost a kitty? `kitty-pair <address>`
+aren't counted). Opening another project in a VS Code window takes its kitty along: it `cd`s
+there if it's idle, or opens a new tab there if something is running. Closing a VS Code window
+closes its kitty. Lost a kitty? `kitty-pair <address>`
 (address from `hyprctl clients`) opens it again. Code: `modules/codepair.lua`, `local/bin/kitty-pair`.
 
 | Key / command | Does |

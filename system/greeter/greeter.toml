@@ -1,0 +1,43 @@
+# noctalia-greeter: the login screen (greetd), styled like the desktop — Tokyo Night, the desktop's
+# wallpaper, JetBrains Mono, square corners, no Noctalia logo, sami pre-selected.
+# Installed as /var/lib/noctalia-greeter/greeter.toml by system/greeter/install.sh (needs root).
+# Options: https://github.com/noctalia-dev/noctalia-greeter/blob/main/examples/greeter.toml
+
+[session]
+default = "Hyprland (uwsm-managed)"
+
+[user]
+default = "sami"                       # straight to the password, no user picker
+
+[appearance]
+scheme = "Synced"                      # use the palette below
+theme_mode = "dark"
+password_style = "default"
+hide_logo = true
+power_buttons_position = "bottom-right"
+scheme_selector_position = "hidden"    # one look, no colour-scheme picker
+corner_radius_scale = 0.0              # square corners, like the bar and windows
+font_family = "JetBrainsMono Nerd Font"
+
+# the desktop's colours (AGENTS.md "Colours"; same as waybar and hyprlock)
+[appearance.palette]
+primary = "#6b8fe0"                    # accent
+on_primary = "#1a1b26"
+secondary = "#bb9af7"
+on_secondary = "#1a1b26"
+tertiary = "#9ece6a"
+on_tertiary = "#1a1b26"
+error = "#f7768e"
+on_error = "#1a1b26"
+surface = "#1a1b26"                    # base
+on_surface = "#c0caf5"                 # text
+surface_variant = "#292e42"            # overlay
+on_surface_variant = "#a9b1d6"         # subtext
+outline = "#3b4261"                    # line / border
+shadow = "#16161e"
+hover = "#292e42"                      # like the bar's hover
+on_hover = "#c0caf5"
+
+[appearance.wallpaper]
+path = "/var/lib/noctalia-greeter/wallpaper.jpg"   # copied from the desktop's by install.sh
+fill_mode = "crop"

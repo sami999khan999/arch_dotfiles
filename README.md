@@ -29,6 +29,7 @@ data drive (`system/fstab-data`) to `/etc/fstab` — machine-specific, don't run
 | `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
 | `system/` | *manual, needs root* | `/etc` files — Chrome policy, this PC's data-drive fstab line |
+| `system/greeter/` | *manual, needs root* | login screen (noctalia-greeter): Tokyo Night, the desktop's wallpaper — `pkexec ~/dotfiles/system/greeter/install.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
 
 `setup/install.sh` is idempotent and never deletes: anything real it finds in the way

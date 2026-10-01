@@ -31,7 +31,7 @@ EMPTY_PX = 38         # px freed on an empty workspace besides the title text: t
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
 INDICATOR_PX = 19     # px per active indicator (idle off / do not disturb)
-PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
+PADDING = 24          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars
 FIT_SLACK = 4         # px kept free: a label even 1 px too wide is ellipsized by GTK (a lone "…")

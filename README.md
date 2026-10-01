@@ -202,7 +202,9 @@ sit side by side and `Alt + N` / `Alt + Tab` slide to VS Code window N with its 
 aren't counted). Opening another project in a VS Code window takes its kitty along: it `cd`s
 there if it's idle, or opens a new tab there if something is running. Closing a VS Code window
 closes its kitty. `Super + F` (fullscreen) or `Super + Alt + F` (maximized, bar stays) makes
-the focused VS Code or kitty fill the screen; press it again and the pair is back side by side. Lost a kitty? `kitty-pair <address>`
+the focused VS Code or kitty fill the screen; press it again and the pair is back side by side.
+`Super + Alt + C` / `Super + Alt + T` do the same for the VS Code / the kitty on screen, whichever
+has the focus. Lost a kitty? `kitty-pair <address>`
 (address from `hyprctl clients`) opens it again. Code: `modules/codepair.lua`, `local/bin/kitty-pair`.
 
 | Key / command | Does |

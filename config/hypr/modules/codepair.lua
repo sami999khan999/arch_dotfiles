@@ -6,7 +6,7 @@
 -- Opening another project in a VS Code window takes its kitty there too; closing the window closes it.
 -- Globals: PAIR_WS (wsgroups.lua gives it this layout), isPairTerm and pairMain (binds.lua:
 -- Alt + N / Alt + Tab count VS Code windows, not their kittys), focusPair (Alt + N, Alt + Tab),
--- toggleFullscreen (binds.lua: Super + F, Super + Alt + F).
+-- toggleFullscreen and widenPairHalf (binds.lua: Super + F, Super + Alt + F / C / T).
 
 PAIR_WS = "1"
 -- VS Code's window class: "code" in older versions, "com.microsoft.VSCode" in newer ones
@@ -90,6 +90,34 @@ function toggleFullscreen(mode)
             focus(w)
         end, { timeout = 50, type = "oneshot" })
     end
+end
+
+-- Super + Alt + C / Super + Alt + T: the VS Code / the kitty of the pair on screen takes the full
+-- width (bar stays), whichever of the two has the focus; the same key again: back side by side.
+-- Sets the state explicitly (fullscreen_state) rather than toggling, so it also undoes Super + F.
+local function setFull(w, on)
+    hl.dispatch(hl.dsp.window.fullscreen_state({ internal = on and 1 or 0, client = 0, window = "address:" .. w.address }))
+end
+
+function widenPairHalf(which)
+    local active = hl.get_active_window()
+    local code = active and onPairWs(active) and pairMain(active)
+    if not (code and CODE[code.class]) then return end
+    local term = termOf(code)
+    local target = which == "code" and code or term
+    if not target then return end
+    local other = target == code and term or code
+    if target.fullscreen ~= 0 then
+        setFull(target, false)
+        hl.timer(function()        -- as in toggleFullscreen: bring the whole pair back into view
+            if term then focus(term) end
+            focus(target)
+        end, { timeout = 50, type = "oneshot" })
+        return
+    end
+    if other and other.fullscreen ~= 0 then setFull(other, false) end
+    focus(target)
+    setFull(target, true)
 end
 
 hl.on("window.open", function(w)

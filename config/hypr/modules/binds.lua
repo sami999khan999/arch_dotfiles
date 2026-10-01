@@ -65,6 +65,8 @@ bind("SUPER + P",                    hl.dsp.window.pseudo())
 bind("SUPER + T",                    hl.dsp.window.float({ action = "toggle" }))
 bind("SUPER + F",                    function() toggleFullscreen("fullscreen") end) -- fullscreen (a VS Code + kitty pair: again = side by side)
 bind("SUPER + ALT + F",              function() toggleFullscreen("maximized") end) -- maximize, bar stays (pairs: again = side by side)
+bind("SUPER + ALT + C",              function() widenPairHalf("code") end) -- VS Code of the pair on screen: full width (again = side by side)
+bind("SUPER + ALT + T",              function() widenPairHalf("term") end) -- kitty of the pair on screen: full width (again = side by side)
 bind("SUPER + O", function()          -- pop window out: float & pin
     hl.dispatch(hl.dsp.window.float({ action = "toggle" }))
     hl.dispatch(hl.dsp.window.pin())

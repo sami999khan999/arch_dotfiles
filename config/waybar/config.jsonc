@@ -13,12 +13,11 @@
     "custom/wsbar",
     "group/wsbuttons"
   ],
-  "modules-center": [
+  "modules-center": [],
+  "modules-right": [
     "mpris",
     "custom/wsgroups",
-    "custom/window"
-  ],
-  "modules-right": [
+    "custom/window",
     "custom/codesync",
     "custom/keys",
     "group/tray-expander",

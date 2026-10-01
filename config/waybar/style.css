@@ -1,6 +1,6 @@
 /* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
    Control Center.
-   Layout:  logo | workspaces        media | group + title        controls | stats | clock | power */
+   Layout:  logo | workspaces               media | group + title | controls | stats | clock | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -54,14 +54,16 @@ window#waybar {
 }
 
 /* dividers between sections: 1px, full height, same colour as the bottom line */
-#stats, #clock, #custom-power {
+/* #custom-codesync: closes the group count + title block; on the next module, so the divider
+   stays when the title is hidden (empty workspace) */
+#stats, #clock, #custom-power, #custom-codesync {
   border-left: 1px solid alpha(@line, 0.7);
 }
 /* the right section starts with a divider, like the left one ends with one */
 .modules-right {
   border-left: 1px solid alpha(@line, 0.7);
 }
-/* the media button opens the centre section */
+/* the media button opens the right section */
 #mpris.playing, #mpris.paused {
   border-right: 1px solid alpha(@line, 0.7);
 }
@@ -130,7 +132,7 @@ window#waybar {
   color: @alert;
 }
 
-/* the focused window's title, in the centre with the group count (an empty workspace hides it) */
+/* the focused window's title, in one block with the group count (an empty workspace hides it) */
 #custom-window {
   color: @text;
   margin: 0;

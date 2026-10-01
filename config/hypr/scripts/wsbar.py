@@ -7,7 +7,9 @@ instead, and reads its look from a small file this daemon keeps current:
 
     $XDG_RUNTIME_DIR/wsbar/N.json   {"text": icon, "class": "active|occupied|empty|urgent", "tooltip"}
 
-After each change it sends SIGRTMIN+8 to waybar, which makes all ten buttons re-read their file.
+After a change it sends SIGRTMIN+8 to waybar, which makes all ten buttons re-read their file. Only
+after a real change: every re-read also re-sets the button's tooltip, which flickers the tooltip
+under the mouse (e.g. while clicking a button to cycle that workspace's windows).
 Started by waybar itself (custom/wsbar, which prints nothing and stays hidden).
 """
 import json, os, signal, socket, subprocess, time
@@ -40,17 +42,26 @@ def group_names():
     return names
 
 
+last = None   # what the buttons show now, to skip updates that change nothing
+
+
 def write(urgent):
+    global last
     active = (hypr("activeworkspace") or {}).get("id")
     counts = {w["id"]: w.get("windows", 0) for w in hypr("workspaces") or []}
     urgent.discard(active)
     names = group_names()
+    states = {}
     for ws in WORKSPACES:
         n = counts.get(ws, 0)
         cls = "active" if ws == active else "urgent" if ws in urgent else "occupied" if n else "empty"
         name = names.get(ws, "unassigned")
         tip = f"{ws % 10} · {name} · {n} window{'s' if n != 1 else ''}"
-        state = {"text": ICONS.get(ws, str(ws % 10)), "class": cls, "tooltip": tip}
+        states[ws] = {"text": ICONS.get(ws, str(ws % 10)), "class": cls, "tooltip": tip}
+    if states == last:
+        return
+    last = states
+    for ws, state in states.items():
         path = os.path.join(RUN, f"{ws}.json")
         with open(path + ".tmp", "w") as f:
             json.dump(state, f, ensure_ascii=False)

@@ -16,6 +16,8 @@ local TERM_WIDTH = 0.3
 hl.config({ scrolling = { column_width = 1 - TERM_WIDTH, focus_fit_method = 1 } })
 -- a pair's kitty stays with its VS Code (other kitty windows go to the Terminal workspace)
 hl.window_rule({ match = { class = "^(code-term-.*)$" }, workspace = PAIR_WS })
+-- a pair appears and switches like one window: no sliding between pairs, no open/close animation
+hl.window_rule({ match = { class = "^(code|com\\.microsoft\\.VSCode|code-term-.*)$" }, no_anim = true })
 
 function isPairTerm(w)
     return w ~= nil and w.class:sub(1, #TERM) == TERM

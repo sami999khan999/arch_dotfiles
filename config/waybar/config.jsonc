@@ -13,12 +13,8 @@
     "custom/wsbar",
     "group/wsbuttons"
   ],
-  "modules-center": [],
-  "modules-right": [
+  "modules-center": [
     "mpris",
-    "clock",
-    "custom/idle-indicator",
-    "custom/notification-silencing-indicator",
     "custom/wsgroups",
     "custom/window",
     "custom/codesync",
@@ -27,7 +23,12 @@
     "bluetooth",
     "network",
     "pulseaudio",
-    "group/stats",
+    "group/stats"
+  ],
+  "modules-right": [
+    "custom/idle-indicator",
+    "custom/notification-silencing-indicator",
+    "clock",
     "custom/power"
   ],
   "group/stats": {

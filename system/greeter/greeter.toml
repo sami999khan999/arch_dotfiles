@@ -1,5 +1,5 @@
 # noctalia-greeter: the login screen (greetd), styled like the desktop — Tokyo Night, the desktop's
-# wallpaper, JetBrains Mono, square corners, no Noctalia logo, sami pre-selected.
+# wallpaper (blurred, darkened), JetBrains Mono, square corners, no Noctalia logo, sami pre-selected.
 # Installed as /var/lib/noctalia-greeter/greeter.toml by system/greeter/install.sh (needs root).
 # Options: https://github.com/noctalia-dev/noctalia-greeter/blob/main/examples/greeter.toml
 
@@ -39,5 +39,5 @@ hover = "#292e42"                      # like the bar's hover
 on_hover = "#c0caf5"
 
 [appearance.wallpaper]
-path = "/var/lib/noctalia-greeter/wallpaper.jpg"   # copied from the desktop's by install.sh
+path = "/var/lib/noctalia-greeter/wallpaper.jpg"   # the desktop's, blurred + darkened by install.sh
 fill_mode = "crop"

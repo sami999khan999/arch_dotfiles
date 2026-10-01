@@ -11,8 +11,7 @@
   "modules-left": [
     "custom/logo",
     "custom/wsbar",
-    "group/wsbuttons",
-    "custom/window"
+    "group/wsbuttons"
   ],
   "modules-center": [],
   "modules-right": [
@@ -21,6 +20,7 @@
     "custom/idle-indicator",
     "custom/notification-silencing-indicator",
     "custom/wsgroups",
+    "custom/window",
     "custom/codesync",
     "custom/keys",
     "group/tray-expander",

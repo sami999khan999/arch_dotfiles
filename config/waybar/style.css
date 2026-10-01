@@ -1,6 +1,6 @@
 /* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
    Control Center.
-   Layout:  logo | workspaces | title          media | clock | group | controls | stats | power */
+   Layout:  logo | workspaces          media | clock | group | title | controls | stats | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -54,15 +54,17 @@ window#waybar {
 }
 
 /* dividers between sections: 1px, full height, same colour as the bottom line */
-#custom-window, #stats, #custom-power, #custom-wsgroups, #clock,
+#stats, #custom-power, #custom-wsgroups, #clock,
 #mpris.playing, #mpris.paused {
   border-left: 1px solid alpha(@line, 0.7);
 }
-#custom-wsgroups {
+/* the workspace buttons always end with a divider (the title isn't there any more); the title
+   sits right of the group count, between dividers, and is hidden with them when nothing is open */
+#wsbuttons, #custom-wsgroups, #custom-window {
   border-right: 1px solid alpha(@line, 0.7);
 }
 
-/* ---- left: logo, workspaces, title ----------------------------------------------------- */
+/* ---- left: logo, workspaces -------------------------------------------------------------- */
 #custom-logo {
   background: @accent;
   color: @base;
@@ -91,6 +93,7 @@ window#waybar {
 
 #wsbuttons {
   margin: 0;
+  padding-right: 4px;
 }
 
 #wsbuttons label {
@@ -121,17 +124,11 @@ window#waybar {
   color: @alert;
 }
 
+/* the focused window's title, right of the group count (an empty workspace hides it) */
 #custom-window {
   color: @text;
-  margin: 0 4px 0 6px;
-  padding: 0 10px 0 12px;
-}
-
-/* collapses when the workspace is empty */
-#custom-window.empty {
-  padding: 0;
-  margin: 0;
-  border: none;
+  margin: 0 4px 0 0;
+  padding: 0 12px;
 }
 
 /* ---- right section, first: media, clock ------------------------------------------------ */

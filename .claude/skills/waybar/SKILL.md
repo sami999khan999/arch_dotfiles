@@ -8,9 +8,10 @@ description: Add, move or restyle a waybar module in this dotfiles repo (config/
 One full-width strip (no outer margins, 1px line along the bottom), square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
 
 ```
-left:   logo │ workspace buttons (custom/ws1…10) │ window title (custom/window)
+left:   logo │ workspace buttons (custom/ws1…10) │
 centre: (empty)
 right:  media (play/pause, only while a player is playing/paused) │ clock │ group label │
+        window title (custom/window, hidden on an empty workspace) │
         codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │ power
 ```
 

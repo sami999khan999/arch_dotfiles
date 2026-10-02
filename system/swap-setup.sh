@@ -11,8 +11,9 @@ set -euo pipefail
 # The root SSD's btrfs, by UUID, never /dev/sdX: disk names can change, and sda is Windows.
 UUID=3abf5105-0076-43bc-8721-2c73a08b0adf
 SIZE=16g
+PRIO=10  # below zram (100): zram fills first
 MOUNT_LINE="UUID=$UUID  /swap  btrfs  subvol=/@swap,defaults,noatime  0 0"
-SWAP_LINE="/swap/swapfile  none  swap  defaults,pri=10  0 0"
+SWAP_LINE="/swap/swapfile  none  swap  defaults,pri=$PRIO  0 0"
 
 [ -e "/dev/disk/by-uuid/$UUID" ] || { echo "btrfs $UUID not found, stopping"; exit 1; }
 
@@ -60,7 +61,7 @@ else
   systemctl daemon-reload
   echo "   added to /etc/fstab"
 fi
-swapon --show=NAME --noheadings | grep -qx /swap/swapfile || swapon /swap/swapfile
+swapon --show=NAME --noheadings | grep -qx /swap/swapfile || swapon --priority "$PRIO" /swap/swapfile  # swapon alone ignores fstab's pri=
 
 echo "== 5. Check"
 findmnt --verify

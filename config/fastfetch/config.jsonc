@@ -1,0 +1,60 @@
+// fastfetch — the system summary fish prints as its greeting (CachyOS fish config).
+// Tokyo Night, grouped into boxed sections; keys are Nerd Font icon + short label.
+// Colours are raw 24-bit ANSI ("38;2;R;G;B") so they match the rest of the rice exactly.
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "builtin",
+    "source": "CachyOS_small",
+    "color": { "1": "38;2;107;143;224", "2": "38;2;158;206;106" },
+    "padding": { "top": 7, "left": 3, "right": 4 }
+  },
+  "display": {
+    "separator": "  ",
+    "color": { "keys": "38;2;107;143;224", "title": "38;2;107;143;224", "output": "38;2;192;202;245" },
+    "key": { "width": 16 },
+    "bar": {
+      "char": { "elapsed": "■", "total": "■" },
+      "border": { "left": "", "right": "" },
+      "color": { "total": "38;2;59;66;97" },
+      "width": 12
+    },
+    "percent": {
+      "type": ["num", "bar"],
+      "color": { "green": "38;2;158;206;106", "yellow": "38;2;224;175;104", "red": "38;2;247;118;142" }
+    },
+    "size": { "binaryPrefix": "iec", "ndigits": 1 }
+  },
+  "modules": [
+    { "type": "title", "format": "{user-name-colored}{at-symbol-colored}{host-name-colored}" },
+    "break",
+
+    { "type": "custom", "format": "\u001b[38;2;59;66;97m╭─\u001b[38;2;169;177;214m system \u001b[38;2;59;66;97m────────────────────────────" },
+    { "type": "os",       "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   os", "format": "{name} {arch}" },
+    { "type": "kernel",   "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   kernel", "format": "{release}" },
+    { "type": "packages", "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰏗  pkgs" },
+    { "type": "uptime",   "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰥔  uptime" },
+    { "type": "custom", "format": "\u001b[38;2;59;66;97m╰──────────────────────────────────────" },
+
+    { "type": "custom", "format": "\u001b[38;2;59;66;97m╭─\u001b[38;2;169;177;214m desktop \u001b[38;2;59;66;97m───────────────────────────" },
+    { "type": "wm",       "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   wm",       "format": "{pretty-name} {version}" },
+    { "type": "terminal", "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   term",     "format": "{pretty-name} {version}" },
+    { "type": "shell",    "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   shell",    "format": "{pretty-name} {version}" },
+    { "type": "terminalfont", "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   font", "format": "{name} {size}pt" },
+    { "type": "theme",    "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰏘  theme" },
+    { "type": "custom", "format": "\u001b[38;2;59;66;97m╰──────────────────────────────────────" },
+
+    { "type": "custom", "format": "\u001b[38;2;59;66;97m╭─\u001b[38;2;169;177;214m hardware \u001b[38;2;59;66;97m──────────────────────────" },
+    { "type": "cpu",      "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   cpu",    "format": "{name} ({cores-logical}) @ {freq-max}" },
+    { "type": "gpu",      "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰍹  gpu", "hideType": "integrated", "format": "{name}" },
+    { "type": "display",  "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰍹  display", "format": "{width}x{height} @ {refresh-rate} Hz" },
+    { "type": "memory",   "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m   ram" },
+    { "type": "swap",     "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰒹  swap" },
+    { "type": "disk",     "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰋊  {mountpoint}", "folders": "/:/mnt/data", "format": "{size-percentage-bar} {size-used} / {size-total} ({size-percentage})" },
+    { "type": "localip",  "key": "\u001b[38;2;59;66;97m│\u001b[38;2;107;143;224m 󰈀  lan", "showPrefixLen": true },
+    { "type": "custom", "format": "\u001b[38;2;59;66;97m╰──────────────────────────────────────" },
+
+    "break",
+    { "type": "colors", "symbol": "circle", "paddingLeft": 2 }
+  ]
+}

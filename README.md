@@ -30,6 +30,7 @@ data drive (`system/fstab-data`) to `/etc/fstab` — machine-specific, don't run
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
 | `system/` | *manual, needs root* | `/etc` files — Chrome policy, this PC's data-drive fstab line |
 | `system/greeter/` | *manual, needs root* | login screen (noctalia-greeter): Tokyo Night, the desktop's wallpaper blurred and darkened — `pkexec ~/dotfiles/system/greeter/install.sh` |
+| `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
 
@@ -99,7 +100,8 @@ for the toolchains that don't come from pacman.
   each shell with `systemd-run --user --scope` (VS Code setting `terminal.integrated.profiles.linux`;
   shell integration is then loaded from `~/.zshrc`), so systemd-oomd kills that terminal, not
   VS Code. `Ctrl+Shift+C` opens kitty in the project folder instead (`local/bin/kitty-here`, set
-  as `terminal.external.linuxExec`), also as its own app.
+  as `terminal.external.linuxExec`), also as its own app. Memory rarely runs out at all: a 16 GB
+  SSD swapfile (`system/swap-setup.sh`) takes what overflows zram, so oomd's 90 % swap line is far away.
 - Per-project versions: put a `mise.toml` in the project (`mise use node@22`).
 - `Super + Shift + C` jumps to or opens VS Code.
 

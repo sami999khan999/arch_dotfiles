@@ -42,7 +42,7 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
 | `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |
-| `system/` | root-only bits: Chrome policy, this PC's data-drive fstab line; `root-setup.sh` applies both (machine-specific) |
+| `system/` | root-only bits: Chrome policy, this PC's data-drive fstab line; `root-setup.sh` applies both (machine-specific). `swap-setup.sh`: SSD swapfile after zram (this PC's btrfs UUID) |
 
 ## Apply and verify every change
 

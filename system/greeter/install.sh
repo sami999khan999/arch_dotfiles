@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# The login screen (noctalia-greeter under greetd): installs greeter.toml and the desktop's current
-# wallpaper into /var/lib/noctalia-greeter, owned by the greeter user. Idempotent; run it again after
-# changing greeter.toml or the wallpaper. Takes effect at the next login screen.
+# The login screen (noctalia-greeter under greetd): greetd's config (greetd.toml -> /etc/greetd) and
+# greetd as the display manager (instead of whatever a fresh install came with), then greeter.toml and
+# the desktop's current wallpaper into /var/lib/noctalia-greeter, owned by the greeter user.
+# Idempotent; run it again after changing greeter.toml or the wallpaper. Takes effect at the next
+# login screen.
 # Run with: pkexec /home/sami/dotfiles/system/greeter/install.sh
 set -euo pipefail
 
@@ -14,6 +16,16 @@ user="${SUDO_USER:-$(id -nu "${PKEXEC_UID:-0}")}"
 home="$(getent passwd "$user" | cut -d: -f6)"
 wall="$(cat "$home/.local/state/wallpaper" 2>/dev/null || true)"   # set by scripts/wallpaper.sh
 [[ -f "$wall" ]] || wall="$REPO/local/share/backgrounds/wallpapers/6-bloodborne.jpg"
+
+if ! cmp -s "$HERE/greetd.toml" /etc/greetd/config.toml; then
+  [[ -f /etc/greetd/config.toml ]] && cp /etc/greetd/config.toml /etc/greetd/config.toml.bak
+  install -Dm644 "$HERE/greetd.toml" /etc/greetd/config.toml
+  echo "greetd:    /etc/greetd/config.toml (old one: config.toml.bak)"
+fi
+if [[ "$(systemctl is-enabled greetd.service 2>/dev/null)" != enabled ]]; then
+  systemctl enable --force greetd.service   # --force: takes display-manager.service over from another one
+  echo "greetd:    the display manager from the next boot"
+fi
 
 install -d -o greeter -g greeter -m 0750 "$DEST"
 install -o greeter -g greeter -m 0640 "$HERE/greeter.toml" "$DEST/greeter.toml"

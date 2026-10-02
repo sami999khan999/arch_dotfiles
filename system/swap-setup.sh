@@ -8,8 +8,10 @@
 # Run with: pkexec /home/sami/dotfiles/system/swap-setup.sh
 set -euo pipefail
 
-# The root SSD's btrfs, by UUID, never /dev/sdX: disk names can change, and sda is Windows.
-UUID=3abf5105-0076-43bc-8721-2c73a08b0adf
+# The root filesystem's btrfs (the system SSD), by UUID, never /dev/sdX: disk names can change, and
+# on this PC sda is Windows. Read from the running system, so it works on any PC installed on btrfs.
+UUID=$(findmnt -no UUID /)
+[ "$(findmnt -no FSTYPE /)" = btrfs ] || { echo "/ isn't btrfs, stopping"; exit 1; }
 SIZE=16g
 PRIO=10  # below zram (100): zram fills first
 MOUNT_LINE="UUID=$UUID  /swap  btrfs  subvol=/@swap,defaults,noatime  0 0"

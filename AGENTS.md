@@ -38,13 +38,13 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `config/hypr/workspaces.conf` | workspace groups, read by `modules/wsgroups.lua` and `local/bin/wsgroups` |
 | `config/hypr/scripts/` | shell helpers (tui.sh, panel.sh, toggles, screenshots…) + waybar modules (wsbar, wintitle) |
 | `local/lib/panels/` | the panels: GTK windows `*gui.py` (in use; shared `gtkkit.py`, Control Center `ccgui.py`) and the older terminal versions (`panelkit.py`) |
-| `local/lib/panels/settings*.py` | Settings panel (Super + I): `settingslib.py` reads / writes / applies every setting, `settingsgui.py` is the window. Hyprland values: `config/hypr/settings.json` → generated `modules/settings.lua` (required last; don't hand-edit). Per-PC: `settings.local.json` (gitignored) |
-| `config/waybar/` | `config.jsonc` + `style.css` |
-| `local/bin/agentmux`, `local/lib/agentmux/`, `config/agentmux/` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents |
+| `local/lib/panels/settings*.py` | Settings panel (Super + I): `settingslib.py` reads / writes / applies every setting, `settingsgui.py` is the window. Key mapping (keys / mouse buttons → an action) is `remaps` in `settings.json` → `hl.bind`s in `settings.lua`. `settingslib.py restore` (run at login) puts gsettings back in line with the repo files. Hyprland values: `config/hypr/settings.json` → generated `modules/settings.lua` (required last; don't hand-edit). Per-PC: `settings.local.json` (gitignored) |
+| `config/waybar/` | `config.jsonc` + `style.css`; waybar runs as its packaged systemd user service (restarts itself after a crash) |
+| `local/bin/agentmux`, `local/lib/agentmux/`, `config/agentmux/`, `local/lib/panels/agentpickgui.py` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents. The New thread / Open project pickers are GTK popups (`agentpickgui.py`) |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
 | `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |
-| `system/` | root-only bits: Chrome policy, this PC's data-drive fstab line; `root-setup.sh` applies both (machine-specific). `swap-setup.sh`: SSD swapfile after zram (this PC's btrfs UUID) |
+| `system/` | root-only bits, run once per PC with `pkexec` (`install.sh` lists them): `root-setup.sh` (Chrome policy; this PC's data-drive fstab line, only where that drive is attached), `swap-setup.sh` (SSD swapfile after zram, on the root btrfs), `boot-splash.sh` (quiet boot), `greeter/install.sh` (greetd + noctalia-greeter, `greetd.toml`) |
 
 ## Apply and verify every change
 
@@ -53,8 +53,10 @@ Don't report a change as done without seeing it work:
 | Changed | Apply | Check |
 |---|---|---|
 | Hyprland config | `hyprctl reload` | `hyprctl configerrors` must print nothing |
-| waybar | `pkill -SIGUSR2 waybar` (reloads config + CSS, restarts custom scripts) | screenshot |
+| waybar | `systemctl --user restart waybar` (a live `SIGUSR2` reload can crash it) | screenshot |
 | a waybar custom script | same | run the script by hand; its output is JSON |
+| agentmux sidebars / home | `agentmux reload` (Ctrl+Alt+R: restarts the views, the agents keep running) | `tmux -L agentmux capture-pane -p -t %0`, `~/.cache/agentmux/errors.log` |
+| a package, a service, state outside `config/` | add it to `setup/` (packages lists, `install.sh`, `setup-dev.sh`) or `system/` | `setup/install.sh --dry-run` |
 | codesync | `systemctl --user restart codesync` | `codesync status`, `journalctl --user -u codesync` |
 | a GTK panel | close and reopen it (Control Center / Docker: kill its PID, `wsgroups launch 10 --background`) | off-screen screenshot (see the `tui-panel` skill) — don't pop windows on the user's screen |
 
@@ -86,17 +88,31 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
   `wsgroups.lua`).
 - Window rules matched through a tag (`floating-window`) are applied after plain ones; a size
   override for a tagged window must also match the tag.
-- The bar's clock is `custom/clock` (`scripts/clock.py`), not waybar's `clock`: the audio
-  visualizer fills the gap to the pixel and must know the clock's view. Anything on the right that
-  changes width must be fixed-width or followed by `scripts/visualizer.py` (see the `waybar` skill).
-  `mpris` tooltips are plain text (markup shows raw).
+- The audio visualizer fills the bar's gap to the pixel by measuring it (a one-row `grim` finds the
+  dividers either side) while it shows; keep a divider at both ends of that gap. Its threads share
+  one lock: Pango isn't thread-safe (two at once aborted the script). See the `waybar` skill.
+- `mpris` tooltips are plain text (markup shows raw).
 - waybar/GTK prefers ellipsizing a label over moving the centre island, so the window title is
   truncated in `scripts/wintitle.py`, not with `max-length`.
 - waybar signals in use: `RTMIN+8` workspace buttons, `+9` idle, `+10` notifications, `+11` codesync.
 - `pkill -f <pattern>` also matches the shell running it and kills your own command. Use
   `pkill -f '[c]ontrolcenter\.py'`-style patterns, or better, signal by PID.
+- agentmux's sidebars are terminal UIs in tmux panes (`local/lib/agentmux/term.py`), sharpened to look
+  like the GTK panels by its kitty (`config/kitty/agentmux.conf`: 10pt, `cell_height`, 1px box lines).
+  A gap finer than a line is a block character (`▀` …), which kitty draws to the pixel.
+- Keys sent to an app (Key mapping's Copy / Paste…): `hl.dsp.send_shortcut({ mods = "CTRL", key = "v" })`.
+  In a terminal Ctrl+C interrupts: Copy there takes the primary selection to the clipboard instead.
 - The Bash tool's shell is zsh/fish-like: `--include=*.lua` globs fail and `$PIPESTATUS` is empty.
   Wrap scripting in `bash -c '…'`, or use Python.
+
+## Every PC the same
+
+A fresh CachyOS + `setup/install.sh --packages` + the `system/` steps must give this exact desktop.
+So: a package you install goes into `setup/packages.txt` (or `packages-aur.txt`); a tool from an
+installer goes into `setup-dev.sh`; a user service, a gsettings value or anything else outside the
+repo needs a step that recreates it (`install.sh`, `settingslib.py restore`, or `system/` for root).
+Per-PC on purpose: monitor modes (`settings.local.json`), `codesync/machine.json`, time zone, power
+profile, GPU services.
 
 ## Safety
 

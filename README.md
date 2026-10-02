@@ -16,8 +16,24 @@ setup/install.sh --packages             # packages + /etc files + symlinks
 
 Then log out and back in. Re-run `setup/install.sh` (no flag) any time to relink.
 
-`system/root-setup.sh` (run once with `pkexec`) writes the Chrome policy and adds this PC's
-data drive (`system/fstab-data`) to `/etc/fstab` — machine-specific, don't run it elsewhere.
+That gives the same packages (`setup/packages*.txt` hold everything installed by name on the
+first PC), the same config, toolchains, coding agents and their agentmux hooks. The rest needs
+root or a choice, once per PC (`install.sh` prints the list at the end):
+
+```bash
+pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
+pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
+pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; the data drive, where it's attached
+codesync enable                               # code backup (asks where the code is)
+```
+
+Then sign in: VS Code (Settings Sync brings its settings), Chrome, and the coding agents.
+What isn't in git follows the repo by itself: at every login `settingslib.py restore` puts the
+theme, cursor, fonts and clock format in gsettings back in line with `config/gtk-3.0/settings.ini`
+and `config/hypr/settings.json` (also how a theme change made on one PC reaches the other).
+Per-PC on purpose: monitor modes (`settings.local.json`), `config/codesync/machine.json`, time
+zone, power profile, the GPU's own services.
 
 ## Layout
 
@@ -77,6 +93,9 @@ directly into each app. Nothing generates them:
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. Helper scripts (power menu, toggles, screenshots) are in
 `config/hypr/scripts/`.
+
+The bar runs as waybar's own systemd user service (`autostart.lua` starts `waybar.service`): if
+it crashes it comes back by itself within a second. Restart it with `systemctl --user restart waybar`.
 
 Noctalia is still installed but no longer autostarted.
 
@@ -274,7 +293,7 @@ control applies at once; the bottom line says where it was saved.
 | Group | Sections |
 |---|---|
 | Look & feel | Appearance (gaps, borders, corners, opacity, blur, shadow, what's behind an open panel: on / off, how blurry, how dark) · Animations (on/off, speed, workspace slide) · Wallpaper (thumbnails, fill / fit) · Theme & fonts (dark mode, icons, cursor, fonts; nwg-look / qt6ct for more) |
-| Input & display | Keyboard (layouts, switch key, repeat, Num Lock) · Mouse (speed, acceleration, natural scroll, focus follows mouse, zoom) · Display (mode and scale, with a 15 s "keep?" that reverts; VRR) · Night light (warmth, schedule) |
+| Input & display | Keyboard (layouts, switch key, repeat, Num Lock) · Mouse (speed, acceleration, natural scroll, focus follows mouse, zoom) · Key mapping (any key or mouse button, side buttons included, to Copy / Paste / media / a shortcut / a command) · Display (mode and scale, with a 15 s "keep?" that reverts; VRR) · Night light (warmth, schedule) |
 | Power & bar | Idle & lock (lock / screen-off timeouts, lock before sleep, stay awake) · Power profile · Notifications (corner, timeout, Do not disturb, hidden apps) · Top bar (position, height, stats) |
 | System | Default apps (terminal, browser…, and what opens links / files) · Date & time (time zone, NTP, 24-hour clock) · More settings (opens the other panels) · About this PC |
 
@@ -288,6 +307,12 @@ is only the layout):
 - **Everything else** in its own file, by line edits of the known keys: `hypridle.conf`,
   `mako/config`, `waybar/config.jsonc`, `variables.lua` (+ `uwsm/env`, `kdeglobals`),
   `mimeapps.list`, `gtk-3.0/settings.ini`, `xsettingsd.conf`, `qt6ct.conf`, plus gsettings.
+- Key mapping: press a key or mouse button in the box (it shows its name, and what already uses it),
+  pick an action, Add. Saved as `remaps` in settings.json; `modules/settings.lua` gets an `hl.bind`
+  per mapping (Hyprland reloads). Copy / Paste send Ctrl+C / Ctrl+V to the focused window; in a
+  terminal (kitty, agentmux, the VS Code kittys) Copy takes the selection to the clipboard instead
+  (`wl-paste --primary | wl-copy`: Ctrl+C would interrupt) and Paste is Ctrl+Shift+V. A mapped key
+  or button does only that, everywhere. Super + K lists the mappings.
 - Night light: `toggle.sh nightlight [on|off|auto]` reads the warmth and schedule from
   settings.json; the schedule is two systemd user timers (`settings-nightlight-on/off.timer`), and
   `auto` at login. The bar clock's 24-hour switch and the wallpaper's fill / fit are in

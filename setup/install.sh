@@ -113,4 +113,12 @@ cat <<'EOF'
 
 Done. Log out and back in so Hyprland reloads.
 (Without --packages, install them with: ~/dotfiles/setup/install.sh --packages)
+
+Once on a new PC, to make it the same as the others (README "Bootstrap a new machine"):
+  pkexec ~/dotfiles/system/greeter/install.sh   login screen (greetd + noctalia-greeter)
+  pkexec ~/dotfiles/system/boot-splash.sh       loading screen at boot and shutdown
+  pkexec ~/dotfiles/system/swap-setup.sh        SSD swapfile after zram
+  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, the data drive where it's attached
+  codesync enable                               code backup (asks where the code is)
+  sign in: VS Code Settings Sync, Chrome, claude / codex / opencode / agy
 EOF

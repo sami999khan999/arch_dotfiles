@@ -38,12 +38,14 @@ cachyos-v4-mirrorlist
 cachyos-wallpapers
 cachyos-zsh-config
 cantarell-fonts
+cava
 chwd
 cmake
 cpupower
 cryptsetup
 device-mapper
 diffutils
+discord
 dmidecode
 dmraid
 dnsmasq
@@ -76,9 +78,9 @@ grub-btrfs-support
 grub-hook
 gst-libav
 gst-plugin-pipewire
+gst-plugin-va
 gst-plugins-bad
 gst-plugins-ugly
-gst-plugin-va
 gtk4
 hdparm
 httpie
@@ -98,9 +100,6 @@ jfsutils
 jq
 kdegraphics-thumbnailers
 kitty
-tmux
-opencode
-openai-codex
 lazydocker
 lazygit
 less
@@ -151,7 +150,9 @@ nss-mdns
 nvidia-580xx-dkms
 nvidia-580xx-settings
 nvidia-580xx-utils
+openai-codex
 opencl-nvidia-580xx
+opencode
 openssh
 os-prober
 pacman-contrib
@@ -179,12 +180,12 @@ reflector
 ripgrep
 rsync
 rustup
+s-nail
 satty
 sg3_utils
 shelly
 slurp
 smartmontools
-s-nail
 snapper
 sof-firmware
 starship
@@ -193,6 +194,7 @@ swaybg
 swayosd
 sysfsutils
 texinfo
+tmux
 tree
 ttf-bitstream-vera
 ttf-dejavu
@@ -224,4 +226,3 @@ xdg-user-dirs
 xfsprogs
 xl2tpd
 zoxide
-cava

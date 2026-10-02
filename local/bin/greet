@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
-"""greet — the terminal greeting (fish_greeting): a spinning 3D bagel beside a boxed system summary,
-laid out for the terminal it opens in.
+"""greet — the terminal greeting (fish_greeting): a slowly spinning 3D bagel beside a boxed system
+summary, laid out for the terminal it opens in.
 
-The bagel is a torus drawn as text (after Andy Sloane's donut.c): every frame rotates it, lights it
-from above-behind and shades each cell by brightness, in Tokyo Night blues. It spins for SPIN seconds
-and settles; any key stops it at once, and that key still reaches the shell (it is never read here).
-The summary comes from fastfetch's JSON (fastfetch --format json).
+The bagel is a torus drawn as text (after Andy Sloane's donut.c): rotated, lit from above-behind and
+shaded cell by cell in Tokyo Night blues. It turns slowly until you press a key; that key still
+reaches the shell (it is never read here), so you can just start typing. A resize stops it too.
+The spin is a seamless loop of LOOP frames. Drawing one costs tens of ms of Python, so each loop is
+drawn once per bagel size, as it plays, and kept in ~/.cache/greet/: after that a frame is a copy.
+Only the bagel's rows are redrawn, and a colour is only sent where it changes.
 
-Layout, by the terminal's size:
-  wide      the bagel (about 40 % of the width, as tall as the window allows) beside the boxes
-  medium    the boxes alone, full width
-  narrow    nothing (agentmux's terminal column, a VS Code kitty: it would only wrap)
+The summary comes from fastfetch's JSON (fastfetch --format json). Layout, by the terminal's width:
+  from BAGEL   the bagel (about 36 % of the width, as tall as the window allows) beside the boxes
+  from NARROW  the boxes alone, full width
+  below        nothing (agentmux's terminal column, a VS Code kitty: it would only wrap)
 The boxes fill the width they get: system and desktop side by side when both fit, hardware below;
-the level bars grow with them, and a value too long for its box is cut with "…".
+the bars grow with them, and a value too long for its box is cut with "…".
 
   greet            animated (a still frame when the output isn't a terminal)
   greet --still    no animation
 """
-import json, math, os, select, shutil, subprocess, sys, termios, time, unicodedata
+import json, math, os, select, shutil, signal, subprocess, sys, termios, time, unicodedata
 
-SPIN = 1.6            # seconds of spinning before it settles
-FPS = 30
-SHADES = ".,-~:;=!*#$@"     # dim to bright
-NARROW, WIDE = 60, 110      # columns: below NARROW nothing, from WIDE the bagel too
+FPS = 10              # slow and calm; also what an uncached first loop can afford to draw
+LOOP = 120            # frames per full turn (12 s): the cache holds one loop
+SHADES = " .,-~:;=!*#$@"    # blank, then dim to bright
+NARROW, BAGEL = 60, 90      # columns: below NARROW nothing, from BAGEL the bagel too
 GAP = 4                     # columns between the bagel and the boxes, and between two boxes
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "greet")
 
 # Tokyo Night (AGENTS.md "Colours")
 LINE, MUTED, SUB, TEXT, ACCENT = "#3b4261", "#565f89", "#a9b1d6", "#c0caf5", "#6b8fe0"
@@ -41,8 +44,8 @@ def mix(a, b, t):
     return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(pa, pb))
 
 
-# brightness, dim to bright: the line colour, through the accent blue, to the text white
-RAMP = [fg(mix(LINE, ACCENT, i / 6)) for i in range(7)] + [fg(mix(ACCENT, TEXT, i / 5)) for i in range(1, 6)]
+# a shade's colour, dim to bright: the line colour, through the accent blue, to the text white
+RAMP = [""] + [fg(mix(LINE, ACCENT, i / 6)) for i in range(7)] + [fg(mix(ACCENT, TEXT, i / 5)) for i in range(1, 6)]
 
 
 def width(s):
@@ -72,8 +75,8 @@ def cut(s, n):
 
 # ---- the bagel ---------------------------------------------------------------------------------
 class Bagel:
-    """A torus rendered into w x h cells. The sample points scale with the size (no holes when it's
-    big, no waste when it's small); their sines are worked out once."""
+    """A torus in w x h cells: frame k of a loop, as h strings of shade characters (colour comes at
+    drawing). Its sample points scale with the size; their sines are worked out once."""
     R1, R2, K2 = 1.0, 2.0, 5.0
 
     def __init__(self, w, h):
@@ -83,9 +86,40 @@ class Bagel:
         steps = max(w, 2 * h)
         self.thetas = [(math.cos(t), math.sin(t)) for t in frange(0, 2 * math.pi, 3.6 / steps)]
         self.phis = [(math.cos(p), math.sin(p)) for p in frange(0, 2 * math.pi, 1.5 / steps)]
+        self.path = os.path.join(CACHE, f"bagel-{w}x{h}-{LOOP}.json")
+        try:
+            self.frames = json.load(open(self.path))
+        except (OSError, ValueError):
+            self.frames = []
+        self.frames = self.frames if len(self.frames) == LOOP else []
 
-    def frame(self, a, b):
+    def get(self, k):
+        """Frame k (0 … LOOP-1): from the cache, else drawn now; the whole loop is saved once done."""
+        if len(self.frames) > k:
+            return self.frames[k]
+        frame = self.draw(2 * math.pi * k / LOOP)
+        if len(self.frames) == k:
+            self.frames.append(frame)
+            if len(self.frames) == LOOP:
+                try:
+                    os.makedirs(CACHE, exist_ok=True)
+                    with open(self.path + ".tmp", "w") as f:
+                        json.dump(self.frames, f)
+                    os.replace(self.path + ".tmp", self.path)
+                    # one loop per window size seen: keep the 8 most recent (~200 KB each)
+                    kept = sorted((os.path.join(CACHE, n) for n in os.listdir(CACHE) if n.startswith("bagel-")),
+                                  key=os.path.getmtime, reverse=True)
+                    for old in kept[8:]:
+                        os.remove(old)
+                except OSError:
+                    pass
+        return frame
+
+    def draw(self, t):
+        """The torus at loop phase t (0 … 2π): turned once about x and twice about z per loop, so the
+        last frame meets the first."""
         w, h, k1, R1, R2, K2 = self.w, self.h, self.k1, self.R1, self.R2, self.K2
+        a, b = t + 1.0, 2 * t + 0.6
         zbuf = [0.0] * (w * h)
         lum_at = [0.0] * (w * h)
         ca, sa, cb, sb = math.cos(a), math.sin(a), math.cos(b), math.sin(b)
@@ -102,19 +136,29 @@ class Bagel:
                     if ooz > zbuf[i]:
                         zbuf[i] = ooz
                         lum_at[i] = cp * ct * sb - ca * ct * sp - sa * st + cb * (ca * st - ct * sa * sp)
-        lines, top = [], len(SHADES) - 1
+        top = len(SHADES) - 1
+        rows = []
         for y in range(h):
-            line = ""
+            row = []
             for x in range(w):
                 i = y * w + x
-                if not zbuf[i]:
-                    line += " "
-                    continue
                 # lit from above-behind: lum runs about -√2…√2; the far side stays faint, never blank
-                s = max(0, min(top, int((lum_at[i] + 1.2) / 2.6 * top + 0.5)))
-                line += RAMP[s] + SHADES[s]
-            lines.append(line + RESET)
-        return lines
+                row.append(SHADES[max(1, min(top, int((lum_at[i] + 1.2) / 2.6 * (top - 1) + 1.5)))]
+                           if zbuf[i] else " ")
+            rows.append("".join(row))
+        return rows
+
+
+def paint(row):
+    """A row of shade characters in colour; a colour code only where it changes."""
+    out, last = [], None
+    for ch in row:
+        i = SHADES.index(ch)
+        if i and i != last:
+            out.append(RAMP[i])
+            last = i
+        out.append(ch)
+    return "".join(out) + RESET
 
 
 def frange(start, stop, step):
@@ -124,10 +168,6 @@ def frange(start, stop, step):
 
 
 # ---- the facts ---------------------------------------------------------------------------------
-def gib(n):
-    return f"{n / 1073741824:.1f} GiB"
-
-
 def facts():
     """{module type: result} from fastfetch's JSON."""
     mods = "Title:OS:Kernel:Packages:Uptime:WM:Terminal:Shell:TerminalFont:Theme:CPU:GPU:Display:Memory:Swap:Disk:LocalIp"
@@ -138,68 +178,79 @@ def facts():
         return {}
 
 
-def sections(f):
-    """[(title, [(icon, key, value)])]: value is plain text, or ("bar", used, total) for a level."""
-    def get(kind, *path, default=None):
-        v = f.get(kind)
-        for p in path:
-            v = v.get(p) if isinstance(v, dict) else None
-        return v if v not in (None, "") else default
+def get(f, kind, *path, default=None):
+    v = f.get(kind)
+    for p in path:
+        v = v.get(p) if isinstance(v, dict) else None
+    return v if v not in (None, "") else default
 
-    up = (get("Uptime", "uptime", default=0) or 0) // 1000
+
+def sections(f):
+    """[(title, icon, [(icon, key, value)])]: value is text, or ("bar", used, total) for a level."""
+    up = (get(f, "Uptime", "uptime", default=0) or 0) // 1000
     days, hours, mins = up // 86400, up % 86400 // 3600, up % 3600 // 60
     uptime = (f"{days} d " if days else "") + (f"{hours} h " if hours or days else "") + f"{mins} min"
-    pkgs = get("Packages", default={}) or {}
-    font = get("TerminalFont", "font", default={}) or {}
-    cpu = get("CPU", default={}) or {}
+    pkgs = get(f, "Packages", default={}) or {}
+    font = get(f, "TerminalFont", "font", default={}) or {}
+    cpu = get(f, "CPU", default={}) or {}
     freq = (cpu.get("frequency") or {}).get("max")
-    gpus = [g["name"] for g in (get("GPU", default=[]) or []) if g.get("type") != "Integrated" and g.get("name")]
+    gpus = [g["name"] for g in (get(f, "GPU", default=[]) or []) if g.get("type") != "Integrated" and g.get("name")]
     shows = [f"{d['output']['width']}x{d['output']['height']} @ {round(d['output']['refreshRate'])} Hz"
-             for d in (get("Display", default=[]) or []) if d.get("output")]
-    mem = get("Memory", default={}) or {}
-    swaps = get("Swap", default=[]) or []
-    disks = [d for d in (get("Disk", default=[]) or [])
+             for d in (get(f, "Display", default=[]) or []) if d.get("output")]
+    mem = get(f, "Memory", default={}) or {}
+    swaps = get(f, "Swap", default=[]) or []
+    disks = [d for d in (get(f, "Disk", default=[]) or [])
              if d.get("mountpoint") == "/" or str(d.get("mountpoint", "")).startswith("/mnt/")]
-    ip = next((i.get("ipv4") for i in (get("LocalIp", default=[]) or []) if i.get("ipv4")), None)
-    theme = ", ".join(t for t in (get("Theme", "theme2"), get("Theme", "theme1")) if t)
+    ip = next((i.get("ipv4") for i in (get(f, "LocalIp", default=[]) or []) if i.get("ipv4")), None)
+    theme = ", ".join(t for t in (get(f, "Theme", "theme2"), get(f, "Theme", "theme1")) if t)
     joined = lambda *parts: " ".join(str(p) for p in parts if p) or None
 
-    system = [("", "os", joined(get("OS", "name"), get("Kernel", "architecture"))),
-              ("", "kernel", get("Kernel", "release")),
-              ("\U000f03d7", "pkgs", f"{pkgs['all']} (pacman)" if pkgs.get("all") else None),
+    system = [("", "os", joined(get(f, "OS", "name"), get(f, "Kernel", "architecture"))),
+              ("", "kernel", get(f, "Kernel", "release")),
+              ("\U000f03d7", "packages", f"{pkgs['all']} (pacman)" if pkgs.get("all") else None),
               ("\U000f0954", "uptime", uptime)]
-    desktop = [("", "wm", joined(get("WM", "prettyName"), get("WM", "version"))),
-               ("", "term", joined(get("Terminal", "prettyName"), get("Terminal", "version"))),
-               ("", "shell", joined(get("Shell", "prettyName"), get("Shell", "version"))),
+    desktop = [("", "wm", joined(get(f, "WM", "prettyName"), get(f, "WM", "version"))),
+               ("", "terminal", joined(get(f, "Terminal", "prettyName"), get(f, "Terminal", "version"))),
+               ("", "shell", joined(get(f, "Shell", "prettyName"), get(f, "Shell", "version"))),
                ("", "font", font.get("pretty") or joined(font.get("name"), font.get("size") and f"{font['size']}pt")),
                ("\U000f03d8", "theme", theme or None)]
     hardware = [("", "cpu", joined(cpu.get("cpu"), cpu.get("cores") and f"({cpu['cores'].get('logical')})",
                                          freq and f"@ {freq / 1000:.2f} GHz") if cpu.get("cpu") else None),
                 *[("\U000f0379", "gpu", g) for g in gpus],
                 *[("\U000f0379", "display", d) for d in shows],
-                ("", "ram", ("bar", mem["used"], mem["total"]) if mem.get("total") else None),
+                ("", "memory", ("bar", mem["used"], mem["total"]) if mem.get("total") else None),
                 ("\U000f04b9", "swap", ("bar", sum(s["used"] for s in swaps), sum(s["total"] for s in swaps))
                  if sum(s.get("total", 0) for s in swaps) else None),
                 *[("\U000f02ca", d["mountpoint"], ("bar", d["bytes"]["used"], d["bytes"]["total"])) for d in disks],
-                ("\U000f0200", "lan", ip)]
-    return [(t, [r for r in rows if r[2]]) for t, rows in
-            (("system", system), ("desktop", desktop), ("hardware", hardware))]
+                ("\U000f0200", "network", ip)]
+    return [(t, icon, [r for r in rows if r[2]]) for t, icon, rows in
+            (("system", "", system), ("desktop", "", desktop), ("hardware", "", hardware))]
 
 
 # ---- the boxes ---------------------------------------------------------------------------------
-def box(title, rows, w, key_w):
-    """A box exactly w cells wide: rounded corners, the title in the top edge, one row per fact."""
+def box(title, icon, rows, w, key_w):
+    """A box exactly w cells wide: rounded corners, icon + title in the top edge, a row per fact
+    (icon, the key in grey, the value in white; a level is a bar and aligned numbers)."""
     inner = w - 2
-    head = f" {title} "
-    out = [f"{fg(LINE)}╭─{fg(SUB)}{head}{fg(LINE)}{'─' * max(inner - width(head) - 1, 0)}╮{RESET}"]
-    room = inner - (1 + 1 + 2 + key_w) - 1   # after " icon  key"
-    # one bar length for the whole box (the longest "used / total (pct)" decides), so they line up
-    tails = [width(level_tail(*v[1:])) for _, _, v in rows if isinstance(v, tuple)]
-    cells = max(6, min(40, room - max(tails))) if tails else 0
-    for icon, key, value in rows:
-        lead = f" {fg(ACCENT)}{icon}  {key:<{key_w}}"
+    head = f" {icon}  {title} "
+    out = [f"{fg(LINE)}╭─{fg(ACCENT)} {icon}  {fg(SUB)}{BOLD}{title}{RESET} "
+           f"{fg(LINE)}{'─' * max(inner - width(head) - 1, 0)}╮{RESET}"]
+    room = inner - (2 + 1 + 2 + key_w) - 1   # after "  icon  key"
+    levels = [v for _, _, v in rows if isinstance(v, tuple)]
+    num_w = max((len(f"{v[1] / 2 ** 30:.1f}") for v in levels), default=0)
+    tot_w = max((len(f"{v[2] / 2 ** 30:.1f}") for v in levels), default=0)
+    tail_w = num_w + 3 + tot_w + 4 + 6            # "used / total GiB  100%"
+    cells = max(6, min(36, room - tail_w - 2))
+    for icon_, key, value in rows:
+        lead = f"  {fg(ACCENT)}{icon_}  {fg(MUTED)}{key:<{key_w}}"
         if isinstance(value, tuple):
-            text = level(*value[1:], cells)
+            _, used, total = value
+            pct = used / total if total else 0
+            colour = GREEN if pct < .6 else AMBER if pct < .85 else RED
+            n = round(pct * cells)
+            text = (f"{fg(colour)}{'━' * n}{fg(LINE)}{'━' * (cells - n)}{RESET}  "
+                    f"{fg(TEXT)}{used / 2 ** 30:>{num_w}.1f}{fg(MUTED)} / {fg(TEXT)}{total / 2 ** 30:>{tot_w}.1f}"
+                    f"{fg(MUTED)} GiB  {fg(colour)}{pct * 100:>3.0f}%{RESET}")
         else:
             text = f"{fg(TEXT)}{cut(value, room)}{RESET}"
         body = lead + text
@@ -208,64 +259,48 @@ def box(title, rows, w, key_w):
     return out
 
 
-def level_tail(used, total):
-    return f"  {gib(used)} / {gib(total)} ({(used / total if total else 0) * 100:.0f}%)"
-
-
-def level(used, total, cells):
-    """A bar cells long, then "used / total (pct)"."""
-    pct = used / total if total else 0
-    colour = GREEN if pct < .6 else AMBER if pct < .85 else RED
-    n = round(pct * cells)
-    return (f"{fg(colour)}{'■' * n}{fg(LINE)}{'■' * (cells - n)}{RESET}  {fg(TEXT)}{gib(used)} / {gib(total)} "
-            f"{fg(MUTED)}({pct * 100:.0f}%){RESET}")
-
-
 def panel(f, w):
-    """The right side, w cells wide: a header line, then the boxes (two side by side when they fit)."""
-    secs = dict(sections(f))
-    key_w = max(len(k) for rows in secs.values() for _, k, _ in rows) + 2
+    """The summary, w cells wide: a header and a rule, then the boxes (two side by side when they fit)."""
+    secs = sections(f)
+    key_w = max(len(k) for _, _, rows in secs for _, k, _ in rows) + 2
     t = f.get("Title") or {}
     user, host = t.get("userName", os.environ.get("USER", "")), t.get("hostName", os.uname().nodename)
-    when = time.strftime("%a %d %b  %H:%M")
-    left = f"{fg(ACCENT)}{BOLD}{user}{RESET}{fg(MUTED)}@{fg(ACCENT)}{BOLD}{host}{RESET}"
-    out = [left + " " * max(w - width(left) - len(when) - 1, 1) + f"{fg(MUTED)}{when}{RESET}", ""]
+    sub = " · ".join(x for x in (get(f, "OS", "prettyName"), joined_wm(f)) if x)
+    left = (f"{fg(ACCENT)}{BOLD}{user}{RESET}{fg(MUTED)}@{fg(ACCENT)}{BOLD}{host}{RESET}"
+            + (f"  {fg(MUTED)}{sub}{RESET}" if sub else ""))
+    when = time.strftime("%A %d %B")
+    if width(left) + len(when) + 2 > w:
+        when = ""
+    out = [left + " " * max(w - width(left) - len(when), 1) + f"{fg(MUTED)}{when}{RESET}",
+           f"{fg(LINE)}{'─' * w}{RESET}", ""]
     half = (w - GAP) // 2
-    pair_fits = half >= key_w + 34   # each of the two still holds a full line
-    if pair_fits:
-        a, b = box("system", secs["system"], half, key_w), box("desktop", secs["desktop"], w - GAP - half, key_w)
-        blank_a, blank_b = " " * half, " " * (w - GAP - half)
+    first, second, hardware = secs
+    if half >= key_w + 38:   # each of the two still holds a whole line
+        a, b = box(*first, half, key_w), box(*second, w - GAP - half, key_w)
         for i in range(max(len(a), len(b))):
-            out.append((a[i] if i < len(a) else blank_a) + " " * GAP + (b[i] if i < len(b) else blank_b))
+            out.append((a[i] if i < len(a) else " " * half) + " " * GAP
+                       + (b[i] if i < len(b) else " " * (w - GAP - half)))
     else:
-        out += box("system", secs["system"], w, key_w) + box("desktop", secs["desktop"], w, key_w)
-    out += box("hardware", secs["hardware"], w, key_w)
-    dots = "  ".join(fg(c) + "" for c in (LINE, MUTED, SUB, ACCENT, CYAN, MAGENTA, GREEN, AMBER, RED))
-    return out + ["", " " + dots + RESET]
+        out += box(*first, w, key_w) + box(*second, w, key_w)
+    out += box(*hardware, w, key_w)
+    return out
+
+
+def joined_wm(f):
+    name, version = get(f, "WM", "prettyName"), get(f, "WM", "version")
+    return f"{name} {version}" if name and version else name
 
 
 # ---- layout and drawing ------------------------------------------------------------------------
 def layout(cols, rows):
     """(bagel w, h, panel w) for this terminal; bagel w 0 when there's no room for it."""
     margin = 2
-    if cols < WIDE:
+    if cols < BAGEL:
         return 0, 0, cols - 2 * margin
-    bw = max(30, min(int(cols * 0.40), 80))
-    bh = min(bw // 2, max(rows - 6, 12))   # leaves the prompt room below it
+    bw = max(28, min(int(cols * 0.36), 76))
+    bh = min(bw // 2, max(rows - 4, 12))   # leaves the prompt room below it
     bw = min(bw, bh * 2 + 2)               # a short window: a narrower bagel, still round
     return bw, bh, cols - 2 * margin - bw - GAP
-
-
-def compose(frame, right, bw):
-    """The bagel beside the panel, centred against it."""
-    h = max(len(right), len(frame))
-    top = max((len(right) - len(frame)) // 2, 0)
-    out = []
-    for i in range(h):
-        b = frame[i - top] if 0 <= i - top < len(frame) else " " * bw
-        r = right[i] if i < len(right) else ""
-        out.append("  " + (b + " " * GAP if bw else "") + r)
-    return out
 
 
 def main():
@@ -274,40 +309,49 @@ def main():
         return
     bw, bh, pw = layout(cols, rows)
     right = panel(facts(), pw)
-    still = "--still" in sys.argv or not sys.stdout.isatty() or not bw
-    a, b = 1.0, 0.6
     bagel = Bagel(bw, bh) if bw else None
-    if still:
-        frame = bagel.frame(a + 1.2, b + 0.5) if bagel else []
-        print("\n".join(compose(frame, right, bw)) + "\n")
+    h = max(len(right), bh)
+    top = max((h - bh) // 2, 0)                    # the bagel's first row in the block
+    rtop = max((h - len(right)) // 2, 0)           # the panel's, if the bagel is the taller
+    first = bagel.get(0) if bagel else []
+    lines = []
+    for i in range(h):
+        b = paint(first[i - top]) if bagel and 0 <= i - top < bh else " " * bw
+        r = right[i - rtop] if 0 <= i - rtop < len(right) else ""
+        lines.append("  " + (b + " " * GAP if bw else "") + r)
+    sys.stdout.write("\n".join(lines) + "\n")
+    if (not bagel or h >= rows or "--still" in sys.argv   # h >= rows: it scrolled, the rows aren't where they were
+            or not (sys.stdout.isatty() and sys.stdin.isatty())):
+        sys.stdout.write("\n")
         return
+
     fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd) if sys.stdin.isatty() else None
-    if old:   # keys become readable one by one (not read: they stay for the shell), and don't echo
-        new = termios.tcgetattr(fd)
-        new[3] &= ~(termios.ICANON | termios.ECHO)
-        termios.tcsetattr(fd, termios.TCSANOW, new)
+    old = termios.tcgetattr(fd)
+    new = termios.tcgetattr(fd)
+    new[3] &= ~(termios.ICANON | termios.ECHO)   # keys readable one by one (left unread), no echo
+    termios.tcsetattr(fd, termios.TCSANOW, new)
+    resized = []
+    signal.signal(signal.SIGWINCH, lambda *_: resized.append(1))
     out = sys.stdout
     out.write("\x1b[?25l")
-    lines = compose(bagel.frame(a, b), right, bw)
-    out.write("\n".join(lines) + "\n")
-    h = len(lines)
-    start, frames = time.time(), int(SPIN * FPS)
+    start, n = time.time(), 0
     try:
-        for n in range(1, frames + 1):
-            ease = 1 - (n / frames) ** 2          # slows down to a stop
-            a += 0.09 * ease + 0.004
-            b += 0.045 * ease + 0.002
-            out.write(f"\x1b[{h}F" + "\n".join(l + "\x1b[K" for l in compose(bagel.frame(a, b), right, bw)) + "\n")
+        while not resized:
+            n += 1
+            frame = bagel.get(n % LOOP)
+            # up to the bagel's first row, then each of its rows in place (the panel stays as it is)
+            out.write(f"\x1b[{h - top}F" + "".join(f"\x1b[3G{paint(r)}\x1b[1E" for r in frame)
+                      + (f"\x1b[{h - top - bh}E" if h - top - bh else ""))
             out.flush()
-            if old and select.select([fd], [], [], 0)[0]:
-                break                              # a key: stop here, the key is the shell's
-            time.sleep(max(0.0, start + n / FPS - time.time()))
+            wait = start + n / FPS - time.time()
+            if select.select([fd], [], [], max(wait, 0))[0]:
+                break                                  # a key: stop here, the key is the shell's
+    except KeyboardInterrupt:
+        pass
     finally:
         out.write("\x1b[?25h\n")
         out.flush()
-        if old:
-            termios.tcsetattr(fd, termios.TCSANOW, old)
+        termios.tcsetattr(fd, termios.TCSANOW, old)
 
 
 if __name__ == "__main__":

@@ -201,6 +201,14 @@ def read_agentmux():
         return []
     return [(lib.key_label(keys[a]), f"agentmux: {label}") for a, label, _, _ in lib.ACTIONS if keys.get(a)]
 
+def read_remaps():
+    """Keys and mouse buttons mapped in Settings → Key mapping (config/hypr/settings.json)."""
+    try:
+        import settingslib as S
+        return [(S.remap_label(r), S.remap_describe(r)) for r in S.remaps()]
+    except Exception:
+        return []
+
 def sections():
     out = read_binds()
     apps = read_apps()
@@ -209,6 +217,9 @@ def sections():
     groups = read_wsgroups()
     if groups:
         out.insert(2 if apps else 1, ("Workspace Groups (workspaces.conf)", groups))
+    remaps = read_remaps()
+    if remaps:
+        out.append(("Key mapping (Settings → Key mapping)", remaps))
     agentmux = read_agentmux()
     if agentmux:
         out.append(("agentmux (Ctrl+Alt+S to remap)", agentmux))

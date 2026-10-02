@@ -41,6 +41,8 @@ class Settings(View):
     .banner { background: alpha(#e0af68, .14); padding: 10px 14px; margin: 8px 0; }
     .power button.on { background: #6b8fe0; color: #16161e; font-weight: 700; }
     .about-key { color: #565f89; min-width: 110px; }
+    .capture { background: alpha(#000000, .22); border: 1px dashed alpha(#c0caf5, .18); padding: 18px; margin: 4px 0 10px 0; }
+    .capture.listening { border: 1px solid #6b8fe0; background: alpha(#000000, .32); }
     """
 
     def __init__(self):
@@ -59,6 +61,8 @@ class Settings(View):
                     "layout language switch repeat rate delay numlock typing", self.page_keyboard),
             Section("Input & display", "mouse", "", "Mouse",
                     "pointer sensitivity speed acceleration focus follows natural scroll zoom", self.page_mouse),
+            Section("Input & display", "keymap", "\U000f030c", "Key mapping",
+                    "remap keys mouse buttons side back forward extra copy paste bind shortcut macro", self.page_keymap),
             Section("Input & display", "display", "", "Display",
                     "monitor screen resolution refresh rate hz scale vrr", self.page_display),
             Section("Input & display", "night", "", "Night light",
@@ -416,6 +420,143 @@ class Settings(View):
         self.heading(p, "Zoom")
         p.append(setting_row("Screen zoom", "Magnifies around the pointer (also Super + Ctrl + Z)",
                              slider(1, 4, 0.1, g("cursor:zoom_factor"), self.hypr("cursor:zoom_factor"), fmt="{:.1f}×")))
+
+    def page_keymap(self, p):
+        """Press a key or a mouse button in the box (side buttons too), pick what it should do, Add.
+        settingslib turns the list into hl.bind() calls (settings.json -> settings.lua)."""
+        self.heading(p, "Press a key or a mouse button")
+        p.append(label("Click the box, then press what you want to map: a key (with Ctrl, Shift, Alt or Super "
+                       "if you like) or a mouse button, the side buttons included.", "setting-sub", wrap=True))
+        caught = {}   # the last press: {"key", "mods"}
+        what = label("Click here, then press a key or a button", "dim", xalign=0.5)
+        what.add_css_class("readout-small")
+        note = label("", "setting-sub", xalign=0.5, wrap=True)
+        cap = box(True, 6, what, note, classes=("capture",))
+        p.append(cap)
+        taken = {self.norm(k): d for _, rows in keys.sections() for k, d in rows}
+
+        def show(key, mods):
+            r = {"key": key, "mods": " ".join(mods)}
+            what.remove_css_class("dim")
+            what.set_text(S.remap_label(r))
+            if key in ("mouse:272", "mouse:273") and not mods:
+                caught.clear()
+                note.set_text("The left and right buttons can't be mapped on their own (with Ctrl, Alt… they can)")
+            else:
+                caught.clear()
+                caught.update(r)
+                used = taken.get(self.norm(S.remap_label(r)))
+                mine = next((m for m in S.remaps() if S.remap_combo(m) == S.remap_combo(r)), None)
+                note.set_text(S.remap_combo(r) + (f"  ·  already: {used}" if used else "")
+                              + (f"  ·  mapped to {S.REMAP_LABEL.get(mine['action'])}: Add replaces it" if mine else ""))
+            refresh_add()
+
+        # Listening: a click on the box arms it; then the window takes the next key or button, of any
+        # kind and wherever the pointer is (an event controller in the capture phase, before any widget).
+        # Mice differ: a side button comes as a button (8, 9: mouse:275 / 276) or as a key (XF86Back).
+        armed = {"on": False}
+
+        def arm(on):
+            armed["on"] = on
+            (cap.add_css_class if on else cap.remove_css_class)("listening")
+            if on:
+                what.add_css_class("dim")
+                what.set_text("Listening… press a key or a mouse button (Esc: stop)")
+                note.set_text("")
+        tap = Gtk.GestureClick(button=Gdk.BUTTON_PRIMARY)
+        tap.connect("released", lambda *_: arm(True) if not armed["on"] else None)
+        cap.add_controller(tap)
+
+        def event(_c, ev):
+            if not armed["on"] or not cap.get_mapped():
+                return False
+            kind = ev.get_event_type()
+            mods = self.mods_of(ev.get_modifier_state())
+            if kind == Gdk.EventType.BUTTON_PRESS:
+                n = ev.get_button()
+                if n == Gdk.BUTTON_PRIMARY and not mods:
+                    return False   # a plain left click: the click that armed it, or one elsewhere
+                # GDK's button numbers -> Linux's (Hyprland's mouse:N): 8, 9… are the side buttons
+                code = {2: 274, 3: 273}.get(n, 275 + (n - 8) if n >= 8 else 0)
+                if code:
+                    show(f"mouse:{code}", mods)
+                    arm(False) if caught else None
+                return True
+            if kind == Gdk.EventType.KEY_PRESS:
+                keyval = ev.get_keyval()
+                name = Gdk.keyval_name(keyval) or ""
+                if keyval == Gdk.KEY_Escape and not mods:
+                    arm(False)
+                    what.set_text("Click here, then press a key or a button")
+                    return True
+                if name.split("_")[0] in ("Control", "Shift", "Alt", "Super", "Meta", "Hyper", "ISO"):
+                    what.set_text(" + ".join(m.title() for m in mods) + " + …" if mods else "…")
+                    return True
+                ok, base, *_ = self.window.get_display().translate_key(ev.get_keycode(), 0, 0)
+                show(Gdk.keyval_name(base if ok else keyval) or name, mods)
+                arm(False)
+                return True
+            return False
+        listen = Gtk.EventControllerLegacy(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        listen.connect("event", event)
+        self.window.add_controller(listen)
+
+        self.heading(p, "What it does")
+        pick = {"action": "copy"}
+        arg = Gtk.Entry(width_chars=22)
+        arg.set_visible(False)
+        add = button("Add", lambda: save_new(), "primary")
+
+        def picked(v):
+            pick["action"] = v
+            arg.set_visible(v in ("shortcut", "command"))
+            arg.set_placeholder_text("e.g. CTRL + T" if v == "shortcut" else "e.g. kitty")
+            refresh_add()
+        arg.connect("changed", lambda *_: refresh_add())
+
+        def refresh_add():
+            need = pick["action"] in ("shortcut", "command")
+            add.set_sensitive(bool(caught) and (not need or bool(arg.get_text().strip())))
+        p.append(setting_row("Do", "Copy and Paste work in terminals too (the selection; Ctrl+Shift+V)",
+                             dropdown([(a, l) for a, l, _ in S.REMAP_ACTIONS], "copy", picked), arg, add))
+
+        self.heading(p, "Mappings")
+        holder = box(True, 0)
+        p.append(holder)
+        p.append(label("A mapped key or button does only this, in every app: mapping the side buttons takes "
+                       "Back / Forward from the browser.", "setting-sub", wrap=True))
+
+        def save_list(new):
+            self.done("settings.json → modules/settings.lua", S.remaps_set(new))
+            draw()
+
+        def save_new():
+            r = {**caught, "action": pick["action"], "arg": arg.get_text().strip()}
+            save_list([m for m in S.remaps() if S.remap_combo(m) != S.remap_combo(r)] + [r])
+            arg.set_text("")
+
+        def draw():
+            clear(holder)
+            maps = S.remaps()
+            if not maps:
+                holder.append(label("Nothing mapped yet", "dim"))
+            for m in maps:
+                holder.append(setting_row(S.remap_label(m), S.remap_describe(m),
+                                          button("Remove", lambda m=m: save_list([x for x in S.remaps() if x != m]), "flat")))
+            refresh_add()
+        draw()
+
+    @staticmethod
+    def mods_of(state):
+        """Hyprland's names for the modifiers held in a GDK state."""
+        M = Gdk.ModifierType
+        return [n for n, mask in (("SUPER", M.SUPER_MASK), ("CTRL", M.CONTROL_MASK), ("ALT", M.ALT_MASK),
+                                  ("SHIFT", M.SHIFT_MASK)) if state & mask]
+
+    @staticmethod
+    def norm(label_text):
+        """A shortcut label, comparable with the shortcut list's: "Ctrl + F5" -> "ctrl+f5"."""
+        return label_text.lower().replace(" ", "")
 
     def page_display(self, p):
         for m in S.monitors():

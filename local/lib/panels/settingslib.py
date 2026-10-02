@@ -226,6 +226,8 @@ def generate():
     lines = animation_lines(speed, ws)
     if lines:
         parts.append("\n".join(lines) + "\n")
+    if shared.get("remaps"):
+        parts.append(remap_lua(shared["remaps"]))
     write(LUA, "\n".join(parts))
 
     local = store(local=True)
@@ -233,6 +235,131 @@ def generate():
     for name, m in sorted(local.get("monitors", {}).items()):
         parts.append(monitor_lua(name, m["mode"], m["scale"]))
     write(LUA_LOCAL, "\n".join(parts))
+
+
+# ---- key mapping: keys and mouse buttons that do something else -------------------------------
+# settings.json "remaps": [{"key": "mouse:275" / "F5" (a Hyprland key name), "mods": "CTRL SHIFT"
+# (may be ""), "action": an id below, "arg": a shortcut or a command}]. generate() makes them
+# hl.bind() calls in settings.lua; a mapped key or button does only that, everywhere.
+# Copy / Paste… send the usual shortcut to the focused window, except in a terminal (kitty, agentmux,
+# the VS Code kittys): there Ctrl+C interrupts the program, so Copy takes the selection (kitty and
+# tmux keep it in the primary selection) to the clipboard, and Paste is Ctrl+Shift+V.
+MOUSE = {272: "Left button", 273: "Right button", 274: "Middle button", 275: "Back side button",
+         276: "Forward side button", 277: "Forward button", 278: "Back button", 279: "Task button"}
+# keys some mice send for their side buttons (from their own keyboard part), and other named keys
+KEY_NAMES = {"XF86Back": "Back key (XF86Back)", "XF86Forward": "Forward key (XF86Forward)"}
+OSD = 'swayosd-client --monitor "$(hyprctl activeworkspace -j | jq -r .monitor)" '
+REMAP_ACTIONS = [   # (id, label, Lua for the bind's action; {arg} filled in)
+    ("copy", "Copy", 'function() remapCopy() end'),
+    ("paste", "Paste", 'function() remapSend("CTRL", "v", "CTRL SHIFT") end'),
+    ("cut", "Cut", 'function() remapSend("CTRL", "x", nil) end'),
+    ("undo", "Undo", 'function() remapSend("CTRL", "z") end'),
+    ("redo", "Redo", 'function() remapSend("CTRL SHIFT", "z") end'),
+    ("select_all", "Select all", 'function() remapSend("CTRL", "a") end'),
+    ("back", "Back (browser, files)", 'function() remapSend("ALT", "Left") end'),
+    ("forward", "Forward (browser, files)", 'function() remapSend("ALT", "Right") end'),
+    ("play", "Play / pause", 'hl.dsp.exec_cmd(' + json.dumps(OSD + "--playerctl play-pause") + ')'),
+    ("next", "Next track", 'hl.dsp.exec_cmd(' + json.dumps(OSD + "--playerctl next") + ')'),
+    ("previous", "Previous track", 'hl.dsp.exec_cmd(' + json.dumps(OSD + "--playerctl previous") + ')'),
+    ("volume_up", "Volume up", 'hl.dsp.exec_cmd(' + json.dumps(OSD + "--output-volume raise") + ')'),
+    ("volume_down", "Volume down", 'hl.dsp.exec_cmd(' + json.dumps(OSD + "--output-volume lower") + ')'),
+    ("mute", "Mute", 'hl.dsp.exec_cmd(' + json.dumps(OSD + "--output-volume mute-toggle") + ')'),
+    ("screenshot", "Screenshot of a region", 'hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh region")'),
+    ("ws_next", "Next workspace", 'hl.dsp.focus({ workspace = "e+1" })'),
+    ("ws_prev", "Previous workspace", 'hl.dsp.focus({ workspace = "e-1" })'),
+    ("close", "Close the window", 'hl.dsp.window.close()'),
+    ("shortcut", "Send a shortcut…", None),   # arg: "CTRL + T"
+    ("command", "Run a command…", None),      # arg: a shell command
+    ("nothing", "Nothing (turn it off)", 'hl.dsp.no_op()'),
+]
+REMAP_LABEL = {a: label for a, label, _ in REMAP_ACTIONS}
+REMAP_HELPERS = """-- key mapping (Settings → Key mapping): Copy / Paste… to the focused window, terminals aside
+local remapTerms = { kitty = true, agentmux = true, ghostty = true, Alacritty = true, konsole = true }
+local function remapInTerm()
+    local w = hl.get_active_window()
+    return w ~= nil and (remapTerms[w.class] or w.class:find("^code%-term%-") ~= nil)
+end
+function remapSend(mods, key, termMods)
+    local inTerm = remapInTerm()
+    hl.dispatch(hl.dsp.send_shortcut({ mods = (inTerm and termMods) or mods, key = key }))
+end
+function remapCopy()
+    if remapInTerm() then
+        hl.exec_cmd("sh -c 'wl-paste --primary --no-newline | wl-copy'")
+    else
+        hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "c" }))
+    end
+end
+"""
+
+
+def remap_combo(r):
+    """The key as hl.bind() takes it: "CTRL + SHIFT + F5", "mouse:275"."""
+    return " + ".join(r.get("mods", "").split() + [r["key"]])
+
+
+def remap_label(r):
+    """For people: "Ctrl + Shift + F5", "Back side button"."""
+    key = r["key"]
+    if key.startswith("mouse:"):
+        name = MOUSE.get(int(key[6:]), f"Mouse button {key[6:]}")
+    elif key in KEY_NAMES:
+        name = KEY_NAMES[key]
+    else:
+        name = key.upper() if len(key) == 1 else key.replace("_", " ")
+    mods = {"CTRL": "Ctrl", "SHIFT": "Shift", "ALT": "Alt", "SUPER": "Super"}
+    return " + ".join([mods.get(m, m.title()) for m in r.get("mods", "").split()] + [name])
+
+
+def remap_describe(r):
+    """What a mapping does, for people: "Copy", "Send CTRL + T", "Run: kitty"."""
+    arg = (r.get("arg") or "").strip()
+    if r.get("action") == "shortcut":
+        return f"Send {arg}"
+    if r.get("action") == "command":
+        return f"Run: {arg}"
+    return REMAP_LABEL.get(r.get("action"), r.get("action", ""))
+
+
+def remap_action_lua(r):
+    """The Lua action of one mapping, or None if it can't be made (an empty shortcut / command)."""
+    action, arg = r.get("action"), (r.get("arg") or "").strip()
+    if action == "command":
+        return f"hl.dsp.exec_cmd({lua_value(arg)})" if arg else None
+    if action == "shortcut":
+        parts = [p.strip() for p in arg.replace("+", " ").split() if p.strip()]
+        if not parts:
+            return None
+        mods, key = " ".join(p.upper() for p in parts[:-1]), parts[-1]
+        return f"function() remapSend({lua_value(mods)}, {lua_value(key)}) end"
+    return next((lua for a, _, lua in REMAP_ACTIONS if a == action and lua), None)
+
+
+def remap_lua(remaps):
+    lines = [REMAP_HELPERS]
+    for r in remaps:
+        lua = remap_action_lua(r)
+        if lua:
+            lines.append(f"hl.bind({lua_value(remap_combo(r))}, {lua}) -- {REMAP_LABEL.get(r['action'], r['action'])}")
+    return "\n".join(lines) + "\n"
+
+
+def remaps():
+    return list(store().get("remaps", []))
+
+
+def remaps_set(new):
+    """Save the mappings and apply them (a reload: a bind made earlier can't be taken back live)."""
+    data = load(SETTINGS)
+    if new:
+        data["remaps"] = new
+    else:
+        data.pop("remaps", None)
+    save(SETTINGS, data)
+    generate()
+    sh("hyprctl", "reload")
+    rc, out = sh("hyprctl", "configerrors")
+    return out.strip() or None
 
 
 # ---- display -----------------------------------------------------------------------------------
@@ -364,8 +491,40 @@ def theme_set_cursor(name, size):
 
 def theme_set_font(name, mono=False):
     gsettings("monospace-font-name" if mono else "font-name", name)
-    if not mono:
+    if mono:   # no file has a monospace font: settings.json keeps it, for restore_desktop()
+        remember("theme", "mono", name)
+    else:
         set_line(GTK_INI, r"^gtk-font-name=", f"gtk-font-name={name}", r"^\[Settings\]")
+
+
+def restore_desktop():
+    """Put gsettings (dconf: not in the repo) back in line with the repo's files: the theme, icons,
+    cursor and fonts from gtk-3.0/settings.ini, the monospace font and the clock format from
+    settings.json, and the night-light timers. Run at every login (autostart.lua), so a new PC and a
+    change synced from the other PC look the same everywhere; also `settingslib.py restore`."""
+    ini = dict(line.split("=", 1) for line in read(GTK_INI).splitlines() if "=" in line and not line.startswith("#"))
+    done = []
+
+    def put(key, value):
+        if value not in (None, "") and str(gsettings(key)) != str(value):
+            gsettings(key, value)
+            done.append(f"{key}={value}")
+    dark = ini.get("gtk-application-prefer-dark-theme", "0").strip() == "1"
+    put("color-scheme", "prefer-dark" if dark else "default")
+    put("gtk-theme", "adw-gtk3-dark" if dark else "adw-gtk3")
+    put("icon-theme", ini.get("gtk-icon-theme-name", "").strip())
+    put("cursor-theme", ini.get("gtk-cursor-theme-name", "").strip())
+    put("cursor-size", ini.get("gtk-cursor-theme-size", "").strip())
+    put("font-name", ini.get("gtk-font-name", "").strip())
+    shared = store()
+    put("monospace-font-name", shared.get("theme", {}).get("mono", ""))
+    if "h24" in shared.get("clock", {}):
+        put("clock-format", "24h" if shared["clock"]["h24"] else "12h")
+    n = shared.get("nightlight", {})
+    if n.get("schedule") and not os.path.exists(f"{UNITS}/settings-nightlight-on.timer"):
+        night_set_schedule(True, n.get("start", "20:00"), n.get("end", "07:00"))
+        done.append("night-light timers")
+    return done
 
 
 # ---- night light -------------------------------------------------------------------------------
@@ -716,3 +875,12 @@ def about():
         ("Uptime", f"{int(up // 86400)} d {int(up % 86400 // 3600)} h {int(up % 3600 // 60)} min" if up >= 86400
                    else f"{int(up // 3600)} h {int(up % 3600 // 60)} min"),
     ]
+
+
+if __name__ == "__main__":
+    import sys
+    if sys.argv[1:] == ["restore"]:
+        changed = restore_desktop()
+        print("restored: " + ", ".join(changed) if changed else "gsettings already match the repo")
+    else:
+        sys.exit("usage: settingslib.py restore")

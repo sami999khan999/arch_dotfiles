@@ -145,6 +145,9 @@ class Sidebar(App):
                 if st == "shell" and was(n) not in (None, "shell"):
                     subprocess.Popen([AGENTMUX, "notify-screen", n, "exited"], start_new_session=True)
         lib.mark_finished([n for n, st in now.items() if st != "needs"], False, key="asked")
+        # no longer waiting on you (answered, or the thread ended): its notification goes away
+        for n in [n for n, st in self.last_state.items() if st in ("needs", "error") and now.get(n) not in ("needs", "error")]:
+            subprocess.Popen([AGENTMUX, "clear-notices", n], start_new_session=True)
         lib.mark_finished([n for n, st in now.items() if st != "shell"], False, key="exited")
         self.last_state = now
 

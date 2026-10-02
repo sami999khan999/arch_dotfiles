@@ -27,6 +27,8 @@
                                sidebars, and a notification when it needs you, finished or failed
   agentmux notify-screen <thread> needs|done|exited
                                the same, for what a sidebar saw on screen
+  agentmux clear-notices <thread>
+                               dismiss its "needs your input" / error notifications (no longer true)
   agentmux hooks               install those hooks in each agent's own config (idempotent)
 
 Layout (tmux -L agentmux):  Projects | Agents | the thread | terminals
@@ -216,6 +218,7 @@ def attach():
 # ---- actions ----------------------------------------------------------------------------------
 def show(name):
     """The thread in the middle pane (a fresh nested client; the agent itself is untouched)."""
+    clear_notices(name)   # you're looking at it
     threads = {t["name"]: t for t in lib.threads()}
     t = threads.get(name)
     if not t:
@@ -571,15 +574,56 @@ def send_notification(name, summary, body, urgent=False):
     os.setsid()
     if os.fork():
         os._exit(0)
-    # urgent (needs you, an error): stays until you act on it, past mako's default timeout
-    rc, out = lib.run(["notify-send", "-a", "agentmux", "-u", "critical" if urgent else "normal",
-                       *(["-t", "0"] if urgent else []), "-A", "default=Open", summary, body], timeout=86400)
+    # urgent (needs you, an error): stays until you act on it, past mako's default timeout, and goes
+    # once it's no longer true (clear_notices: its id, printed first by -p, is kept for that)
+    p = subprocess.Popen(["notify-send", "-p", "-a", "agentmux", "-u", "critical" if urgent else "normal",
+                          *(["-t", "0"] if urgent else []), "-A", "default=Open", summary, body],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    nid = p.stdout.readline().strip()
+    if urgent and nid.isdigit():
+        _notice_ids(name, add=nid)
+    out = p.stdout.read()
+    p.wait()
+    if urgent and nid.isdigit():
+        _notice_ids(name, drop=nid)
     if out.strip() == "default":
         subprocess.run([SELF, "show", name], capture_output=True)
         subprocess.run([os.path.expanduser("~/.config/hypr/scripts/focus-or-launch.sh"), "agentmux", "kitty",
                         "--config", os.path.expanduser("~/.config/kitty/agentmux.conf"), "--class", "agentmux",
                         "-e", SELF], capture_output=True)
     os._exit(0)
+
+
+NOTICES = os.path.join(lib.RUN, "notices")   # <thread>: ids of its urgent notifications still showing
+
+
+def _notice_ids(name, add=None, drop=None):
+    """The ids of thread name's urgent notifications on screen; add / drop one."""
+    import fcntl
+    os.makedirs(NOTICES, exist_ok=True)
+    path = os.path.join(NOTICES, name)
+    with open(path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            ids = open(path).read().split()
+        except OSError:
+            ids = []
+        if add and add not in ids:
+            ids.append(add)
+        if drop in ids:
+            ids.remove(drop)
+        if add or drop:
+            with open(path, "w") as f:
+                f.write("\n".join(ids))
+    return ids
+
+
+def clear_notices(name):
+    """Thread name no longer needs you (you opened it, answered, or it ended): its "needs your input"
+    / error notifications go away instead of waiting on screen."""
+    for nid in _notice_ids(name):
+        subprocess.run(["makoctl", "dismiss", "-n", nid], capture_output=True)
+        _notice_ids(name, drop=nid)
 
 
 def notify_text(name):
@@ -689,6 +733,7 @@ def notify(args):
     if state == "working":   # a new turn: earlier notices may be sent again when it gets there
         for key in ("asked", "finished", "told_done", "errored"):
             lib.mark_finished([name], False, key=key)
+        clear_notices(name)   # it was answered: "needs your input" is old news
     else:
         if state == "done":
             lib.mark_finished([name], True)   # the sidebars show it "done" until it's looked at
@@ -1045,6 +1090,7 @@ def main(argv):
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,
         "toggle": lambda: toggle(args[0]), "reload": reload,
         "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
+        "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
         "speak": lambda: speak(args[0]),
     }

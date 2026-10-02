@@ -379,7 +379,8 @@ shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the 
   until reopened. Closing Terminals only hides the column: its shells keep running.
 - **States and notifications, for every agent.** Each thread shows *needs you* (a permission prompt,
   a question, a plan to approve), *error*, *working*, *done* (finished, not looked at yet), *waiting*
-  or *agent exited*; a desktop notification comes when it needs you (stays until you act), finishes,
+  or *agent exited*; a desktop notification comes when it needs you (stays until you act, and goes away by itself once
+  you open the thread, answer it, or it ends), finishes,
   fails or exits, once, and not for the thread you're looking at; clicking it opens the thread.
   Where it comes from: the agents' own hooks (`agentmux hooks` installs them into
   `~/.claude/settings.json`, `~/.codex/hooks.json` + `codex_hooks` in `~/.codex/config.toml`,

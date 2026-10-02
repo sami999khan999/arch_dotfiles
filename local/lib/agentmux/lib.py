@@ -8,7 +8,7 @@
 #             agentmux attaches to the same one from its middle pane: two clients, one process.
 #   agentmux  (tmux -L agentmux)  the workspace itself: projects pane, agents pane, the nested client
 #             showing the thread, the terminals column. Only layout; nothing runs here for long.
-import json, os, re, shutil, socket, subprocess, time
+import contextlib, copy, fcntl, json, os, re, shutil, socket, subprocess, time
 
 HOME = os.path.expanduser("~")
 HOSTNAME = socket.gethostname()
@@ -67,7 +67,15 @@ def no_tmux_env():
 
 
 # ---- state (projects opened, current project and thread, column widths) -----------------------
-def load_state():
+# state.json is read and written by several processes at once (both sidebars, the agents' hooks,
+# agentmux itself). Saving swaps in a whole new file (never a half-written one: a reader that caught
+# one got {} and a save then wrote that back, dropping the project order), under a lock, and writes
+# only the keys this process changed, on top of the file as it is then (no lost updates).
+class State(dict):
+    """state.json as loaded; .loaded is what it held then (save_state's diff)."""
+
+
+def _read_state():
     try:
         with open(STATE) as f:
             return json.load(f)
@@ -75,10 +83,39 @@ def load_state():
         return {}
 
 
-def save_state(state):
+@contextlib.contextmanager
+def _state_lock():
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
-    with open(STATE, "w") as f:
-        json.dump(state, f, indent=1)
+    with open(STATE + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def load_state():
+    data = _read_state()
+    s = State(data)
+    s.loaded = copy.deepcopy(data)
+    return s
+
+
+def save_state(state):
+    with _state_lock():
+        current = _read_state()
+        base = getattr(state, "loaded", {})
+        for k in set(base) | set(state):
+            if k not in state:
+                current.pop(k, None)
+            elif k not in base or base[k] != state[k]:
+                current[k] = state[k]
+        tmp = f"{STATE}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(current, f, indent=1)
+        os.replace(tmp, STATE)   # STATE is a plain file in ~/.local/state, not a dotfiles symlink
+    if isinstance(state, State):
+        state.loaded = copy.deepcopy(current)
 
 
 def update_state(**changes):
@@ -464,15 +501,24 @@ def terms_session(path):
 # ---- projects ----------------------------------------------------------------------------------
 def projects(known_threads=None):
     """Opened projects: the ones opened by hand, every @project a thread has, and the folders the VS
-    Code kittys are in (open in VS Code = open here), in that order."""
+    Code kittys are in (open in VS Code = open here). Listed in a fixed order (state "order": each
+    keeps the place it first got), so they never swap places as threads and VS Code windows come and
+    go; a new one goes last."""
     seen, out = set(), []
-    hand = load_state().get("projects", [])
+    s = load_state()
+    hand = s.get("projects", [])
     ts = threads() if known_threads is None else known_threads
     for p in hand + [t["project"] for t in ts if t["project"]] + [f for _, f in pair_kittys()]:
         if p and p not in seen and os.path.isdir(p):
             seen.add(p)
             out.append(p)
-    return out
+    order = [p for p in s.get("order", []) if os.path.isdir(p)]
+    new = [p for p in out if p not in order]
+    if new or len(order) != len(s.get("order", [])):
+        order += new
+        s["order"] = order
+        save_state(s)
+    return sorted(out, key=order.index)
 
 
 _git = {}   # path -> (checked at, changes): git status is cached, the branch is read every time

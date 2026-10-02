@@ -350,6 +350,9 @@ shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the 
   greyed out). Any number of threads, of any agent, per project; each is its own session. This
   picker and the project picker are GTK popups like every other panel (blurred backdrop; Esc or a
   click outside closes them).
+- **The Projects list** shows what you opened, what has a thread and what's open in VS Code, in a
+  fixed order: each project keeps the place it first got (a new one goes last), so nothing
+  moves as threads and VS Code windows come and go (`order` in `state.json`).
 - **Picking a project** (`Ctrl+Alt+O`, or `+ Open project`) is a folder browser. The first time (agentmux
   opens it by itself) it asks for your projects folder, the **root**, and remembers it
   (`~/.local/state/agentmux/state.json`); after that it opens there. `→` or a click goes into a folder,

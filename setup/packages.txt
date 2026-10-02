@@ -98,6 +98,9 @@ jfsutils
 jq
 kdegraphics-thumbnailers
 kitty
+tmux
+opencode
+openai-codex
 lazydocker
 lazygit
 less

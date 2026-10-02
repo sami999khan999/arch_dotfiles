@@ -72,6 +72,7 @@ directly into each app. Nothing generates them:
 | kitty, alacritty, btop | `themes/tokyo-night.*` in each |
 | GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
 | KDE apps (Dolphin) | `config/kdeglobals` |
+| fastfetch (terminal greeting) | `config/fastfetch/config.jsonc` |
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. Helper scripts (power menu, toggles, screenshots) are in
@@ -181,6 +182,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 1 | Code | VS Code windows, each with its kitty (below) |
 | 2 | Web | Chrome windows |
 | 3 | Terminal | kitty |
+| 4 | Agents | agentmux (Super + A) |
 | 7 | Files | Dolphin |
 | 8 | Discord | Discord |
 | 9 | Docker | the Docker panel (below) |
@@ -195,7 +197,8 @@ Windows of that class always open on that workspace, maximized (waybar and gaps 
 A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `Alt + Tab`,
 and is fullscreen again when you come back (a mouse click on another window exits it).
 The waybar module on the right shows the current group and window, e.g. `Code 2/3`;
-hover for the numbered window list.
+hover for the numbered window list. A popup panel doesn't count: while one is open, the count
+and the title beside it stay on the window it opened over.
 
 **Code workspace: VS Code + kitty pairs.** Every VS Code window (Super + N, `code`, File > New
 Window…) opens with its own kitty beside it: kitty 45 % on the left, VS Code 55 %, together the
@@ -208,7 +211,13 @@ there if it's idle, or opens a new tab there if something is running. Closing a 
 closes its kitty. `Super + F` (fullscreen) or `Super + Alt + F` (maximized, bar stays) makes
 the focused VS Code or kitty fill the screen; press it again and the pair is back side by side.
 `Super + Alt + C` / `Super + Alt + T` do the same for the VS Code / the kitty on screen, whichever
-has the focus. Lost a kitty? `kitty-pair <address>`
+has the focus. **Pair layout:** `Super + Alt + P` on a VS Code window or its kitty opens a popup
+(`panels/pairgui.py`): the kitty's width (presets 20–80 % or a slider), either one full width
+(Kitty full / VS Code full / Side by side), the kitty's side (left / right), this pair or every
+pair, and whether new pairs open like this (saved in `config/hypr/codepair.conf`). VS Code can't
+go below ~640 px (its title bar doesn't draw narrower; squeezed, it gets cropped). It applies as you
+change it; keys: `← →` width,
+`l` / `r` side, `b` / `k` / `c` side by side / kitty full / VS Code full, `a` every pair, Esc closes. Lost a kitty? `kitty-pair <address>`
 (address from `hyprctl clients`) opens it again. Code: `modules/codepair.lua`, `local/bin/kitty-pair`.
 
 | Key / command | Does |
@@ -238,6 +247,13 @@ Every panel is a GTK window (`local/lib/panels/*gui.py`) in the look of the Cont
 icon and title with details on the right, a blue underline, blue section headings, amber keys and
 window classes, green / amber / red levels, key hints at the bottom. The popups float in the middle of the screen; running one again (its
 key or waybar click) closes it, and so does `Esc`. The hints at the bottom list each panel's keys.
+While a popup is open the screen behind it is blurred and darkened, the bar excepted (a full-screen
+window under it showing a screenshot taken as it opened, blurred by GTK: Hyprland's blur is one
+strength for everything; `Backdrop` in `gtkkit.py`, `panels-backdrop` in `modules/windowrules.lua`);
+a click there closes the popup, and so does switching workspace (the popup is pinned above its
+backdrop, so that click can't cover it). Settings → Appearance → Panels: on / off, blur (0–40 px)
+and darkness.
+The pair popup (`Super + Alt + P`) has none: you watch the pair while you change it.
 
 | Panel | Opens with | Does |
 |---|---|---|
@@ -245,11 +261,139 @@ key or waybar click) closes it, and so does `Esc`. The hints at the bottom list 
 | System (`sysgui.py`) | `Super + Ctrl + T`, waybar CPU / memory | tabs (`1`–`3`): **Overview** (CPU, memory, GPU — a 90 s graph and the details: temperature, clocks, swap, video memory, power…), **Processes** (every process; sort by a column, `/` search, End process / Kill on a second click), **Storage** (each drive: SSD / HDD, read / write now, each partition's usage) |
 | Audio (`audiogui.py`) | `Super + Ctrl + A`, waybar volume | outputs, inputs, what's playing: volume, mute, make default; the Wiremix button opens wiremix |
 | Network (`netgui.py`) | `Super + Ctrl + W`, waybar network | connection, traffic graph, addresses; "Manage connections" opens nmtui |
-| Shortcuts (`keysgui.py`) | `Super + K`, waybar keyboard icon | every shortcut, live from the config; type to search |
+| Shortcuts (`keysgui.py`) | `Super + K`, waybar keyboard icon | every shortcut, live from the config; type to fuzzy-search |
 | Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
+| Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
+
+### Settings panel
+
+`Super + I` (or the cog in waybar, or "Settings" in Walker) opens one window for every setting: a sidebar of sections
+(type anywhere to fuzzy-search sections and the settings in them) and a page per section. Every
+control applies at once; the bottom line says where it was saved.
+
+| Group | Sections |
+|---|---|
+| Look & feel | Appearance (gaps, borders, corners, opacity, blur, shadow, what's behind an open panel: on / off, how blurry, how dark) · Animations (on/off, speed, workspace slide) · Wallpaper (thumbnails, fill / fit) · Theme & fonts (dark mode, icons, cursor, fonts; nwg-look / qt6ct for more) |
+| Input & display | Keyboard (layouts, switch key, repeat, Num Lock) · Mouse (speed, acceleration, natural scroll, focus follows mouse, zoom) · Display (mode and scale, with a 15 s "keep?" that reverts; VRR) · Night light (warmth, schedule) |
+| Power & bar | Idle & lock (lock / screen-off timeouts, lock before sleep, stay awake) · Power profile · Notifications (corner, timeout, Do not disturb, hidden apps) · Top bar (position, height, stats) |
+| System | Default apps (terminal, browser…, and what opens links / files) · Date & time (time zone, NTP, 24-hour clock) · More settings (opens the other panels) · About this PC |
+
+Where values go (`local/lib/panels/settingslib.py` does the reading and writing; `settingsgui.py`
+is only the layout):
+
+- **Hyprland options** → `config/hypr/settings.json` → generated `modules/settings.lua`, required
+  last in `hyprland.lua`, so a value set in the panel wins over the hand-written modules. "Back to the
+  config's values" on Appearance forgets them. Display modes are per PC: `settings.local.json` →
+  `modules/settings_local.lua` (both gitignored).
+- **Everything else** in its own file, by line edits of the known keys: `hypridle.conf`,
+  `mako/config`, `waybar/config.jsonc`, `variables.lua` (+ `uwsm/env`, `kdeglobals`),
+  `mimeapps.list`, `gtk-3.0/settings.ini`, `xsettingsd.conf`, `qt6ct.conf`, plus gsettings.
+- Night light: `toggle.sh nightlight [on|off|auto]` reads the warmth and schedule from
+  settings.json; the schedule is two systemd user timers (`settings-nightlight-on/off.timer`), and
+  `auto` at login. The bar clock's 24-hour switch and the wallpaper's fill / fit are in
+  settings.json too.
 
 The older terminal versions (`sysmon.py`, `keys.py`, `audiopanel.py`, `netpanel.py`,
 `syncpanel.py`, `dockerpanel.py`, `controlcenter.py`, `wsgroups tui`) still work if run directly.
+
+### Agents: agentmux
+
+`Super + A` (or workspace 4's button in waybar) opens **agentmux**, a tmux workspace for coding agents, by
+project: **Projects** | **Agents** (that project's threads) | the thread | **terminals** (regular
+shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the last one closes the column). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembered.
+
+```
+┌Projects─┬Agents──────┬─ the thread ────────────────┬─ terminals ─┐
+│▸cloud_t │◐ 1 diagram │                            │ $ pnpm dev  │
+│ inkwell │✳ 2 docs    │                            ├─────────────┤
+│+ open   │+ new thread│                            │ $ git st…   │
+└─────────┴────────────┴────────────────────────────┴─────────────┘
+ agentmux │ + Terminal Ctrl+Alt+T  × Terminal Ctrl+Alt+W  + Thread Ctrl+Alt+N  Open project Ctrl+Alt+O  ? keys   cloud_track · 1
+```
+
+- **Synced with the VS Code kittys.** Every thread is a session on a separate tmux server
+  (`tmux -L agents`). The kitty beside a VS Code window starts in one (kitty-pair), and agentmux's
+  middle pane attaches to the same one: one agent, two live views, nothing restarted or copied. A
+  new thread made in agentmux also opens as a tab in that project's VS Code kitty. The agent
+  redraws at the size of the view you last typed in.
+- **`Super + N`** on its workspace (4) starts a new thread (`Ctrl+Alt+N`), opens agentmux if it
+  isn't open, or asks for a project first if none is open.
+- **The home screen** (the middle pane with no thread shown) has a prompt box: `↵` starts a thread
+  in the agent picked with `Tab`, your text as its first message. Above it are the project's threads,
+  or with none yet, every agent (uninstalled ones greyed out): click one (or `↑↓` `↵`) to start it.
+- **New thread** asks which agent: Claude Code, opencode, agy, Codex (the installed ones; the others
+  greyed out). Any number of threads, of any agent, per project; each is its own session. This
+  picker and the project picker are GTK popups like every other panel (blurred backdrop; Esc or a
+  click outside closes them).
+- **Picking a project** (`Ctrl+Alt+O`, or `+ Open project`) is a folder browser. The first time (agentmux
+  opens it by itself) it asks for your projects folder, the **root**, and remembers it
+  (`~/.local/state/agentmux/state.json`); after that it opens there. `→` or a click goes into a folder,
+  `←` goes up (also above the root, to open something anywhere), `↵` opens the selected folder (or
+  the shown one: "Open this folder"), `^R` makes the shown folder the root. Typing searches folders
+  up to 3 levels below (fuzzy, like the shortcut list); a query starting with `/` or `~` is a path.
+  Git repos show a branch icon, open projects a `●`.
+- **Opening a project** with no live thread continues the latest session of every agent used there,
+  each in its own thread (`claude --continue`, `opencode --continue`, `codex resume --last`; agy
+  can't continue, it starts fresh). agentmux remembers per project which agents you used; closing a
+  thread yourself (`x`, `×`, `Ctrl+Alt+X`) forgets its agent there, closing the project doesn't. A
+  project with nothing remembered (a new one) starts nothing: the home screen asks which agent, with
+  the keyboard on its prompt. `+ thread` starts fresh. Skipped for an
+  agent whose conversation already runs straight in the project's VS Code kitty.
+- **Panels close and reopen:** `Ctrl+Alt+1` / `Ctrl+Alt+2` / `Ctrl+Alt+3` (Projects / Threads / Terminals), or the `×` in a
+  panel's header; a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
+  until reopened. Closing Terminals only hides the column: its shells keep running.
+- **States and notifications, for every agent.** Each thread shows *needs you* (a permission prompt,
+  a question, a plan to approve), *error*, *working*, *done* (finished, not looked at yet), *waiting*
+  or *agent exited*; a desktop notification comes when it needs you (stays until you act), finishes,
+  fails or exits, once, and not for the thread you're looking at; clicking it opens the thread.
+  Where it comes from: the agents' own hooks (`agentmux hooks` installs them into
+  `~/.claude/settings.json`, `~/.codex/hooks.json` + `codex_hooks` in `~/.codex/config.toml`,
+  `~/.gemini/config/hooks.json`; `setup/setup-dev.sh` runs it), and the screen, read by tmux in the
+  sidebars' subscription: "esc to interrupt" (agy: "esc to cancel") = working, a dialog's footer
+  ("Esc to cancel", Codex "Press a number to choose", opencode "Permission required", agy "↑/↓
+  Navigate") = needs you. opencode 2.x has no hooks: screen only. **Subagents count as working**: a
+  thread stays *working* ("· 2 agents") while its subagents or background agents run, even after its
+  own turn ended, and notifies *done* when the last one finishes (SubagentStart / SubagentStop hooks,
+  Claude's `◯ <agent> <task>` rows on screen, agy's `fullyIdle`).
+- **Terminals are per project:** the column shows only in the projects where you opened it (`Ctrl+Alt+T`);
+  switching to another project hides it (its shells keep running) and brings it back when you return.
+- **Agents started before this** (straight in a kitty, not in tmux) show as `⚠ title`; Enter on
+  one (or `a`) **adopts** it: `/exit`, then the same conversation resumes in tmux in that same kitty
+  (`claude --resume <its session>`, found by its title). Only when you choose; it asks first.
+- Keys (no prefix; Ctrl+Alt so nothing clashes with Hyprland or Claude Code), all **remappable** in
+  Settings: `Ctrl+Alt+P` / `Ctrl+Alt+A` / `Ctrl+Alt+M` / `Ctrl+Alt+E` focus Projects / Threads / the
+  thread / the terminals (a closed one is brought back), `Ctrl+Alt+F` the next part (left to right,
+  wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
+  `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+←→`
+  resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
+  and shells keep running), `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the
+  wheel; long lists scroll with the selection (`↑ more` / `↓ more`); Agents: `n` new, `a` adopt, `r` rescan.
+- **Settings** (`Ctrl+Alt+S`, or System Settings → More settings → agentmux): a window laid out
+  like System Settings (search, sections: Shortcuts, Notifications, Projects). Click a shortcut and
+  press the new keys (Esc cancels); a key already in use is refused, and so are Super (Hyprland's) and
+  Ctrl + a letter without Alt (the shell's and the agents'). `Default` / `Reset all` put them back.
+  Switches for the notifications (needs you / finished / error / agent quit) and for resuming a
+  project's agents when it opens. Saved in `config/agentmux/settings.json` (only once something
+  changes; synced with the dotfiles) and applied at once: the keys, the status bar, `Ctrl+Alt+?` and
+  the Super + K list follow.
+- **Closing:** a project or thread shows its `×` when selected or under the pointer; a click on it
+  asks right under that row without opening it (also `x` / `Delete` in a sidebar). The question says
+  what ends; `y Close` (or `y` / `↵`) does it, `n Cancel` (`n`, `Esc`, a click elsewhere) doesn't.
+  `Ctrl+Alt+X` (remappable in Settings) asks the same for the selected row of the focused sidebar,
+  or else for the shown thread. Closing a thread ends its agent. Closing a project ends its threads
+  and terminals and takes it off the list, except a thread open in a VS Code kitty (ending it would
+  close that kitty): it stays, and the project stays listed while VS Code has it open.
+- Light by design: the sidebars sleep until tmux reports a change (a control-mode subscription,
+  checked by tmux once a second); nothing polls the agents. A thread nobody watches that is just an
+  idle shell is closed when its last viewer leaves; running agents and terminals stay.
+- Copy and paste work as in any terminal, in agentmux and in the VS Code kitty (both are tmux): the
+  wheel scrolls the history; a drag (or double / triple click) selects; `Ctrl+C` copies the selection
+  to the clipboard (nothing selected: interrupt, as usual); `Ctrl+V` pastes; typing or `Esc` drops the
+  selection. A selection also goes to the primary selection (middle-click). Shift + drag is kitty's
+  own selection (`Ctrl+Shift+C` / `V`).
+
+Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home.py`), `local/lib/panels/agentmuxgui.py` (settings), `local/lib/panels/agentpickgui.py` (the two pickers),
+`config/agentmux/{agents,app}.conf`, `local/bin/kitty-pair`. Needs `tmux` (in `setup/packages.txt`).
 
 ### Docker panel (workspace 9)
 
@@ -287,7 +431,10 @@ background (`wsgroups launch 10 --background` in `autostart.lua`); `Super + Ctrl
 ## Shortcut list
 
 `Super + K` (or the keyboard icon in waybar) opens a window listing every
-shortcut, read live from `binds.lua` and `apps.conf`. Type to search, Esc clears / closes.
+shortcut, read live from `binds.lua`, `apps.conf` and `workspaces.conf`. Type to search, Esc clears / closes.
+The search is fuzzy (plain letter matching, no index): a word matches as a substring, as an
+abbreviation (`nwin` → "next window", `kpaw` → "keep screen awake") or with one typo (`fulscren`);
+the best matches come first, with the matched letters highlighted. `win` / `mod` also find Super.
 A bind's description comes from a built-in table in `panels/keys.py`; to label
 a new bind yourself, end its line with a comment:
 

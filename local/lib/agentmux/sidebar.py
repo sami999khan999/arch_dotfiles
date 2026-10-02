@@ -1,0 +1,543 @@
+#!/usr/bin/env python3
+# sidebar.py — agentmux's two sidebars:  sidebar.py projects  |  sidebar.py agents
+# In the panels' look (term.py): icon + title with the blue-then-grey underline, #292e42 selection
+# rows, blue rule headings, key hints on the last line.
+#
+# Kept current without polling: a tmux control-mode client on the agents server subscribes to one
+# format listing every thread (refresh-client -B); tmux re-checks it once a second and sends a line
+# only when something changed (a thread opened or closed, a title flipped between working and idle).
+# The sidebar sleeps in select() on that, the keyboard and SIGUSR1 (agentmux: the current project or
+# thread changed). No processes are started while nothing happens.
+#
+# keys   ↑↓ / j k  move     ↵ / click  open     x or the selected row's ×: close it (asks under the
+#        row: y / ↵ / the red button closes, n / Esc / a click elsewhere cancels)
+#        projects: o open project     threads: n new · ↵ on a ⚠ row adopts it · r rescan the VS Code kittys
+import os, subprocess, sys, textwrap, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib
+from term import CLOSE, PAD, App, Line, fit, header, is_close, rule, width
+
+AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
+FS, RS = "\x1f", "\x1e"   # field / record separators inside the subscription value
+SUB = ("#{S:" + FS.join(["#{session_name}", "#{@project}", "#{@harness}", "#{@kind}", "#{pane_title}",
+                         "#{session_attached}", "#{pane_current_command}", "#{session_created}",
+                         "#{session_activity}", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}"]) + RS + "}")
+# needs: a permission prompt or question waits for you; working: the agent is running; done: it
+# finished since you last looked at that thread; idle: waiting for you, already seen; shell: it quit
+STATE_GLYPH = {"needs": ("!", "red"), "error": ("✗", "red"), "working": ("◐", "green"), "done": ("✓", "amber"),
+               "idle": ("✳", "sub"), "shell": ("$", "muted")}
+STATE_WORD = {"needs": "needs you", "error": "error", "working": "working", "done": "done", "idle": "waiting",
+              "shell": "agent exited"}
+RANK = {"needs": 0, "error": 1, "working": 2, "done": 3, "idle": 4, "shell": 5}   # a badge: its most urgent thread
+SHORT = {"claude": "claude", "opencode": "opencode", "codex": "codex", "agy": "agy", "shell": "shell"}
+
+
+def ago(ts):
+    """How long since ts, short: now, 5m, 3h, 2d."""
+    s = max(time.time() - ts, 0) if ts else 0
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if s >= size:
+            return f"{int(s // size)}{unit}"
+    return "now"
+
+
+class Row:
+    def __init__(self, text, action=None, glyph="", gfg="muted", fg="sub", right="", rfg="muted",
+                 bold=False, kind="item", detail=None):
+        self.text, self.action, self.glyph, self.gfg, self.fg = text, action, glyph, gfg, fg
+        self.right, self.rfg, self.bold, self.kind = right, rfg, bold, kind
+        # dim lines under the name: a list of lines, each [(text, colour)] (one line: just the list)
+        self.detail = ([detail] if detail and isinstance(detail[0], tuple) else detail) or []
+
+
+def where_is(path):
+    """A project's parent folder, short: relative to the projects root if it's inside it, else ~/…"""
+    parent, root = os.path.dirname(path), lib.projects_root()
+    if root and (parent + "/").startswith(root.rstrip("/") + "/"):
+        return os.path.relpath(parent, root) if parent != root else os.path.basename(root)
+    return parent.replace(lib.HOME, "~", 1)
+
+
+class Sidebar(App):
+    focused = False   # until tmux says so: a sidebar starts without the keyboard
+    motion = True     # the hovered row shows its ×
+
+    def __init__(self, role):
+        super().__init__()
+        self.role = role
+        self.rows, self.sel, self.threads = [], 0, []
+        self.scroll = 0   # the first laid-out line shown (render keeps the selection in view)
+        self.unshared, self.unshared_at = [], 0
+        self.msg, self.confirm = "", None
+        self.ask_at, self.buttons_at, self.button_y, self.button_x = set(), None, None, None   # the open question's lines
+        self.close_ys = {}    # screen row -> the row whose × is drawn there (the selected and the hovered one)
+        self.hover = None     # the row under the pointer
+        self.last_state = {}  # thread -> its state on the previous update (to see work finish)
+        self.ctl, self.buf = None, ""
+        self.project = None
+        self.ys = {}   # screen row -> index in self.rows (for clicks)
+        self.width = 80
+
+    # ---- the control-mode client ----
+    def connect(self):
+        lib.agents("new-session", "-d", "-s", lib.WATCH)   # an invisible session to sit on
+        if self.ctl:
+            self.fds.pop(self.ctl.stdout.fileno(), None)
+        self.ctl = subprocess.Popen(lib.AGENTS + ["-C", "attach", "-t", f"={lib.WATCH}"],
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
+                                    env=lib.no_tmux_env())
+        self.ctl.stdin.write(f"refresh-client -B 'threads::{SUB}'\n")
+        self.ctl.stdin.flush()
+        os.set_blocking(self.ctl.stdout.fileno(), False)
+        self.watch(self.ctl.stdout.fileno(), self.read_ctl)
+
+    def read_ctl(self):
+        try:
+            chunk = self.ctl.stdout.read() or ""
+        except (OSError, ValueError, TypeError):
+            chunk = ""
+        if not chunk and self.ctl.poll() is not None:   # server gone: start over in a moment
+            time.sleep(1)
+            self.buf = ""
+            self.connect()
+            return
+        self.buf += chunk
+        *lines, self.buf = self.buf.split("\n")
+        for line in lines:
+            if line.startswith("%subscription-changed threads ") and " : " in line:
+                value = line.split(" : ", 1)[1].replace("\\037", FS).replace("\\036", RS)
+                self.parse_threads(value)
+
+    def parse_threads(self, value):
+        rows = []
+        for rec in value.split(RS):
+            parts = rec.split(FS)
+            if len(parts) != 13 or parts[0].startswith("_"):
+                continue
+            t = dict(zip(lib.FIELDS[:-1], parts))
+            for k in ("attached", "created", "activity"):
+                t[k] = int(t[k] or 0)
+            rows.append(t)
+        self.threads = sorted(rows, key=lambda t: t["created"])
+        # an agent that went from working to idle has finished its work: marked "done" until it's looked
+        # at. The notifications come from the agents' hooks (agentmux notify) or, for what only the
+        # screen shows (a dialog waiting for you, the agent quitting), from here: agentmux notify-screen,
+        # sent once per occurrence even though both sidebars see it.
+        now = {t["name"]: lib.state_of(t) for t in rows if t["kind"] == "agent"}
+        was = lambda n: self.last_state.get(n)
+        finished = [n for n, st in now.items() if st == "idle" and was(n) == "working"]
+        if finished:
+            lib.mark_finished(finished, True)
+            harness = {t["name"]: t["harness"] for t in rows}
+            for n in finished:   # an agent without a finish hook (opencode): notified from here
+                if harness.get(n) not in lib.HOOK_DONE:
+                    subprocess.Popen([AGENTMUX, "notify-screen", n, "done"], start_new_session=True)
+        working = [n for n, st in now.items() if st == "working"]
+        if working:   # a new turn: done / error marks and their notices start over
+            for key in ("finished", "told_done", "errored"):
+                lib.mark_finished(working, False, key=key)
+        if self.last_state:   # not on the first update: it's what changed that counts
+            for n, st in now.items():
+                if st == "needs" and was(n) not in (None, "needs"):
+                    subprocess.Popen([AGENTMUX, "notify-screen", n, "needs"], start_new_session=True)
+                if st == "shell" and was(n) not in (None, "shell"):
+                    subprocess.Popen([AGENTMUX, "notify-screen", n, "exited"], start_new_session=True)
+        lib.mark_finished([n for n, st in now.items() if st != "needs"], False, key="asked")
+        lib.mark_finished([n for n, st in now.items() if st != "shell"], False, key="exited")
+        self.last_state = now
+
+    # ---- what's listed ----
+    def build(self):
+        state = lib.load_state()
+        project = state.get("project", "")
+        jump = project != self.project or state.get("threads", {}).get(project) != getattr(self, "shown", None)
+        if project != self.project:
+            self.project = project
+            self.scan_unshared(force=True)
+        self.shown = state.get("threads", {}).get(project)
+        finished = set(state.get("finished", []))
+        if self.shown in finished:   # it's on screen: seen
+            lib.mark_finished([self.shown], False)
+            finished.discard(self.shown)
+
+        def look(t):
+            st = lib.state_of(t)
+            return "done" if st == "idle" and t["name"] in finished else st
+        rows = []
+        if self.role == "projects":
+            for p in lib.projects(self.threads):   # the subscription's list: no tmux call per redraw
+                ts = [t for t in self.threads if t["project"] == p and t["kind"] == "agent"]
+                busy = sum(look(t) == "working" for t in ts)
+                asks = sum(look(t) == "needs" for t in ts)
+                errs = sum(look(t) == "error" for t in ts)
+                done = sum(look(t) == "done" for t in ts)
+                cur = p == project
+                glyph, gfg = (("●", "red") if asks or errs else ("●", "green") if busy else ("●", "amber") if done
+                              else ("●", "accent") if cur else ("○" if ts else "·", "muted"))
+                # line 2: git (branch, changed files, commits ahead / behind) and VS Code; line 3: threads
+                git = []
+                branch = lib.git_branch(p)
+                if branch:
+                    st = lib.git_status(p) or {}
+                    git.append(("\ue0a0 " + branch, "sub" if cur else "muted"))
+                    if st.get("changes"):
+                        git.append((f" ~{st['changes']}", "amber"))
+                    if st.get("ahead"):
+                        git.append((f" ↑{st['ahead']}", "green"))
+                    if st.get("behind"):
+                        git.append((f" ↓{st['behind']}", "red"))
+                else:   # not a repo: say so, and where it is unless that's the projects root itself
+                    git.append(("no git repo", "muted"))
+                    parent, root = os.path.dirname(p), lib.projects_root()
+                    if not root or parent.rstrip("/") != root.rstrip("/"):
+                        git.append((" · " + where_is(p), "muted"))
+                if lib.in_vscode(p):
+                    git.append(("  \U000f0a1e", "accent"))   # open in VS Code
+                # line 3: the agents, one badge each in the colour of its busiest thread
+                agents, spin = {}, {}
+                for t in ts:
+                    key = t["harness"] or "shell"
+                    agents.setdefault(key, []).append(look(t))
+                    if look(t) == "working" and t["title"][:1] in lib.WORKING:   # its own spinner: it turns
+                        spin[key] = t["title"][:1]
+                badges = []
+                for key, states in sorted(agents.items(), key=lambda kv: min(RANK[x] for x in kv[1])):
+                    best = min(states, key=RANK.get)
+                    g, fg = STATE_GLYPH[best]
+                    g = spin.get(key, g) if best == "working" else g
+                    badges += [(f"{g} {SHORT.get(key, key)}" + (f"×{len(states)}" if len(states) > 1 else ""), fg), (" ", "muted")]
+                work = badges[:-1] or [("no agents", "muted")]
+                # right of the name: "working" while any agent there is, else "done" if one finished
+                right, rfg = (("needs you", "red") if asks else ("error", "red") if errs else ("working", "green") if busy
+                              else ("done", "amber") if done
+                              else ("idle", "muted") if ts else ("", "muted"))
+                rows.append(Row(lib.project_name(p), ("project", p), glyph, gfg, "text" if cur else "sub",
+                                right, rfg, bold=cur, detail=[git, work]))
+            if not rows:
+                rows += [Row("Nothing open yet", kind="note"), Row("", kind="gap")]
+            rows.append(Row("Open project", ("open",), "+", "accent", "accent"))
+        else:
+            if not project:
+                rows += [Row("Pick a project", kind="note"), Row("on the left", kind="note")]
+            else:
+                shown = state.get("threads", {}).get(project, "")
+                mine = [t for t in self.threads if t["project"] == project and t["kind"] == "agent"]
+                for t in mine:
+                    st = look(t)
+                    glyph, gfg = STATE_GLYPH[st]
+                    if st == "working" and t["title"][:1] in lib.WORKING:
+                        glyph = t["title"][:1]   # its spinner: it turns while it works
+                    label = lib.HARNESSES.get(t["harness"], (t["harness"],))[0] if t["harness"] else "shell"
+                    title = "shell" if st == "shell" else (lib.clean_title(t["title"]) or label)
+                    cur = t["name"] == shown
+                    # line 2: which agent, what it's doing, how long the thread has been up (its activity
+                    # time says nothing: an idle agent's screen still redraws), and other views of it
+                    what = (STATE_WORD[st], STATE_GLYPH[st][1])
+                    short = SHORT.get(t["harness"], t["harness"] or "shell")
+                    info = [] if title == label or st == "shell" else [(short, "muted"), (" · ", "line")]
+                    info.append(what)
+                    subs = lib.subagents_of(t)
+                    if subs:
+                        info.append((f" · {subs} agent{'s' * (subs > 1)}", "green"))
+                    up = ago(t["created"])
+                    if up != "now":
+                        info += [(" · ", "line"), (f"up {up}", "muted")]
+                    if t["attached"] > 1:
+                        info += [(" · ", "line"), (f"{t['attached']} views", "muted")]
+                    rows.append(Row(title, ("show", t["name"]), glyph, gfg, "text" if cur else "sub",
+                                    "#" + t["name"].rsplit(lib.SEP, 1)[-1], bold=cur, detail=info))
+                if not mine:
+                    rows.append(Row("No threads yet", kind="note"))
+                if self.unshared:
+                    rows.append(Row("", kind="gap"))
+                    rows.append(Row("In VS Code · not shared", kind="rule"))
+                    for sock, wid, title, harness in self.unshared:
+                        rows.append(Row(lib.clean_title(title) or harness, ("adopt", sock, wid, title, harness),
+                                        "⚠", "amber", "sub", "adopt", "amber"))
+                rows.append(Row("", kind="gap"))
+                rows.append(Row("New thread", ("new",), "+", "accent", "accent"))
+        self.rows = rows
+        if jump:   # the project or thread changed: the selection goes to the current one
+            want = ("project", project) if self.role == "projects" else ("show", self.shown)
+            self.sel = next((i for i, r in enumerate(rows) if r.action == want), self.sel)
+        self.sel = min(self.sel, len(rows) - 1)
+        if rows and not rows[self.sel].action:
+            self.move(1)
+
+    def scan_unshared(self, force=False):
+        """Agents running straight in this project's VS Code kitty (asks kitty: on project change, on
+        r, and at most every 30 s, never in a loop)."""
+        project = lib.load_state().get("project", "")
+        if self.role != "agents" or not project:
+            self.unshared = []
+            return
+        if force or time.time() - self.unshared_at > 30:
+            self.unshared = lib.unshared_agents(project)
+            self.unshared_at = time.time()
+
+    # ---- drawing ----
+    def render(self, w, h):
+        self.width = w
+        self.close_ys = {}
+        self.build()
+        if self.role == "projects":
+            n = sum(1 for r in self.rows if r.action and r.action[0] == "project")
+            lines = header("", "Projects", str(n) if n else "", w, closable=True)
+        else:
+            lines = header("\U000f06a9", "Threads", fit(lib.project_name(self.project), w - 18) if self.project else "", w,
+                           closable=True)
+        lines.append(Line())
+        # every row laid out first (owner: the row each line belongs to), then the part that fits is
+        # shown, scrolled so the selected row is always in view; "↑ more" / "↓ more" where it's cut
+        self.ys = {}
+        self.ask_at, self.buttons_at = set(), None
+        body, owner, close_at = [], [], {}
+        pinned = []   # [(line, row)]: + Open project / + New thread, at the bottom, never scrolled away
+        for i, r in enumerate(self.rows):
+            if r.kind == "gap":
+                body.append(Line()); owner.append(None)
+                continue
+            if r.kind == "rule":
+                body.append(rule(r.text, w, "amber")); owner.append(None)
+                continue
+            if r.kind == "note":
+                body.append(Line().pad(PAD + 2).add(r.text, "muted")); owner.append(None)
+                continue
+            sel = i == self.sel
+            bg = "overlay" if sel else ("hover" if i == self.hover else None)
+            closable = (sel or i == self.hover) and r.action and r.action[0] in ("project", "show")
+            right, rfg = (CLOSE, "muted") if closable else (r.right, r.rfg)   # the selected one: × closes it
+            bar = ("▎", "accent") if sel else (" ", None)   # a blue edge marks the selected row
+            l = Line(bg).add(*bar).pad(PAD - 1).add(r.glyph or " ", r.gfg).add(" ")
+            room = w - (PAD + 2) - PAD - (width(right) + 1 if right else 0)
+            l.add(fit(r.text, room), r.fg if not sel else "text", bold=r.bold)
+            if right:
+                l.right(right, rfg, w)
+            if r.action in (("open",), ("new",)):
+                pinned.append((l, i))
+                continue
+            if closable:
+                close_at[len(body)] = i
+            body.append(l); owner.append(i)
+            for detail in r.detail:   # the dim lines under the name
+                d = Line(bg).add(*bar).pad(PAD + 1)
+                for text, fg in detail:
+                    d.add(fit(text, max(w - d.w - 1, 0)), fg)
+                body.append(d); owner.append(i)
+            if self.confirm and self.confirm["row"] == i:
+                self.confirm_lines(body, owner, i, w)
+            if r.detail:
+                body.append(Line()); owner.append(None)   # air between projects / threads
+        while body and owner[-1] is None and not body[-1].parts:   # the gap that led to a pinned row
+            body.pop(); owner.pop()
+        foot = len(pinned) + 1   # the message line, then the pinned rows on the last line(s)
+        room = max(h - len(lines) - foot, 1)
+        # kept in view: the open question with its row (it may not be the selected one: a hovered
+        # row's ×), else the selected row. Last line last: a question taller than the room keeps its buttons.
+        keep = self.confirm["row"] if self.confirm else self.sel
+        mine = [n for n, o in enumerate(owner) if o == keep]
+        if len(body) <= room:
+            self.scroll = 0
+        elif mine:
+            first, last = mine[0], mine[-1]
+            if first < self.scroll + 1:
+                self.scroll = max(first - 1, 0)
+            if last >= self.scroll + room - 1:
+                self.scroll = last - room + 2
+        self.scroll = max(0, min(self.scroll, max(len(body) - room, 0)))
+        top = len(lines)
+        self.button_y = None
+        for n in range(self.scroll, min(len(body), self.scroll + room)):
+            if owner[n] is not None and n not in self.ask_at:
+                self.ys[len(lines)] = owner[n]
+            if n in close_at:
+                self.close_ys[len(lines)] = close_at[n]
+            if n == self.buttons_at:
+                self.button_y = len(lines)
+            lines.append(body[n])
+        if self.scroll > 0:
+            lines[top] = Line().pad(PAD + 2).add("↑ more", "muted")
+            self.ys.pop(top, None)
+        if self.scroll + room < len(body):
+            lines[-1] = Line().pad(PAD + 2).add("↓ more", "muted")
+            self.ys.pop(len(lines) - 1, None)
+        while len(lines) < h - foot:
+            lines.append(Line())
+        # the bottom: a message when there is one (else air), then the pinned rows on the pane's
+        # last line. No key hints: every row has its × and its + rows, and a question opens under
+        # its row with its own buttons (confirm_lines).
+        lines.append(Line().pad(PAD).add(fit(self.msg, w - 2 * PAD), "muted"))
+        for l, i in pinned:
+            self.ys[len(lines)] = i
+            lines.append(l)
+        return lines
+
+    # ---- acting ----
+    def act(self, action):
+        if not action:
+            return
+        kind = action[0]
+        if kind == "project":
+            subprocess.Popen([AGENTMUX, "project", action[1]])
+        elif kind == "open":
+            subprocess.Popen([AGENTMUX, "open"])
+        elif kind == "show":
+            subprocess.Popen([AGENTMUX, "show", action[1]])
+        elif kind == "new":
+            subprocess.Popen([AGENTMUX, "new-thread"])
+        elif kind == "adopt":
+            _, sock, wid, title, harness = action
+            detail = "It restarts in tmux, in the same kitty, with the same conversation."
+            if title[:1] in lib.WORKING:
+                detail = "It's working right now: the turn is cut short. " + detail
+            self.ask(f"Adopt “{lib.clean_title(title) or harness}”?", detail, "Adopt",
+                     lambda: self.do_adopt(sock, wid, title, harness))
+
+    def do_adopt(self, sock, wid, title, harness):
+        name, self.msg = lib.adopt(sock, wid, title, harness, self.project)
+        self.scan_unshared(force=True)
+        if name:
+            subprocess.Popen([AGENTMUX, "show", name])
+
+    def key(self, k):
+        if self.confirm and isinstance(k, tuple) and k[0] in ("hover", "wheel"):
+            self.still = k[0] == "hover"   # moving the pointer leaves the question open
+            return
+        if self.confirm:   # y / Enter / the red button: do it; anything else (n, Esc, a click away) cancels
+            fn, self.confirm = self.confirm["fn"], None
+            if isinstance(k, tuple) and k[0] == "click" and k[2] == self.button_y:
+                (yes_x, cancel_x) = self.button_x
+                if yes_x[0] <= k[1] < yes_x[1]:
+                    fn()
+            elif k in ("y", "Y", "enter"):
+                fn()
+            return
+        self.msg = ""
+        sel = self.rows[self.sel].action if self.rows else None
+        if k in ("down", "j"):
+            self.move(1)
+        elif k in ("up", "k"):
+            self.move(-1)
+        elif k in ("enter", "l", "right"):
+            self.act(sel)
+        elif isinstance(k, tuple) and k[0] == "click" and is_close(k, self.width):
+            subprocess.Popen([AGENTMUX, "toggle", self.role])
+        elif isinstance(k, tuple) and k[0] == "click" and k[2] in self.close_ys and k[1] >= self.width - PAD - 2:
+            i = self.close_ys[k[2]]   # a row's × (the selected or the hovered one): ask, don't open it
+            self.ask_close(self.rows[i].action, i)
+        elif isinstance(k, tuple) and k[0] == "hover":
+            i = self.ys.get(k[2])
+            if i == self.hover:
+                self.still = True   # same row: nothing to redraw
+            self.hover = i
+        elif isinstance(k, tuple) and k[0] == "click":
+            i = self.ys.get(k[2])
+            if i is not None:
+                self.sel = i
+                self.act(self.rows[i].action)
+        elif isinstance(k, tuple) and k[0] == "wheel":
+            self.move(k[1])
+        elif self.role == "projects" and k == "o":
+            self.act(("open",))
+        elif k in ("x", "delete"):
+            self.ask_close(sel)
+        elif self.role == "agents" and k == "n":
+            self.act(("new",))
+        elif self.role == "agents" and k == "r":
+            self.scan_unshared(force=True)
+            self.msg = "rescanned"
+
+    def ask_close(self, sel, row=None):
+        """x or the ×: close the selected project or thread, once confirmed. The question says what
+        ends: the threads and which agents, a view in the VS Code kitty."""
+        if not sel:
+            return
+        if sel[0] == "project":
+            ts = [t for t in self.threads if t["project"] == sel[1] and t["kind"] == "agent"]
+            agents = sorted({SHORT.get(t["harness"], t["harness"] or "shell") for t in ts})
+            what = (f"Ends {len(ts)} thread{'s' * (len(ts) != 1)} ({', '.join(agents)}) and its terminals"
+                    if ts else "Ends its terminals")
+            detail = what + ". Threads open in VS Code stay."
+            self.ask(f"Close {lib.project_name(sel[1])}?", detail, "Close",
+                     lambda p=sel[1]: subprocess.Popen([AGENTMUX, "close-project", p]), row)
+        elif sel[0] == "show":
+            t = next((t for t in self.threads if t["name"] == sel[1]), {})
+            label = lib.HARNESSES.get(t.get("harness"), (t.get("harness") or "shell",))[0]
+            title = lib.clean_title(t.get("title", "")) or label
+            detail = f"Ends {label} in it." if t.get("harness") else "Ends its shell."
+            if t.get("attached", 0) > 1:
+                detail += " It's also open in the VS Code kitty: that view closes too."
+            self.ask(f"Close #{sel[1].rsplit(lib.SEP, 1)[-1]} {title}?", detail, "Close",
+                     lambda n=sel[1]: (lib.forget_thread(n), lib.agents("kill-session", "-t", f"={n}")), row)
+
+    def ask(self, title, detail, yes, fn, row=None):
+        """A question about a row (the selected one unless given), shown under it with its buttons
+        (confirm_lines)."""
+        self.confirm = {"title": title, "detail": detail, "yes": yes, "fn": fn,
+                        "row": self.sel if row is None else row}
+
+    def on_signal(self):
+        """agentmux close-thread (Ctrl+Alt+X, remappable) asks a sidebar to close something: the
+        selected row, or a given thread (state "ask"). Only the sidebar it names acts on it."""
+        ask = lib.load_state().get("ask")
+        if not ask or ask.get("role") != self.role:
+            return
+        lib.update_state(ask=None)
+        self.build()
+        want = ("show", ask["thread"]) if ask.get("thread") else None
+        i = next((n for n, r in enumerate(self.rows) if r.action == want), self.sel) if want else self.sel
+        if self.rows and self.rows[i].action and self.rows[i].action[0] in ("project", "show"):
+            self.sel = i
+            self.ask_close(self.rows[i].action, i)
+
+    def confirm_lines(self, body, owner, i, w):
+        """The open question under row i: the question, what it does (wrapped), then its two flat
+        buttons as text (red: do it; dim: cancel), like the GTK panels' header buttons. Part of the
+        row's band, with a red edge from the title to the buttons. Text buttons, not filled ones: a
+        filled cell runs to the line's edges while text keeps a few pixels, so this way the band has
+        the same space above the title and below the buttons."""
+        c = self.confirm
+        bar = ("▎", "red")
+        inner = max(w - PAD - 3, 8)
+        texts = [(t, "text", True) for t in textwrap.wrap(c["title"], inner)]
+        texts += [(t, "sub", False) for t in textwrap.wrap(c["detail"], inner)]
+        self.ask_at = set()
+        for text, fg, bold in texts:
+            body.append(Line("overlay").add(*bar).pad(PAD + 1).add(text, fg, bold=bold)); owner.append(i)
+            self.ask_at.add(len(body) - 1)
+        body.append(Line("overlay").add(*bar)); owner.append(i); self.ask_at.add(len(body) - 1)
+        l = Line("overlay").add(*bar).pad(PAD + 1)
+        x0 = l.w
+        l.add("y ", "muted").add(c["yes"], "red", bold=True)
+        x1 = l.w
+        l.add("   ")
+        c0 = l.w
+        l.add("n ", "muted").add("Cancel", "sub")
+        self.button_x = ((x0, x1), (c0, l.w))
+        body.append(l); owner.append(i)
+        self.buttons_at = len(body) - 1
+        self.ask_at.add(self.buttons_at)
+
+    def move(self, d):
+        """The next selectable row that way; at either end it stays (no wrapping round: the wheel
+        would spin through the list)."""
+        i = self.sel + d
+        while 0 <= i < len(self.rows):
+            if self.rows[i].action:
+                self.sel = i
+                return
+            i += d
+
+    def timeout(self):
+        return 30   # the one periodic look at the VS Code kittys (agents pane)
+
+    def tick(self):
+        self.scan_unshared()
+
+
+if __name__ == "__main__":
+    side = Sidebar(sys.argv[1] if len(sys.argv) > 1 else "agents")
+    lib.app("set-option", "-g", f"@pid_{side.role}", str(os.getpid()))
+    side.connect()
+    side.run()

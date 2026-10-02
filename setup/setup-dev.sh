@@ -23,6 +23,27 @@ else
   say "mise missing - install packages first"
 fi
 
+head_ "coding agents (agentmux harnesses)"
+# opencode and Codex (openai-codex) come from packages.txt. Claude Code and Antigravity (agy) have
+# no package: their official installers put one self-updating binary in ~/.local/bin.
+install_agent() {   # install_agent <command> <installer url>
+  if command -v "$1" >/dev/null || [[ -x "$HOME/.local/bin/$1" ]]; then
+    say "ok       $1"
+  elif curl -fsSL "$2" | bash >/dev/null; then
+    say "installed $1"
+  else
+    say "FAILED   $1 (network?) - re-run setup/setup-dev.sh"
+  fi
+}
+install_agent claude https://claude.ai/install.sh
+install_agent agy    https://antigravity.google/cli/install.sh
+for cmd in opencode codex; do
+  command -v "$cmd" >/dev/null && say "ok       $cmd" || say "$cmd missing - install packages first"
+done
+# agentmux hears from the agents through their own hooks (Claude Code, Codex, agy configs live
+# outside this repo): install them, merged into whatever is there
+[[ -x "$HOME/.local/bin/agentmux" ]] && "$HOME/.local/bin/agentmux" hooks | sed 's/^/  /'
+
 head_ "docker"
 if command -v docker >/dev/null; then
   systemctl is-enabled --quiet docker.socket || sudo systemctl enable --now docker.socket

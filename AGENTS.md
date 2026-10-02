@@ -38,7 +38,9 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `config/hypr/workspaces.conf` | workspace groups, read by `modules/wsgroups.lua` and `local/bin/wsgroups` |
 | `config/hypr/scripts/` | shell helpers (tui.sh, panel.sh, toggles, screenshots…) + waybar modules (wsbar, wintitle) |
 | `local/lib/panels/` | the panels: GTK windows `*gui.py` (in use; shared `gtkkit.py`, Control Center `ccgui.py`) and the older terminal versions (`panelkit.py`) |
+| `local/lib/panels/settings*.py` | Settings panel (Super + I): `settingslib.py` reads / writes / applies every setting, `settingsgui.py` is the window. Hyprland values: `config/hypr/settings.json` → generated `modules/settings.lua` (required last; don't hand-edit). Per-PC: `settings.local.json` (gitignored) |
 | `config/waybar/` | `config.jsonc` + `style.css` |
+| `local/bin/agentmux`, `local/lib/agentmux/`, `config/agentmux/` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
 | `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |

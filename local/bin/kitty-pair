@@ -15,7 +15,7 @@ Follow: if the shell is idle at its prompt it cd's into the new project; if some
 there (a dev server, tests) that's left alone and a new kitty tab opens in the new project instead.
 Talks to the kitty through its remote-control socket ($XDG_RUNTIME_DIR/kitty-pair-<address>).
 """
-import json, os, shlex, subprocess, sys, time
+import json, os, shlex, shutil, subprocess, sys, time
 
 ROOT = os.path.expanduser("~/code")
 APP = " - Visual Studio Code"
@@ -90,8 +90,49 @@ def open_pair(addr):
     remember(addr, folder)
     subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ window = "address:{addr}" }})'],
                    capture_output=True)
-    os.execvp("uwsm", ["uwsm", "app", "--", "kitty", "--class", term_class, "--directory", folder,
-                       "--listen-on", f"unix:{socket_of(addr)}", "-o", "allow_remote_control=socket-only"])
+    cmd = ["uwsm", "app", "--", "kitty", "--class", term_class, "--directory", folder,
+           "--listen-on", f"unix:{socket_of(addr)}", "-o", "allow_remote_control=socket-only"]
+    thread = agentmux_thread(folder)
+    os.execvp("uwsm", cmd + (["--", *thread] if thread else []))
+
+
+def agentmux():
+    """agentmux's lib (local/lib/agentmux), or None without tmux: then the kitty runs a plain shell."""
+    if not shutil.which("tmux"):
+        return None
+    sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
+    try:
+        import lib
+        return lib
+    except ImportError:
+        return None
+
+
+def agentmux_thread(folder):
+    """With tmux: a new agentmux thread in folder, and the command that attaches the kitty to it, so
+    an agent started there also shows (live) in agentmux (Super + A)."""
+    lib = agentmux()
+    if lib is None:
+        return None
+    name = lib.next_name(folder)
+    lib.new_session(name, folder, "agent")
+    return lib.AGENTS + ["attach", "-t", f"={name}"]
+
+
+def tmux_thread(lib, window):
+    """The agentmux thread a kitty window is attached to: the agents server's client whose pid is the
+    window's process (kitty's foreground_processes can come back empty for a tmux client, which once
+    left a thread behind in the old project), else the attach command line."""
+    _, out = lib.agents("list-clients", "-F", "#{client_pid}\t#{client_session}")
+    for line in out.splitlines():
+        pid, _, session = line.partition("\t")
+        if pid.isdigit() and int(pid) == window.get("pid"):
+            return session
+    for p in [{"cmdline": window.get("cmdline")}] + window.get("foreground_processes", []):
+        cmd = p.get("cmdline") or []
+        if cmd and os.path.basename(cmd[0]) == "tmux" and "-t" in cmd:
+            return cmd[cmd.index("-t") + 1].lstrip("=")
+    return None
 
 
 def follow(addr):
@@ -113,6 +154,21 @@ def follow(addr):
     tab = next((t for t in tabs if t["is_active"]), tabs[0])
     active = next((w for w in tab["windows"] if w["is_active"]), tab["windows"][0])
     fg = {os.path.basename(p["cmdline"][0]) for p in active["foreground_processes"] if p["cmdline"]}
+    lib = agentmux()
+    thread = tmux_thread(lib, active) if lib else None
+    if lib and thread:
+        # an agentmux thread: its own shell decides; the thread moves to the new project with it
+        _, cmd = lib.agents("display-message", "-p", "-t", f"={thread}:", "#{pane_current_command}")
+        if cmd in lib.SHELLS:   # not "sh": an agent runs under that wrapper
+            lib.agents("send-keys", "-t", f"={thread}:", "C-u", f"cd -- {shlex.quote(folder)}", "Enter")
+            lib.agents("set-option", "-t", f"={thread}:", "@project", folder)
+            lib.agents("rename-session", "-t", f"={thread}", lib.next_name(folder))
+        else:   # busy: keep it running, a new thread in a new tab
+            new = lib.next_name(folder)
+            lib.new_session(new, folder, "agent")
+            kitty(addr, "launch", "--type=tab", "--cwd", folder, *lib.AGENTS, "attach", "-t", f"={new}")
+        remember(addr, folder)
+        return
     if fg and fg <= SHELLS:
         # idle at its prompt: clear whatever is half-typed (Ctrl+U), then cd there
         kitty(addr, "send-text", "--match", f"id:{active['id']}", f"\x15cd -- {shlex.quote(folder)}\r")

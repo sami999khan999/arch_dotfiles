@@ -18,13 +18,30 @@ CLEANUP = [
 ]
 
 
-def title():
+POPUPS = ("TUI.float", "panels.")   # popup panels (and the backdrop behind one), as in wsgroups
+
+
+def hypr(what):
     try:
-        win = json.loads(subprocess.run(["hyprctl", "activewindow", "-j"],
-                                        capture_output=True, text=True).stdout or "{}")
+        return json.loads(subprocess.run(["hyprctl", what, "-j"], capture_output=True, text=True).stdout or "null")
     except json.JSONDecodeError:
-        win = {}
-    t = (win or {}).get("title", "").strip()
+        return None
+
+
+def focused():
+    """The focused window ({} on an empty workspace); while a popup has the focus, the window it
+    opened over (the title doesn't change under a popup)."""
+    active = hypr("activewindow") or {}
+    if not active.get("class", "").startswith(POPUPS):
+        return active
+    recent = sorted((c for c in hypr("clients") or [] if c.get("focusHistoryID", -1) >= 0),
+                    key=lambda c: c["focusHistoryID"])
+    ws = active["workspace"]["id"]
+    return next((c for c in recent if not c["class"].startswith(POPUPS) and c["workspace"]["id"] == ws), {})
+
+
+def title():
+    t = focused().get("title", "").strip()
     for rx in CLEANUP:
         t = rx.sub("", t)
     full = t

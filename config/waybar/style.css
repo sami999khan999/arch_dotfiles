@@ -37,7 +37,7 @@ window#waybar {
 }
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
-#custom-clock, #custom-wsgroups, #custom-keys,
+#custom-clock, #custom-wsgroups, #custom-keys, #custom-settings,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
 #custom-idle-indicator, #custom-notification-silencing-indicator,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
@@ -47,7 +47,7 @@ window#waybar {
   transition: background-color 150ms, color 150ms;
 }
 
-#custom-clock:hover, #custom-wsgroups:hover, #custom-keys:hover,
+#custom-clock:hover, #custom-wsgroups:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
 #memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover,
 #custom-visualizer:hover {
@@ -72,12 +72,11 @@ window#waybar {
 }
 
 /* ---- left, after the workspaces: audio visualizer (scripts/visualizer.py, while sound plays) */
-/* it follows the workspace buttons, so the 1 px visualizer.py keeps free (FIT_SLACK) ends up on its
-   right: 1 px less padding there keeps both sides at 14 px */
+/* it fills the gap to the right section exactly (visualizer.py), so its hover block meets the divider */
 #custom-visualizer {
   color: @accent;
   font-size: 13px;
-  padding: 0 13px 0 14px;   /* PADDING in visualizer.py */
+  padding: 0 14px;   /* PADDING in visualizer.py */
 }
 #custom-visualizer:hover {
   color: @accent;       /* the bars keep their colour on hover; only the block lights up */
@@ -88,7 +87,7 @@ window#waybar {
   background: @accent;
   color: @base;
   font-size: 13px;
-  padding: 0 14px 0 8px;   /* the icon spills 5 px right of its glyph box (see "icons" below) */
+  padding: 0 13px 0 9px;   /* the icon spills right of its glyph box (see "icons" below); measured on screen */
   margin: 0;
   transition: background-color 150ms;
 }
@@ -128,6 +127,19 @@ window#waybar {
   background: @overlay;
   color: @text;
 }
+
+/* the workspace icons (scripts/wsbar.py ICONS) centred by their ink, as with the icons below:
+   measured on screen, each sat this many px right of its 30 px button (the digits are centred).
+   Less padding on the left, as much more on the right, so the buttons keep their width. Measure
+   again when an icon changes. */
+#wsbuttons label#custom-ws1,
+#wsbuttons label#custom-ws8,
+#wsbuttons label#custom-ws10 { padding: 0 10px 0 8px; }   /* 1 px */
+#wsbuttons label#custom-ws2,
+#wsbuttons label#custom-ws4,
+#wsbuttons label#custom-ws7,
+#wsbuttons label#custom-ws9  { padding: 0 11px 0 7px; }   /* 2 px */
+#wsbuttons label#custom-ws3  { padding: 0 12px 0 6px; }   /* 2.5 px: the terminal prompt */
 
 #wsbuttons label.empty {
   color: @muted;
@@ -198,7 +210,7 @@ window#waybar {
   padding: 0 10px;
 }
 
-#custom-keys, #bluetooth, #network {
+#custom-keys, #custom-settings, #bluetooth, #network {
   color: @muted;
 }
 
@@ -242,6 +254,7 @@ window#waybar {
    Each gets that much less padding on the left and more on the right; the total stays the same,
    so the bar's widths (and visualizer.py's sums) don't change. */
 #custom-keys      { padding: 0 12px 0 8px; }
+#custom-settings  { padding: 0 12px 0 8px; }   /* the cog: 2 px right of centre on screen */
 #network.wifi,
 #network.disconnected { padding: 0 13px 0 7px; }
 #network.ethernet { padding: 0 12px 0 8px; }

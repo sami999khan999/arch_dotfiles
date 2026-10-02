@@ -15,7 +15,7 @@ Started by waybar itself (custom/wsbar, which prints nothing and stays hidden).
 import json, os, signal, socket, subprocess, time
 
 WORKSPACES = range(1, 11)
-ICONS = {1: "\U000f0a1e", 2: "", 3: "", 7: "", 8: "\U000f066f", 9: "", 10: "\U000f056e"}
+ICONS = {1: "\U000f0a1e", 2: "", 3: "", 4: "\U000f06a9", 7: "", 8: "\U000f066f", 9: "", 10: "\U000f056e"}
 RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "wsbar")
 SIGNAL = 8
 REFRESH = (b"workspace", b"createworkspace", b"destroyworkspace", b"focusedmon", b"openwindow",

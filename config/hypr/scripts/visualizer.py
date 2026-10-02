@@ -21,7 +21,7 @@ import importlib.machinery, importlib.util, json, os, shutil, signal, socket, su
 # group count "⊞ 1/1", the play button showing, no indicator and the short clock. Every difference
 # from that is added or taken off below. A wider screen adds its width. (The bar has no tray: apps
 # with a tray icon have their own workspace.)
-GAP_REF, TITLE_REF = 224, 30
+GAP_REF, TITLE_REF = 196, 30   # measured with the Settings button on the right (the agentmux one left again)
 COUNT_REF = "\U000f0570 1/1"   # the group count's text in the reference
 CLOCK_REF_LEN = 17             # "Thu 01 Oct  22:43": the short clock
 CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; measured with Pango)
@@ -29,10 +29,11 @@ EMPTY_PX = 38         # px freed on an empty workspace besides the title text: t
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
 INDICATOR_PX = 19     # px per active indicator (idle off / do not disturb)
-PADDING = 27          # px: this module's own left + right padding (style.css #custom-visualizer)
+PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars
-FIT_SLACK = 1         # px kept free, for rounding
+FIT_SLACK = 0         # px kept free: none, the gap is measured to the pixel (text_px), and a
+                      # pixel left over showed as a dark line between the hover block and the divider
 HAIR = "\u200a"       # hair space: exactly 1 px in this font (measured with Pango). The bars are
                       # spaced with these, not with Pango letter_spacing: a label with letter spacing
                       # gets its last character cut ("…") even when it has all the room it asked for
@@ -95,12 +96,31 @@ state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True,
          "indicators": 0, "clock": CLOCK_REF_LEN, "shown": 16, "gaps": [1] * 15}
 
 
+_layout = None
+
+
+def text_px(text):
+    """How wide text is in the bar's 12 px font, as GTK draws it (Pango, with the same font fallback:
+    an emoji or a CJK character in a title is wider than CHAR_PX)."""
+    global _layout
+    if _layout is None:
+        import gi
+        gi.require_version("Pango", "1.0")
+        gi.require_version("PangoCairo", "1.0")
+        from gi.repository import Pango, PangoCairo
+        import cairo
+        _layout = PangoCairo.create_layout(cairo.Context(cairo.ImageSurface(cairo.FORMAT_ARGB32, 1, 1)))
+        _layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font 12px"))
+    _layout.set_text(text, -1)
+    return _layout.get_extents()[1].width / 1024   # Pango units
+
+
 def recount():
     """How many bars fit now and how far apart, so they fill the gap exactly (read by the loop)."""
     s = state
     gap = GAP_REF + WIDTH - 1366
     if s["title"]:
-        gap += (TITLE_REF - len(s["title"])) * CHAR_PX + (len(COUNT_REF) - len(s["count"])) * CHAR_PX
+        gap += TITLE_REF * CHAR_PX - text_px(s["title"]) + text_px(COUNT_REF) - text_px(s["count"])
     else:
         gap += TITLE_REF * CHAR_PX + EMPTY_PX
     if not s["player"]:

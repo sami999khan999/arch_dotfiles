@@ -23,6 +23,7 @@
     "custom/window",
     "custom/codesync",
     "custom/keys",
+    "custom/settings",
     "bluetooth",
     "network",
     "pulseaudio",
@@ -208,9 +209,12 @@
     "on-scroll-up": "playerctl next",
     "on-scroll-down": "playerctl previous"
   },
+  // the stats keep one width (the number takes 3 places, the space after the icon included): at
+  // 100 % a "{usage:>2}" grew the right side by a character, and the visualizer, sized to the pixel
+  // for the gap, got cut off ("…")
   "memory": {
     "interval": 5,
-    "format": "󰘚 {percentage:>2}%",
+    "format": "󰘚{percentage:>3}%",
     "tooltip-format": "{used:0.1f}G / {total:0.1f}G",
     "on-click": "~/.local/lib/panels/sysgui.py"
   },
@@ -219,12 +223,12 @@
     "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
     "input-filename": "temp1_input",
     "critical-threshold": 85,
-    "format": "󰔏 {temperatureC:>2}°",
+    "format": "󰔏{temperatureC:>3}°",
     "tooltip-format": "CPU package {temperatureC}°C"
   },
   "cpu": {
     "interval": 5,
-    "format": "󰍛 {usage:>2}%",
+    "format": "󰍛{usage:>3}%",
     "states": {
       "critical": 90
     },
@@ -335,6 +339,11 @@
     "format": "",
     "tooltip-format": "Shortcuts (Super + K)",
     "on-click": "~/.local/lib/panels/keysgui.py"
+  },
+  "custom/settings": {
+    "format": "\uf013",
+    "tooltip-format": "Settings (Super + I)",
+    "on-click": "~/.local/lib/panels/settingsgui.py"
   },
   "custom/idle-indicator": {
     "on-click": "~/.config/hypr/scripts/toggle.sh idle",

@@ -40,13 +40,31 @@ def notify(msg):
     subprocess.run(["notify-send", "-t", "1500", "Workspaces", msg], capture_output=True)
 
 
+POPUPS = ("TUI.float", "panels.")   # popup panels (and the backdrop behind one)
+
+
 def windows(ws, clients=None):
     """Windows on workspace ws, oldest first — that order is what Alt + N counts."""
     clients = query("clients") if clients is None else clients
     wins = [c for c in clients or [] if c["workspace"]["id"] == ws and c["mapped"]
-            and not c["class"].startswith(("TUI.float", "panels.", "code-term-"))]
+            and not c["class"].startswith(POPUPS + ("code-term-",))]
     # popups, panel windows and the kitty beside each VS Code window (codepair.lua) don't count
     return sorted(wins, key=lambda c: c.get("stableId", 0))
+
+
+def focused(clients=None):
+    """The focused window's address (None on an empty workspace); while a popup (a panel, its
+    backdrop, a TUI popup) has the focus, the window it opened over, so the bar doesn't change
+    under a popup."""
+    active = query("activewindow") or {}
+    if not active.get("class", "").startswith(POPUPS):
+        return active.get("address")
+    clients = query("clients") if clients is None else clients
+    recent = sorted((c for c in clients or [] if c.get("focusHistoryID", -1) >= 0),
+                    key=lambda c: c["focusHistoryID"])
+    ws = active["workspace"]["id"]
+    return next((c["address"] for c in recent
+                 if not c["class"].startswith(POPUPS) and c["workspace"]["id"] == ws), None)
 
 
 def matches(win, cls):
@@ -242,8 +260,9 @@ def assign(groups_, ws, cls, pid=None):
 def bar_status():
     ws = (query("activeworkspace") or {}).get("id", 0)
     g = groups().get(ws)
-    wins = windows(ws)
-    active = (query("activewindow") or {}).get("address")
+    clients = query("clients")
+    wins = windows(ws, clients)
+    active = focused(clients)
     pos = next((i for i, w in enumerate(wins, 1) if w["address"] == active), 0)
     lines = [f"Alt+{i % 10}  {w['class']}: {w['title'][:40]}" for i, w in enumerate(wins, 1)]
     tip = (f"{g['name']} · workspace {ws}" if g else f"Workspace {ws} (no group)")

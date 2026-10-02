@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""greet — the terminal greeting (fish_greeting): a slowly spinning 3D bagel beside a boxed system
+"""greet — the terminal greeting (fish_greeting): a slowly spinning 3D bagel beside a system
 summary, laid out for the terminal it opens in.
 
 The bagel is a torus drawn as text (after Andy Sloane's donut.c): rotated, lit from above-behind and
@@ -10,11 +10,11 @@ drawn once per bagel size, as it plays, and kept in ~/.cache/greet/: after that 
 Only the bagel's rows are redrawn, and a colour is only sent where it changes.
 
 The summary comes from fastfetch's JSON (fastfetch --format json). Layout, by the terminal's width:
-  from BAGEL   the bagel (about 36 % of the width, as tall as the window allows) beside the boxes
-  from NARROW  the boxes alone, full width
+  from BAGEL   the bagel (about 36 % of the width, as tall as the window allows) beside the summary
+  from NARROW  the summary alone, full width
   below        nothing (agentmux's terminal column, a VS Code kitty: it would only wrap)
-The boxes fill the width they get: system and desktop side by side when both fit, hardware below;
-the bars grow with them, and a value too long for its box is cut with "…".
+The sections (a heading and its rows, no border) fill the width they get: system and desktop side by
+side when both fit, hardware below; the bars grow with them, a value too long is cut with "…".
 
   greet            animated (a still frame when the output isn't a terminal)
   greet --still    no animation
@@ -25,7 +25,7 @@ FPS = 10              # slow and calm; also what an uncached first loop can affo
 LOOP = 120            # frames per full turn (12 s): the cache holds one loop
 SHADES = " .,-~:;=!*#$@"    # blank, then dim to bright
 NARROW, BAGEL = 60, 90      # columns: below NARROW nothing, from BAGEL the bagel too
-GAP = 4                     # columns between the bagel and the boxes, and between two boxes
+GAP = 4                     # columns between the bagel and the summary, and between two sections
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "greet")
 
 # Tokyo Night (AGENTS.md "Colours")
@@ -185,6 +185,18 @@ def get(f, kind, *path, default=None):
     return v if v not in (None, "") else default
 
 
+def shell():
+    """The shell that runs this greeting (its parent) and its version. Not fastfetch's: its parent
+    is this script."""
+    try:
+        name = open(f"/proc/{os.getppid()}/comm").read().strip()
+        out = subprocess.run([name, "--version"], capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    version = next((w for w in out.replace(",", " ").split() if w[:1].isdigit()), "")
+    return f"{name} {version}".strip()
+
+
 def sections(f):
     """[(title, icon, [(icon, key, value)])]: value is text, or ("bar", used, total) for a level."""
     up = (get(f, "Uptime", "uptime", default=0) or 0) // 1000
@@ -211,7 +223,7 @@ def sections(f):
               ("\U000f0954", "uptime", uptime)]
     desktop = [("", "wm", joined(get(f, "WM", "prettyName"), get(f, "WM", "version"))),
                ("", "terminal", joined(get(f, "Terminal", "prettyName"), get(f, "Terminal", "version"))),
-               ("", "shell", joined(get(f, "Shell", "prettyName"), get(f, "Shell", "version"))),
+               ("", "shell", shell()),
                ("", "font", font.get("pretty") or joined(font.get("name"), font.get("size") and f"{font['size']}pt")),
                ("\U000f03d8", "theme", theme or None)]
     hardware = [("", "cpu", joined(cpu.get("cpu"), cpu.get("cores") and f"({cpu['cores'].get('logical')})",
@@ -227,15 +239,14 @@ def sections(f):
             (("system", "", system), ("desktop", "", desktop), ("hardware", "", hardware))]
 
 
-# ---- the boxes ---------------------------------------------------------------------------------
-def box(title, icon, rows, w, key_w):
-    """A box exactly w cells wide: rounded corners, icon + title in the top edge, a row per fact
-    (icon, the key in grey, the value in white; a level is a bar and aligned numbers)."""
-    inner = w - 2
-    head = f" {icon}  {title} "
-    out = [f"{fg(LINE)}╭─{fg(ACCENT)} {icon}  {fg(SUB)}{BOLD}{title}{RESET} "
-           f"{fg(LINE)}{'─' * max(inner - width(head) - 1, 0)}╮{RESET}"]
-    room = inner - (2 + 1 + 2 + key_w) - 1   # after "  icon  key"
+# ---- the sections ---------------------------------------------------------------------------------
+def section(title, icon, rows, w, key_w):
+    """A section exactly w cells wide, no border: a heading (icon, bold title, a thin rule to the
+    right edge, as on the GTK panels), then a row per fact (icon, the key in grey, the value in
+    white; a level is a bar and aligned numbers), then a blank line."""
+    head = f"{fg(ACCENT)}{icon}  {fg(SUB)}{BOLD}{title}{RESET} "
+    out = [head + f"{fg(LINE)}{'─' * max(w - width(head), 0)}{RESET}"]
+    room = w - (2 + 1 + 2 + key_w)   # after "  icon  key"
     levels = [v for _, _, v in rows if isinstance(v, tuple)]
     num_w = max((len(f"{v[1] / 2 ** 30:.1f}") for v in levels), default=0)
     tot_w = max((len(f"{v[2] / 2 ** 30:.1f}") for v in levels), default=0)
@@ -254,13 +265,12 @@ def box(title, icon, rows, w, key_w):
         else:
             text = f"{fg(TEXT)}{cut(value, room)}{RESET}"
         body = lead + text
-        out.append(f"{fg(LINE)}│{RESET}{body}{' ' * max(inner - width(body), 0)}{fg(LINE)}│{RESET}")
-    out.append(f"{fg(LINE)}╰{'─' * inner}╯{RESET}")
-    return out
+        out.append(body + " " * max(w - width(body), 0))
+    return out + [" " * w]
 
 
 def panel(f, w):
-    """The summary, w cells wide: a header and a rule, then the boxes (two side by side when they fit)."""
+    """The summary, w cells wide: a header, then the sections (two side by side when they fit)."""
     secs = sections(f)
     key_w = max(len(k) for _, _, rows in secs for _, k, _ in rows) + 2
     t = f.get("Title") or {}
@@ -271,19 +281,17 @@ def panel(f, w):
     when = time.strftime("%A %d %B")
     if width(left) + len(when) + 2 > w:
         when = ""
-    out = [left + " " * max(w - width(left) - len(when), 1) + f"{fg(MUTED)}{when}{RESET}",
-           f"{fg(LINE)}{'─' * w}{RESET}", ""]
+    out = [left + " " * max(w - width(left) - len(when), 1) + f"{fg(MUTED)}{when}{RESET}", ""]
     half = (w - GAP) // 2
     first, second, hardware = secs
     if half >= key_w + 38:   # each of the two still holds a whole line
-        a, b = box(*first, half, key_w), box(*second, w - GAP - half, key_w)
+        a, b = section(*first, half, key_w), section(*second, w - GAP - half, key_w)
         for i in range(max(len(a), len(b))):
             out.append((a[i] if i < len(a) else " " * half) + " " * GAP
                        + (b[i] if i < len(b) else " " * (w - GAP - half)))
     else:
-        out += box(*first, w, key_w) + box(*second, w, key_w)
-    out += box(*hardware, w, key_w)
-    return out
+        out += section(*first, w, key_w) + section(*second, w, key_w)
+    return out + section(*hardware, w, key_w)[:-1]
 
 
 def joined_wm(f):

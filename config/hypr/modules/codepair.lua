@@ -12,9 +12,25 @@
 -- toggleFullscreen and widenPairHalf (binds.lua: Super + F, Super + Alt + F / C / T),
 -- openPairPanel (binds.lua: Super + Alt + P), applyPairLayout (pairgui.py, through hyprctl eval).
 
-PAIR_WS = "1"
 -- VS Code's window class: "code" in older versions, "com.microsoft.VSCode" in newer ones
 local CODE = { ["code"] = true, ["com.microsoft.VSCode"] = true }
+-- the Code workspace: the group in workspaces.conf whose apps include VS Code (it can be moved in
+-- Settings → Workspaces), 1 without one
+PAIR_WS = "1"
+do
+    local f = io.open(os.getenv("HOME") .. "/.config/hypr/workspaces.conf")
+    if f then
+        for line in f:lines() do
+            local ws, classes = line:match("^%s*(%d+)%s*|[^|]*|([^|]*)")
+            if ws then
+                for c in classes:gmatch("[^,%s]+") do
+                    if CODE[c] then PAIR_WS = ws end
+                end
+            end
+        end
+        f:close()
+    end
+end
 local TERM = "code-term-"
 local MIN_SHARE  = 0.10   -- the kitty never gets less than this share of a pair
 -- VS Code doesn't draw narrower than its title bar allows (the search box and layout buttons: about

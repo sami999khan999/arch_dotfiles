@@ -15,7 +15,7 @@ Started by waybar itself (custom/wsbar, which prints nothing and stays hidden).
 import json, os, signal, socket, subprocess, time
 
 WORKSPACES = range(1, 11)
-ICONS = {1: "\U000f0a1e", 2: "", 3: "", 4: "\U000f06a9", 7: "", 8: "\U000f066f", 9: "", 10: "\U000f056e"}
+CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
 RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "wsbar")
 SIGNAL = 8
 REFRESH = (b"workspace", b"createworkspace", b"destroyworkspace", b"focusedmon", b"openwindow",
@@ -32,16 +32,30 @@ def hypr(what):
 last = None   # what the buttons show now, to skip updates that change nothing
 
 
+def icons():
+    """Each workspace's glyph: the 6th column of workspaces.conf (it moves with its app when the
+    workspaces are reordered in Settings). Read on every update: a reload is one of them."""
+    out = {}
+    try:
+        for line in open(CONF):
+            parts = [p.strip() for p in line.split("|")]
+            if not line.lstrip().startswith("#") and len(parts) > 5 and parts[0].isdigit() and parts[5]:
+                out[int(parts[0])] = parts[5]
+    except OSError:
+        pass
+    return out
+
+
 def write(urgent):
     global last
     active = (hypr("activeworkspace") or {}).get("id")
     counts = {w["id"]: w.get("windows", 0) for w in hypr("workspaces") or []}
     urgent.discard(active)
-    states = {}
+    states, glyphs = {}, icons()
     for ws in WORKSPACES:
         n = counts.get(ws, 0)
         cls = "active" if ws == active else "urgent" if ws in urgent else "occupied" if n else "empty"
-        states[ws] = {"text": ICONS.get(ws, str(ws % 10)), "class": cls}
+        states[ws] = {"text": glyphs.get(ws, str(ws % 10)), "class": cls}
     if states == last:
         return
     last = states

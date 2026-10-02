@@ -76,7 +76,7 @@ def matches(win, cls):
 
 # ---- workspaces.conf ---------------------------------------------------------------------------
 def read_conf():
-    """(header lines, {ws: {"name", "cls", "launch": [cmd], "new": cmd}})"""
+    """(header lines, {ws: {"name", "cls", "launch": [cmd], "new": cmd, "icon": glyph}})"""
     header, groups = [], {}
     try:
         lines = open(CONF).read().splitlines()
@@ -85,14 +85,15 @@ def read_conf():
     body = False
     for line in lines:
         s = line.strip()
-        parts = [p.strip() for p in s.split("|", 4)]
+        parts = [p.strip() for p in s.split("|", 5)]
         if s and not s.startswith("#") and len(parts) >= 3 and parts[0].isdigit():
             body = True
             launch = [c.strip() for c in parts[3].split(";")] if len(parts) > 3 else []
             # several apps are "a, b" in the file (| separates its columns) and the regex a|b here
             cls = "|".join(c.strip() for c in parts[2].split(",") if c.strip())
             groups[int(parts[0])] = {"name": parts[1], "cls": cls, "launch": [c for c in launch if c],
-                                     "new": parts[4] if len(parts) > 4 else ""}
+                                     "new": parts[4] if len(parts) > 4 else "",
+                                     "icon": parts[5] if len(parts) > 5 else ""}
         elif not body:
             header.append(line)
     return header, groups
@@ -111,7 +112,11 @@ def write_conf(groups_):
         g = groups_[ws]
         cls = ", ".join(g["cls"].split("|"))
         row = f"{ws} | {g['name']:<8} | {cls:<13} | {' ; '.join(g['launch'])}"
-        rows.append((row + f" | {g['new']}" if g.get("new") else row).rstrip())
+        if g.get("icon"):   # the bar button's glyph: the 6th column (needs the 5th, even empty)
+            row += f" | {g.get('new', '')} | {g['icon']}"
+        elif g.get("new"):
+            row += f" | {g['new']}"
+        rows.append(row.rstrip())
     with open(CONF, "w") as f:           # write in place: the file is a symlink into ~/dotfiles
         f.write("\n".join(header) + "\n\n" + "\n".join(rows) + "\n")
     hypr("reload")
@@ -178,9 +183,23 @@ def go(ws):
 
 
 def tidy():
+    """Every open window to its app's workspace. The kitty beside a VS Code window (class
+    code-term-<its address>) isn't a group of its own: it goes where its VS Code window is."""
     moved = 0
     gs = groups()
-    for win in query("clients") or []:
+    clients = query("clients") or []
+    home = {}   # VS Code window address -> the workspace its group is on
+    for win in clients:
+        for ws, g in gs.items():
+            if matches(win, g["cls"]):
+                home[win["address"]] = ws
+    for win in clients:
+        code = win["class"].removeprefix("code-term-") if win["class"].startswith("code-term-") else None
+        if code and home.get(code) and win["workspace"]["id"] != home[code] and win["workspace"]["id"] > 0:
+            dispatch(f'hl.dsp.window.move({{ workspace = "{home[code]}", follow = false, '
+                     f'window = "address:{win["address"]}" }})')
+            moved += 1
+            continue
         for ws, g in gs.items():
             if matches(win, g["cls"]) and win["workspace"]["id"] != ws and win["workspace"]["id"] > 0:
                 dispatch(f'hl.dsp.window.move({{ workspace = "{ws}", follow = false, '

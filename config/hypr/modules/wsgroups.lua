@@ -8,6 +8,15 @@ local wsgroups = "~/.local/bin/wsgroups"
 local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
 local grouped = {} -- workspace numbers that have a group line
+local classesOf = {} -- workspace number -> { class = true } of its apps, as written in the file
+
+-- the workspace an app's class belongs to (autostart.lua: the Control Center's), nil if none
+function workspaceOfClass(cls)
+    for ws, classes in pairs(classesOf) do
+        if classes[cls] then return ws end
+    end
+    return nil
+end
 
 local file = io.open(conf, "r")
 if file then
@@ -21,6 +30,8 @@ if file then
                 -- several apps are "a, b" in the file (| separates its columns): regex a|b here
                 class = trim(class):gsub("%s*,%s*", "|")
                 if class ~= "" then
+                    classesOf[ws] = {}
+                    for c in class:gmatch("[^|]+") do classesOf[ws][c] = true end
                     hl.window_rule({ match = { class = "^(" .. class .. ")$" }, workspace = ws })
                 end
             end

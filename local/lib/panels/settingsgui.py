@@ -6,7 +6,7 @@
 # A page is built the first time it's shown, so the window opens fast.
 #
 #   type  search     ↑↓  sections     Esc  clear, then close
-import os, sys, threading
+import os, re, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, box, button, clear, dropdown, label,
@@ -41,6 +41,8 @@ class Settings(View):
     .banner { background: alpha(#e0af68, .14); padding: 10px 14px; margin: 8px 0; }
     .power button.on { background: #6b8fe0; color: #16161e; font-weight: 700; }
     .about-key { color: #565f89; min-width: 110px; }
+    .ws-icon { color: #6b8fe0; font-size: 13pt; min-width: 26px; }
+    .ws-editor { background: alpha(#000000, .18); padding: 12px 14px; margin: 2px 0 8px 0; }
     .capture { background: alpha(#000000, .22); border: 1px dashed alpha(#c0caf5, .18); padding: 18px; margin: 4px 0 10px 0; }
     .capture.listening { border: 1px solid #6b8fe0; background: alpha(#000000, .32); }
     """
@@ -78,6 +80,8 @@ class Settings(View):
             Section("System", "apps", "", "Default apps",
                     "terminal browser file manager editor calculator open with web links pdf images video",
                     self.page_apps),
+            Section("System", "workspaces", "\U000f0570", "Workspaces",
+                    "workspace groups apps order reorder swap move monitor screen display icon launch", self.page_workspaces),
             Section("System", "time", "", "Date & time",
                     "timezone time zone clock 24 hour ntp automatic", self.page_time),
             Section("System", "more", "", "More settings",
@@ -803,6 +807,138 @@ class Settings(View):
         p.append(setting_row("24-hour clock", "The bar's clock and GTK apps",
                              switch(t["h24"], lambda v: (t.update(h24=v), S.time_set_h24(v), tick(),
                                                          self.done("settings.json + gsettings")))))
+
+    def page_workspaces(self, p):
+        """The ten workspaces (workspaces.conf, through wsgroups): what opens on each and its bar icon,
+        their order (↑ ↓ swap two: the windows, icons and screens go along) and, with more than one
+        screen, the screen each one lives on (per PC: settings.local.json)."""
+        import wsgui
+        ws = wsgui.load_wsgroups()
+        mons = [m["name"] for m in S.monitors() if not m.get("disabled")]
+        self.heading(p, "The ten workspaces")
+        p.append(label("Super + Ctrl + 1…0 goes to one and opens its app; Alt + 1…0 picks among its "
+                       "windows. ↑ ↓ reorder them: open windows, the bar icon and the screen go along.",
+                       "setting-sub", wrap=True))
+        holder = box(True, 0)
+        p.append(holder)
+        editing = {"ws": None}
+
+        def write(groups, msg):
+            ws.write_conf(groups)   # and reloads Hyprland: rules, layouts, the bar's icons follow
+            moved = ws.tidy()
+            self.say(msg + (f" · {moved} window{'s' * (moved != 1)} moved" if moved else "")
+                     + " · saved to workspaces.conf")
+            draw()
+
+        def swap(a, b):
+            g = ws.groups()
+            ga, gb = g.pop(a, None), g.pop(b, None)
+            if gb:
+                g[a] = gb
+            if ga:
+                g[b] = ga
+            S.ws_monitors_swap(a, b)
+            editing["ws"] = {a: b, b: a}.get(editing["ws"], editing["ws"])
+            write(g, f"Workspaces {a % 10} and {b % 10} swapped")
+
+        def pin(n, mon):
+            self.done("settings.local.json (this PC)", S.ws_monitor_set(n, mon))
+
+        def editor(n, g):
+            """Name, icon, apps, launch and Super + N of workspace n; Save, an open app, Clear."""
+            g = g or {"name": "", "cls": "", "launch": [], "new": "", "icon": ""}
+            fields = {}
+            grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+            for i, (key, title, value, hint) in enumerate((
+                    ("name", "Name", g["name"], "e.g. Web"),
+                    ("icon", "Bar icon", g.get("icon", ""), "a Nerd Font glyph; empty: the digit"),
+                    ("cls", "Window class", ", ".join(g["cls"].split("|")) if g["cls"] else "", "several apps: a, b"),
+                    ("launch", "Launch", " ; ".join(g["launch"]), "commands, separated by ;"),
+                    ("new", "Super + N", g.get("new", ""), "empty: the first launch command; - for none"))):
+                grid.attach(label(title, "dim"), 0, i, 1, 1)
+                e = Gtk.Entry(text=value, placeholder_text=hint, hexpand=True)
+                e.connect("activate", lambda *_: save())
+                fields[key] = e
+                grid.attach(e, 1, i, 1, 1)
+
+            def save():
+                f = {k: e.get_text().strip() for k, e in fields.items()}
+                cls = "|".join(c.strip() for c in f["cls"].split(",") if c.strip())
+                if not f["name"] or not cls:
+                    return self.say("A name and a window class are both needed", "bad")
+                try:
+                    re.compile(cls)
+                except re.error:
+                    return self.say(f"Not a valid class pattern: {f['cls']}", "bad")
+                groups = ws.groups()
+                groups[n] = {"name": f["name"], "cls": cls, "icon": f["icon"], "new": f["new"],
+                             "launch": [c.strip() for c in f["launch"].split(";") if c.strip()]}
+                editing["ws"] = None
+                write(groups, f"Workspace {n % 10}: {f['name']}")
+
+            def use(c):
+                groups = ws.groups()
+                err = ws.assign(groups, n, c["class"], c.get("pid"))
+                if err:
+                    return self.say(err, "bad")
+                write(groups, f"{c['class']} now opens on workspace {n % 10}")
+
+            def clear_it():
+                groups = ws.groups()
+                groups.pop(n, None)
+                editing["ws"] = None
+                write(groups, f"Workspace {n % 10} is empty now")
+            pick = Gtk.MenuButton(label="Use an open app", tooltip_text="Put a running app on this workspace")
+            pop, menu = Gtk.Popover(), Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+            seen = set()
+            for c in sorted(ws.query("clients") or [], key=lambda c: c["class"].lower()):
+                if c["class"] and c["class"] not in seen and c["workspace"]["id"] > 0 \
+                        and not c["class"].startswith(("panels.", "TUI.float", "code-term-")):
+                    seen.add(c["class"])
+                    row = Gtk.ListBoxRow(child=label(c["class"]))
+                    row.app = c
+                    menu.append(row)
+            menu.connect("row-activated", lambda _l, row: (pop.popdown(), use(row.app)))
+            pop.set_child(menu)
+            pick.set_popover(pop)
+            gap = Gtk.Box(hexpand=True)
+            acts = box(False, 8, button("Save", save, "primary"), pick, gap,
+                       button("Clear", clear_it, "flat", "danger", tooltip="This workspace holds no app"),
+                       button("Close", lambda: (editing.update(ws=None), draw()), "flat"))
+            acts.set_margin_top(8)
+            return box(True, 0, grid, acts, classes=("ws-editor",))
+
+        def draw():
+            clear(holder)
+            groups, pins = ws.groups(), S.ws_monitors()
+            for n in range(1, 11):
+                g = groups.get(n)
+                title = f"{n % 10}   {g['name']}" if g else f"{n % 10}   —"
+                sub = (", ".join(g["cls"].split("|")) + "  ·  " + (" ; ".join(g["launch"]) or "no launch command")
+                       if g else "no app: any window can go here")
+                up = button("↑", lambda n=n: swap(n - 1, n), "flat", tooltip=f"Swap with workspace {(n - 1) % 10}")
+                down = button("↓", lambda n=n: swap(n, n + 1), "flat", tooltip=f"Swap with workspace {(n + 1) % 10}")
+                up.set_sensitive(n > 1)
+                down.set_sensitive(n < 10)
+                controls = [up, down]
+                if len(mons) > 1:
+                    controls.append(dropdown([("", "Any screen")] + [(m, m) for m in mons], pins.get(n, ""),
+                                             lambda v, n=n: pin(n, v)))
+                controls.append(button("Close" if editing["ws"] == n else "Edit",
+                                       lambda n=n: (editing.update(ws=None if editing["ws"] == n else n), draw()),
+                                       "flat"))
+                row = setting_row(title, sub, *controls)
+                icon = label((g or {}).get("icon") or " ", "ws-icon")
+                row.prepend(icon)
+                holder.append(row)
+                if editing["ws"] == n:
+                    holder.append(editor(n, g))
+        draw()
+        tidy = button("Move open windows to their workspaces", lambda: self.say(f"{ws.tidy()} window(s) moved"), "flat")
+        p.append(box(False, 0, tidy, classes=("setting",)))
+        if len(mons) <= 1:
+            p.append(label("With more than one screen, each workspace gets a screen to live on here "
+                           "(remembered per PC).", "setting-sub", wrap=True))
 
     def page_more(self, p):
         self.heading(p, "Other panels")

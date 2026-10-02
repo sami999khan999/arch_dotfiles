@@ -212,6 +212,13 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 2 | Web      | google-chrome   | google-chrome-stable
 ```
 
+**Settings → Workspaces** (Super + I) edits all of it: what opens on each workspace (name, bar icon,
+window class, launch command, Super + N; or "Use an open app"), the order (↑ ↓ swap two
+workspaces: their open windows, bar icons and screens go along, and the VS Code pairs' scrolling
+layout and the Control Center follow their apps), and, with more than one screen, which screen
+each workspace lives on (saved per PC in `settings.local.json`, since screens differ). The bar
+icon is the 6th column of `workspaces.conf`.
+
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
 A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `Alt + Tab`,
 and is fullscreen again when you come back (a mouse click on another window exits it).

@@ -234,6 +234,8 @@ def generate():
     parts = [HEADER.format(src="settings.local.json (this PC only)")]
     for name, m in sorted(local.get("monitors", {}).items()):
         parts.append(monitor_lua(name, m["mode"], m["scale"]))
+    for ws, mon in sorted(ws_monitors().items()):   # after wsgroups.lua's rule: this monitor wins
+        parts.append(f'hl.workspace_rule({{ workspace = "{ws}", monitor = {lua_value(mon)}, persistent = true }})')
     write(LUA_LOCAL, "\n".join(parts))
 
 
@@ -360,6 +362,30 @@ def remaps_set(new):
     sh("hyprctl", "reload")
     rc, out = sh("hyprctl", "configerrors")
     return out.strip() or None
+
+
+# ---- workspaces on screens: per PC (screen names differ), settings.local.json "ws_monitors" -------
+def ws_monitors():
+    """{workspace: monitor name} for the workspaces pinned to a screen."""
+    return {int(k): v for k, v in store(local=True).get("ws_monitors", {}).items() if v}
+
+
+def ws_monitor_set(ws, monitor):
+    """Pin workspace ws to a screen (None: wherever you are) and move it there now."""
+    remember("ws_monitors", str(ws), monitor or None, local=True)
+    generate()
+    sh("hyprctl", "reload")
+    if monitor:
+        return hypr_eval(f'hl.dispatch(hl.dsp.workspace.move({{ workspace = "{ws}", monitor = {lua_value(monitor)} }}))')
+    return None
+
+
+def ws_monitors_swap(a, b):
+    """Two workspaces swapped places (Settings → Workspaces, reorder): their screens go with them."""
+    pins = ws_monitors()
+    remember("ws_monitors", str(a), pins.get(b), local=True)
+    remember("ws_monitors", str(b), pins.get(a), local=True)
+    generate()
 
 
 # ---- display -----------------------------------------------------------------------------------

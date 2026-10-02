@@ -35,7 +35,7 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `config/hypr/hyprland.lua` | entry point: `require`s the modules in `config/hypr/modules/` |
 | `config/hypr/modules/*.lua` | binds, window rules, workspaces, autostart, colours, animations… |
 | `config/hypr/apps.conf` | app hotkeys (focus-or-launch), read by `modules/apps.lua` |
-| `config/hypr/workspaces.conf` | workspace groups, read by `modules/wsgroups.lua` and `local/bin/wsgroups` |
+| `config/hypr/workspaces.conf` | workspace groups (app, launch, bar icon), read by `modules/wsgroups.lua`, `local/bin/wsgroups`, `scripts/wsbar.py`, `codepair.lua`; edited and reordered in Settings → Workspaces, which also pins workspaces to screens per PC |
 | `config/hypr/scripts/` | shell helpers (tui.sh, panel.sh, toggles, screenshots…) + waybar modules (wsbar, wintitle) |
 | `local/lib/panels/` | the panels: GTK windows `*gui.py` (in use; shared `gtkkit.py`, Control Center `ccgui.py`) and the older terminal versions (`panelkit.py`) |
 | `local/lib/panels/settings*.py` | Settings panel (Super + I): `settingslib.py` reads / writes / applies every setting, `settingsgui.py` is the window. Key mapping (keys / mouse buttons → an action) is `remaps` in `settings.json` → `hl.bind`s in `settings.lua`. `settingslib.py restore` (run at login) puts gsettings back in line with the repo files. Hyprland values: `config/hypr/settings.json` → generated `modules/settings.lua` (required last; don't hand-edit). Per-PC: `settings.local.json` (gitignored) |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Omarchy-style toggles.   toggle.sh idle | nightlight | notifications
+# Omarchy-style toggles.   toggle.sh idle | nightlight [on|off|auto] [quiet] | notifications
 # an indicator came or went: the visualizer (waybar) makes room. By pid: a name match would also
 # signal an editor that has visualizer.py open
 poke_visualizer() {
@@ -20,11 +20,26 @@ case "$1" in
     pkill -RTMIN+9 waybar
     poke_visualizer ;;
   nightlight)
-    if pkill -x hyprsunset; then
-      notify-send -u low "  Nightlight off"
+    # toggle.sh nightlight [toggle|on|off|auto] [quiet]. Temperature and schedule come from the
+    # Settings panel (hypr/settings.json); auto = on inside the schedule's window, off outside it
+    # (its timers and the login autostart call it), and nothing at all without a schedule.
+    settings="$HOME/.config/hypr/settings.json"
+    temp=$(jq -r '.nightlight.temp // 4000' "$settings" 2>/dev/null)
+    want="${2:-toggle}"
+    if [[ $want == auto ]]; then
+      [[ $(jq -r '.nightlight.schedule // false' "$settings" 2>/dev/null) == true ]] || exit 0
+      start=$(jq -r '.nightlight.start // "20:00"' "$settings"); end=$(jq -r '.nightlight.end // "07:00"' "$settings")
+      now=$(date +%H:%M)
+      if [[ $start < $end ]]; then [[ ! $now < $start && $now < $end ]] && want=on || want=off
+      else [[ ! $now < $start || $now < $end ]] && want=on || want=off; fi
+    fi
+    if [[ $want == toggle ]]; then pgrep -x hyprsunset >/dev/null && want=off || want=on; fi
+    if [[ $want == on ]]; then
+      pgrep -x hyprsunset >/dev/null || { setsid hyprsunset -t "${temp:-4000}" >/dev/null 2>&1 & }
+      [[ $3 == quiet ]] || notify-send -u low "  Nightlight on"
     else
-      setsid hyprsunset -t 4000 >/dev/null 2>&1 &
-      notify-send -u low "  Nightlight on"
+      pkill -x hyprsunset
+      [[ $3 == quiet ]] || notify-send -u low "  Nightlight off"
     fi ;;
   notifications)
     if makoctl mode | grep -qx do-not-disturb; then

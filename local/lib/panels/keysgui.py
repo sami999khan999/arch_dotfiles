@@ -3,7 +3,8 @@
 # again closes it. Reads binds.lua, apps.conf and workspaces.conf live (keys.py does the parsing),
 # so it never goes stale. A bind shows its trailing "-- comment" as its description.
 #
-#   type   search (every word must match)     ↑↓ PgUp PgDn  scroll     Esc  clear, then close
+#   type   fuzzy search, best match first     ↑↓ PgUp PgDn  scroll     Esc  clear, then close
+# Search (substring, abbreviation, one typo) is keys.search(); the matched letters are highlighted.
 import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -11,10 +12,26 @@ from gtkkit import Gdk, GLib, Gtk, View, box, clear, label, rule_heading, run, s
 import keys
 
 
+def marked(text, hits, color):
+    """Pango markup for text with the letters at hits in color. Colour only, no bold: bold glyphs
+    in the middle of a line left flickering white dots on screen (GTK's GPU renderer, NVIDIA)."""
+    out, run = [], []
+    for i, ch in enumerate(text + "\0"):
+        if i in hits:
+            run.append(ch)
+            continue
+        if run:   # one span per run of matched letters, not one per letter
+            out.append(f'<span foreground="{color}">{GLib.markup_escape_text("".join(run))}</span>')
+            run = []
+        if ch != "\0":
+            out.append(GLib.markup_escape_text(ch))
+    return "".join(out)
+
+
 class Shortcuts(View):
     title, subtitle = "Shortcuts", "every keybind, live from the config"
     interval = 5.0   # binds.lua / apps.conf are re-read this often
-    hints = [("type", "search"), ("↑↓ PgUp PgDn", "scroll"), ("Esc", "clear / close")]
+    hints = [("type", "fuzzy search"), ("↑↓ PgUp PgDn", "scroll"), ("Esc", "clear / close")]
     css = """
     .keys-list > row { padding: 3px 4px; }
     .keys-list > row:hover { background: transparent; }
@@ -65,21 +82,18 @@ class Shortcuts(View):
     def paint(self):
         clear(self.list)
         keycol = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)   # the key column's width
-        words = self.search.get_text().lower().split()
         shown = 0
-        for title, items in self.data:
-            hits = [(k, d) for k, d in items if all(w in f"{k} {d}".lower() for w in words)]
-            if not hits:
-                continue
+        for title, hits in keys.search(self.data, self.search.get_text()):
             head = rule_heading(title)
             if shown:
                 head.add_css_class("keys-head")
             row = Gtk.ListBoxRow(child=head, activatable=False)
             self.list.append(row)
-            for k, d in hits:
-                key = label(k, "amber")
+            for k, d, khit, dhit in hits:
+                key = label(marked(k, khit, "#7aa2f7"), "amber", markup=True)
                 keycol.add_widget(key)
-                line = box(False, 16 if self.compact else 24, key, label(d, ellipsize=True))
+                desc = label(marked(d, dhit, "#7aa2f7"), ellipsize=True, markup=True)
+                line = box(False, 16 if self.compact else 24, key, desc)
                 self.list.append(Gtk.ListBoxRow(child=line, activatable=False))
             shown += len(hits)
         if not shown:

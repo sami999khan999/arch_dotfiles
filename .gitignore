@@ -17,3 +17,5 @@ __pycache__/
 
 # ---- Per-PC settings (each machine runs `codesync setup`)
 config/codesync/machine.json
+config/hypr/settings.local.json
+config/hypr/modules/settings_local.lua

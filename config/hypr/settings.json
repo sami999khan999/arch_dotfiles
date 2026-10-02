@@ -1,0 +1,22 @@
+{
+  "anim": {
+    "speed": "fast",
+    "workspaces": false
+  },
+  "clock": {
+    "h24": false
+  },
+  "hypr": {
+    "cursor:zoom_factor": 1.0,
+    "input:accel_profile": "adaptive",
+    "input:follow_mouse": 2,
+    "input:natural_scroll": false,
+    "input:sensitivity": -0.6
+  },
+  "panels": {
+    "blur": 19
+  },
+  "wallpaper": {
+    "mode": "fill"
+  }
+}

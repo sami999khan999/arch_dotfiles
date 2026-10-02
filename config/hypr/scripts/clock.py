@@ -18,6 +18,17 @@ STATE = f"{RUN}/waybar-clock.json"   # {"long": bool, "month": offset of the too
 PID = f"{RUN}/waybar-clock.pid"
 
 DIM, TEXT, LINE, ACCENT = "#565f89", "#c0caf5", "#3b4261", "#6b8fe0"
+SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")   # the Settings panel's 24-hour switch
+
+
+def time_fmt():
+    """%H:%M, or %I:%M %p when the Settings panel turned 24-hour time off (read on every draw, so
+    the panel's SIGUSR1 shows the change at once)."""
+    try:
+        h24 = json.load(open(SETTINGS)).get("clock", {}).get("h24", True)
+    except (OSError, ValueError):
+        h24 = True
+    return "%H:%M" if h24 else "%I:%M %p"
 
 
 def load():
@@ -37,15 +48,15 @@ def plain_text(long, now=None):
     """What the bar shows, without markup (its length is what the visualizer needs)."""
     now = now or datetime.datetime.now()
     if long:
-        return f"{now:%A}  {now:%d %b}  wk {now:%V}  {now:%H:%M}"
-    return f"{now:%a %d %b}  {now:%H:%M}"
+        return f"{now:%A}  {now:%d %b}  wk {now:%V}  {now:{time_fmt()}}"
+    return f"{now:%a %d %b}  {now:{time_fmt()}}"
 
 
 def markup(long, now):
     if long:
         return (f"<span color='{DIM}'>{now:%A}</span>  {now:%d %b}  "
-                f"<span color='{DIM}'>wk</span> {now:%V}  <b>{now:%H:%M}</b>")
-    return f"<span color='{DIM}'>{now:%a %d %b}</span>  <b>{now:%H:%M}</b>"
+                f"<span color='{DIM}'>wk</span> {now:%V}  <b>{now:{time_fmt()}}</b>")
+    return f"<span color='{DIM}'>{now:%a %d %b}</span>  <b>{now:{time_fmt()}}</b>"
 
 
 def month_calendar(offset, today):

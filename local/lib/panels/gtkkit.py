@@ -7,10 +7,18 @@
 # closes it too; Hyprland floats, sizes and centres every "panels.*" window (modules/windowrules.lua).
 # Style: the Control Center cards' look everywhere (icon + title, blue underline, blue rule headings,
 # amber keys / classes, green-amber-red levels, key hints) on translucent #16161e.
+import os
+# GTK's default Vulkan renderer runs on Mesa's hasvk here (Haswell iGPU), which drew flickering white
+# dots over re-filled text (the shortcut search). The GL renderer draws it cleanly. Must be set
+# before GTK starts; an explicit GSK_RENDERER in the environment still wins.
+os.environ.setdefault("GSK_RENDERER", "gl")
+
 import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+gi.require_version("Graphene", "1.0")
+gi.require_version("Gsk", "4.0")
+from gi.repository import Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango
 
 CSS = """
 /* Tokens. bg: VS Code's Tokyo Night #16161e, 85 % opaque like kitty, so Hyprland blurs the wallpaper
@@ -19,6 +27,7 @@ CSS = """
    never from boxes or icons. Section labels are small spaced capitals; key numbers are large and light. */
 window.panel { background: alpha(#16161e, .85); color: #c0caf5; font-family: "JetBrainsMono Nerd Font"; font-size: 10pt; }
 window.panel * { border-radius: 0; }
+window.backdrop { background: transparent; }   /* behind a popup: Backdrop draws it */
 
 /* every window has the Control Center card's chrome: icon + bold title, details on the right,
    an underline that's blue under the title, key hints on the last line */
@@ -85,6 +94,30 @@ menubutton arrow { -gtk-icon-source: none; min-width: 0; min-height: 0; margin: 
 .tab:hover { background: transparent; color: #a9b1d6; }
 .tab.on { color: #c0caf5; border-bottom-color: #6b8fe0; }
 
+/* settings controls (Settings panel, any panel): switch, dropdown, number box, slider */
+switch { background: #292e42; border: none; min-width: 36px; min-height: 18px; padding: 0; box-shadow: none; }
+switch:checked { background: #6b8fe0; }
+switch slider { background: #c0caf5; min-width: 14px; min-height: 14px; margin: 2px; border: none; box-shadow: none; }
+switch:checked slider { background: #16161e; }
+switch image { -gtk-icon-source: none; }
+dropdown > button { padding: 4px 10px; min-width: 120px; }
+dropdown arrow, spinbutton button { color: #565f89; }
+dropdown popover listview { background: transparent; }
+dropdown popover listview > row { padding: 4px 10px; }
+dropdown popover listview > row:selected { background: #292e42; }
+spinbutton { background: alpha(#000000, .22); color: #c0caf5; border: none; border-bottom: 1px solid alpha(#c0caf5, .12); box-shadow: none; }
+spinbutton:focus-within { border-bottom-color: #6b8fe0; }
+spinbutton > text { padding: 4px 8px; min-width: 40px; }
+spinbutton button { background: transparent; border: none; padding: 2px 8px; }
+spinbutton button:hover { background: alpha(#c0caf5, .08); color: #c0caf5; }
+scale trough { background: #292e42; border: none; min-height: 4px; padding: 0; }
+scale highlight { background: #6b8fe0; border: none; min-height: 4px; margin: 0; }
+scale slider { background: #c0caf5; border: none; min-width: 12px; min-height: 12px; margin: -5px; box-shadow: none; }
+scale:disabled highlight { background: #565f89; }
+.setting { padding: 7px 0; border-bottom: 1px solid alpha(#c0caf5, .04); }
+.setting-title { color: #c0caf5; }
+.setting-sub { color: #565f89; font-size: 9pt; }
+
 popover > contents { background: #16161e; color: #c0caf5; border: 1px solid alpha(#c0caf5, .1); padding: 6px; }
 /* scrollbars: a thin bar, no track, no arrow buttons */
 scrollbar, scrollbar trough { background: transparent; border: none; box-shadow: none; }
@@ -149,6 +182,93 @@ def box(vertical=False, spacing=0, *children, classes=()):
     return b
 
 
+def setting_row(title, sub, *controls):
+    """A settings line: title with a dim explanation under it, the control(s) at the right."""
+    text = box(True, 1, label(title, "setting-title"), classes=())
+    if sub:
+        text.append(label(sub, "setting-sub", wrap=True))
+    text.set_hexpand(True)
+    row = box(False, 14, text, classes=("setting",))
+    for c in controls:
+        c.set_valign(Gtk.Align.CENTER)
+        row.append(c)
+    return row
+
+
+def debounced(fn, ms=250):
+    """fn(value), called once the value has stopped changing for ms (sliders, number boxes)."""
+    pending = {"id": 0}
+
+    def call(value):
+        if pending["id"]:
+            GLib.source_remove(pending["id"])
+
+        def fire():
+            pending["id"] = 0
+            fn(value)
+            return False
+        pending["id"] = GLib.timeout_add(ms, fire)
+    return call
+
+
+def switch(active, on_change):
+    """A Gtk.Switch; on_change(bool) when the user flips it (not when set from code via .quiet())."""
+    sw = Gtk.Switch(active=bool(active))
+    sw.quiet = False
+
+    def flipped(w, _p):
+        if not w.quiet:
+            on_change(w.get_active())
+    sw.connect("notify::active", flipped)
+    return sw
+
+
+def dropdown(options, current, on_change, search=False):
+    """options: [(value, text)]. on_change(value) when the user picks one."""
+    values = [v for v, _ in options]
+    dd = Gtk.DropDown.new_from_strings([t for _, t in options])
+    if current in values:
+        dd.set_selected(values.index(current))
+    if search:   # long lists (time zones, keyboard layouts): type to filter
+        dd.set_enable_search(True)
+        dd.set_expression(Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+        dd.set_search_match_mode(Gtk.StringFilterMatchMode.SUBSTRING)
+
+    def picked(w, _p):
+        i = w.get_selected()
+        if 0 <= i < len(values):
+            on_change(values[i])
+    dd.connect("notify::selected", picked)
+    return dd
+
+
+def spin(lo, hi, step, value, on_change, digits=0):
+    """A number box; on_change(number) shortly after the user stops changing it."""
+    sp = Gtk.SpinButton.new_with_range(lo, hi, step)
+    sp.set_digits(digits)
+    sp.set_value(value if value is not None else lo)
+    later = debounced(on_change, 400)
+    sp.connect("value-changed", lambda w: later(round(w.get_value(), digits) if digits else int(w.get_value())))
+    return sp
+
+
+def slider(lo, hi, step, value, on_change, fmt="{:.2f}", width=200):
+    """A slider with its value at the right; on_change(number) once it stops moving."""
+    sc = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, step)
+    sc.set_draw_value(False)
+    sc.set_size_request(width, -1)
+    sc.set_value(value if value is not None else lo)
+    shown = label(fmt.format(sc.get_value()), "sub", xalign=1.0)
+    shown.set_width_chars(len(fmt.format(hi)) + 1)
+    later = debounced(on_change)
+
+    def moved(w):
+        shown.set_text(fmt.format(w.get_value()))
+        later(round(w.get_value(), 2))
+    sc.connect("value-changed", moved)
+    return box(False, 8, sc, shown)
+
+
 def clear(container):
     while (child := container.get_first_child()) is not None:
         container.remove(child)
@@ -180,6 +300,7 @@ class View:
     popup = ""               # command for the full panel (Edit / Open from its Control Center card)
     icon = ""                # the Control Center card's header glyph
     footer = True            # False: the window shows no hint line (the Control Center's cards have their own)
+    backdrop = True          # False: no blurred / dimmed backdrop behind the popup (the pair popup: you watch the pair)
 
     @property
     def tile_info(self):
@@ -234,6 +355,121 @@ class View:
         return self.host.win
 
 
+HYPR_SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")
+
+
+def backdrop_setting():
+    """What goes behind a popup, from System Settings → Appearance → Panels: (on, blur px, darken 0-1)."""
+    import json
+    try:
+        p = json.load(open(HYPR_SETTINGS)).get("panels", {})
+    except (OSError, ValueError):
+        p = {}
+    on = p.get("backdrop", True) not in (False, "off")
+    return on, max(0, int(p.get("blur", 12))), max(0.0, min(float(p.get("darken", 0.25)), 0.9))
+
+
+def pad_edges(pb, p):
+    """The picture with p pixels more on every side, repeating its edge pixels: blurred, the edges
+    then stay as they are instead of fading out."""
+    from gi.repository import GdkPixbuf
+    if p <= 0:
+        return pb
+    w, h, near = pb.get_width(), pb.get_height(), GdkPixbuf.InterpType.NEAREST
+    out = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, pb.get_has_alpha(), 8, w + 2 * p, h + 2 * p)
+    pb.copy_area(0, 0, w, h, out, p, p)
+    for sx, sy, sw, sh, dx, dy, dw, dh in (
+            (0, 0, 1, h, 0, p, p, h), (w - 1, 0, 1, h, w + p, p, p, h),            # left, right
+            (0, 0, w, 1, p, 0, w, p), (0, h - 1, w, 1, p, h + p, w, p),            # top, bottom
+            (0, 0, 1, 1, 0, 0, p, p), (w - 1, 0, 1, 1, w + p, 0, p, p),            # corners
+            (0, h - 1, 1, 1, 0, h + p, p, p), (w - 1, h - 1, 1, 1, w + p, h + p, p, p)):
+        pb.new_subpixbuf(sx, sy, sw, sh).scale_simple(dw, dh, near).copy_area(0, 0, dw, dh, out, dx, dy)
+    return out
+
+
+def screen_below_bar(blur):
+    """A screenshot of the focused monitor without the bar (grim), ready to blur: (texture, the area
+    it covers in the window (x, y, w, h), where to draw the texture (a little larger: its edges are
+    repeated outward so the blur doesn't fade them), the GTK blur radius still to apply, the
+    monitor's (width, height)), or Nones.
+    A big blur is mostly done here, by shrinking with an averaging filter (GdkPixbuf's BILINEAR
+    integrates over the area) and stretching back up: cheap, and GTK's GL blur misdraws big radii
+    (40 px showed the screen zoomed in). The picture is drawn 1:1 over the screen, so the windows
+    keep their places and gaps under the blur."""
+    import json, math, subprocess
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+    try:
+        mons = json.loads(subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True).stdout)
+        m = next(m for m in mons if m["focused"])
+        left, top, right, bottom = m["reserved"]
+        scale = m["scale"]
+        w, h = round(m["width"] / scale) - left - right, round(m["height"] / scale) - top - bottom
+        png = subprocess.run(["grim", "-l", "0", "-g", f"{m['x'] + left},{m['y'] + top} {w}x{h}", "-"],
+                             capture_output=True, timeout=2).stdout
+        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+        loader.write(png)
+        loader.close()
+        shot = loader.get_pixbuf()
+        shrink = max(1.0, blur / 4)   # what's left for GTK: about a quarter, at most 10 px
+        gtk_blur = min(blur, 10) if shrink > 1 else blur
+        if shrink > 1:
+            shot = shot.scale_simple(max(1, round(shot.get_width() / shrink)),
+                                     max(1, round(shot.get_height() / shrink)), GdkPixbuf.InterpType.BILINEAR)
+        kx, ky = w / shot.get_width(), h / shot.get_height()   # screen px per picture px
+        p = math.ceil(gtk_blur * 2 / min(kx, ky)) if gtk_blur else 0
+        shot = pad_edges(shot, p)
+        draw = (left - p * kx, top - p * ky, w + 2 * p * kx, h + 2 * p * ky)
+        return (Gdk.Texture.new_for_pixbuf(shot), (left, top, w, h), draw, gtk_blur,
+                (left + w + right, top + h + bottom))
+    except Exception:
+        return None, None, None, 0, None
+
+
+def hypr_socket(request):
+    """One request on Hyprland's control socket (what hyprctl sends: "j/clients", "dispatch …"),
+    its reply as text ("" if Hyprland isn't there)."""
+    import socket
+    path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket.sock"
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            sock.connect(path)
+            sock.sendall(request.encode())
+            reply = b""
+            while chunk := sock.recv(65536):
+                reply += chunk
+        return reply.decode(errors="replace")
+    except OSError:
+        return ""
+
+
+class Backdrop(Gtk.Widget):
+    """The screen as it was when the popup opened, blurred (Hyprland has one blur strength for
+    everything, so this one's its own: screen_below_bar) and darkened. The bar's strip stays clear:
+    the live bar is above it."""
+
+    def __init__(self, blur, darken):
+        super().__init__(hexpand=True, vexpand=True)
+        self.texture, self.rect, self.draw, self.blur, self.screen = screen_below_bar(blur)
+        self.darken = darken
+
+    def do_snapshot(self, snap):
+        x, y, w, h = self.rect or (0, 0, self.get_width(), self.get_height())
+        area = Graphene.Rect().init(x, y, w, h)
+        snap.push_clip(area)
+        if self.texture:
+            if self.blur:
+                snap.push_blur(self.blur)
+            snap.append_scaled_texture(self.texture, Gsk.ScalingFilter.LINEAR, Graphene.Rect().init(*self.draw))
+            if self.blur:
+                snap.pop()
+        dark = Gdk.RGBA()
+        dark.parse(f"rgba(22, 22, 30, {self.darken if self.texture else max(self.darken, 0.3)})")
+        snap.append_color(dark, area)
+        snap.pop()
+
+
 class PanelApp(Gtk.Application):
     """A window hosting one view. toggle=True (popups): running the panel again while it's open
     closes it, and Esc closes it. toggle=False (the Docker panel and Control Center, which are
@@ -251,6 +487,7 @@ class PanelApp(Gtk.Application):
             self.win.close() if self.toggle else self.win.present()
             return
         install_css(self.view.css)
+        self.backdrop = self.make_backdrop() if self.toggle and self.view.backdrop else None
         self.win = Gtk.ApplicationWindow(application=self, title=self.view.title, decorated=False)
         self.win.add_css_class("panel")
         self.win.set_default_size(*self.size)
@@ -280,7 +517,78 @@ class PanelApp(Gtk.Application):
         self.win.add_controller(keys)
         if self.view.interval:
             GLib.timeout_add(int(self.view.interval * 1000), self._tick)
-        self.win.present()
+        if self.backdrop:   # the popup goes up once the backdrop is there, so it's the one on top
+            self.win.connect("close-request", lambda *_: self.backdrop.destroy() or False)
+            self.backdrop.connect("map", lambda *_: GLib.idle_add(lambda: self.win.present() or False))
+            self.win.connect("map", lambda *_: GLib.timeout_add(30, self.pin_over_backdrop))
+            self.backdrop.present()
+        else:
+            self.win.present()
+
+    def make_backdrop(self):
+        """A window over the whole screen, under the popup, showing it blurred (Backdrop). Titled
+        "panels-backdrop": modules/windowrules.lua sizes it. A click on it closes the popup."""
+        on, blur, darken = backdrop_setting()
+        if not on:
+            return None
+        win = Gtk.ApplicationWindow(application=self, title="panels-backdrop", decorated=False)
+        win.add_css_class("backdrop")
+        backdrop = Backdrop(blur, darken)
+        if backdrop.screen:   # full size from its first frame: Hyprland stretches a smaller first
+            win.set_default_size(*backdrop.screen)   # frame to the rule's size (a zoomed-in corner)
+        win.set_child(backdrop)
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda *_: self.close_from_backdrop())
+        win.add_controller(click)
+        keys = Gtk.EventControllerKey()   # focused for a moment by that click: Esc there closes too
+        keys.connect("key-pressed", self._on_key)
+        win.add_controller(keys)
+        return win
+
+    def popup_address(self):
+        import json
+        try:
+            return next(c["address"] for c in json.loads(hypr_socket("j/clients") or "[]")
+                        if c["pid"] == os.getpid() and c["title"] != "panels-backdrop" and c["floating"])
+        except (ValueError, StopIteration):
+            return None
+
+    def pin_over_backdrop(self):
+        """Pin the popup once Hyprland has it: a click on the backdrop focuses and raises the backdrop,
+        and a pinned window stays above it (no frame of the popup hidden, as the click closes it). Pinned
+        also means it would follow a workspace switch without its backdrop, so that closes it
+        (watch_workspace)."""
+        me = self.popup_address()
+        if me:
+            hypr_socket(f'dispatch hl.dsp.window.pin({{ window = "address:{me}" }})')
+            self.watch_workspace()
+            return False
+        self.pin_tries = getattr(self, "pin_tries", 0) + 1
+        return self.pin_tries < 30   # Hyprland lists a new window within a few tries of 30 ms
+
+    def watch_workspace(self):
+        import socket, threading
+        path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
+
+        def watch():
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.connect(path)
+                    buf = b""
+                    while chunk := sock.recv(4096):
+                        buf += chunk
+                        *events, buf = buf.split(b"\n")
+                        if any(e.startswith(b"workspace>>") for e in events):
+                            GLib.idle_add(lambda: self.win.close() or False)
+                            return
+            except OSError:
+                pass
+        threading.Thread(target=watch, daemon=True).start()
+
+    def close_from_backdrop(self):
+        """A click on the backdrop. The popup is pinned (pin_over_backdrop), so it stays above the
+        backdrop that click raised; both close, the popup fading out over the backdrop as with Esc."""
+        self.win.close()
 
     def _tick(self):
         if not self.win:

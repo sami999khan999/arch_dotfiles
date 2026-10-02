@@ -13,10 +13,7 @@ from gtkkit import Gdk, Gtk, View, box, button, clear, label, rule_heading, run,
 import audiopanel
 
 CSS = """
-scale trough { background: #292e42; border: none; min-height: 4px; padding: 0; }
-scale highlight { background: #6b8fe0; border: none; min-height: 4px; margin: 0; }
-scale slider { background: #c0caf5; border: none; min-width: 12px; min-height: 12px; margin: -5px; box-shadow: none; }
-scale:disabled highlight { background: #565f89; }
+/* the slider itself is styled in gtkkit.py */
 /* the Control Center card: a thin volume line, no knob, like the terminal card's meter */
 .audio-tile scale trough, .audio-tile scale highlight { min-height: 2px; }
 .audio-tile scale slider { min-width: 0; min-height: 0; margin: 0; padding: 0; background: transparent; }

@@ -46,6 +46,7 @@ bind("SUPER + CTRL + W",             panels .. "netgui.py") -- Network (Manage c
 
 bind("SUPER + SPACE",                "walker")
 bind("SUPER + K",                    panels .. "keysgui.py") -- shortcut list
+bind("SUPER + I",                    panels .. "settingsgui.py") -- settings
 bind("SUPER + CTRL + G",             "~/.local/bin/wsgroups") -- workspace groups manager
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")
@@ -67,6 +68,7 @@ bind("SUPER + F",                    function() toggleFullscreen("fullscreen") e
 bind("SUPER + ALT + F",              function() toggleFullscreen("maximized") end) -- maximize, bar stays (pairs: again = side by side)
 bind("SUPER + ALT + C",              function() widenPairHalf("code") end) -- VS Code of the pair on screen: full width (again = side by side)
 bind("SUPER + ALT + T",              function() widenPairHalf("term") end) -- kitty of the pair on screen: full width (again = side by side)
+bind("SUPER + ALT + P",              function() openPairPanel() end) -- VS Code + kitty pair: its layout (kitty width, side)
 bind("SUPER + O", function()          -- pop window out: float & pin
     hl.dispatch(hl.dsp.window.float({ action = "toggle" }))
     hl.dispatch(hl.dsp.window.pin())

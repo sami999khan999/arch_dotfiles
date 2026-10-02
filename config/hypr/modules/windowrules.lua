@@ -104,7 +104,7 @@ hl.window_rule({
 })
 
 -- Omarchy-style floating windows: TUIs, viewers, file dialogs
-hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk|codesync\\.folderpick|panels\\..*)$" }, tag = "+floating-window" })
+hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk|codesync\\.folderpick|panels\\..*)$", title = "negative:^(panels-backdrop)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?|Save.*As|Save|All Files|[Cc]hoose.*)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
 -- the code sync panel (waybar sync icon): two columns of details
@@ -116,12 +116,35 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$"
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.network)$" }, size = { 680, 590 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.pair)$" }, size = { 680, 670 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux)$" }, size = { 860, 620 } })
+-- agentmux's pickers (agentpickgui.py): New thread (which agent), Open project (folder browser)
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthread)$" }, size = { 620, 440 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproject)$" }, size = { 820, 600 } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
 hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 
 -- Slight transparency everywhere, except media
 hl.window_rule({ match = { class = ".*" }, opacity = "0.97 0.9" })
 hl.window_rule({ match = { class = "^(zoom|vlc|mpv|imv|org\\.kde\\.kdenlive|com\\.obsproject\\.Studio|steam_app.*|gamescope)$" }, opacity = "1 1" })
+
+-- The backdrop behind a GUI popup (gtkkit.py, System Settings → Appearance → Panels): a window over
+-- the whole screen that draws it blurred itself (Hyprland's blur is one strength for everything), so
+-- no blur of its own; its bar strip is see-through. Focusable: with follow_mouse = 2 hovering doesn't
+-- take the focus, and a click must land on it (it closes the popup). Not tagged floating-window
+-- (that one centres and sizes the panels).
+hl.window_rule({
+    match       = { class = "^(panels\\..*)$", title = "^(panels-backdrop)$" },
+    float       = true,
+    size        = { "monitor_w", "monitor_h" },
+    move        = { 0, 0 },
+    border_size = 0,
+    no_shadow   = true,
+    animation   = "popin 100%",   -- fades in and out with the popup, no zoom
+    no_blur     = true,
+    opacity     = "1.0 override 1.0 override",
+})
 
 -- Blur behind the bar, launcher and notifications
 hl.layer_rule({

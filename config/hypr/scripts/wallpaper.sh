@@ -23,4 +23,6 @@ esac
 echo "$current" > "$state"
 ln -sf "$current" "${state}-current" # hyprlock reads this link
 pkill -x swaybg
-setsid uwsm app -- swaybg -i "$current" -m fill >/dev/null 2>&1 &
+# fill (crop to the screen) or fit (whole picture, bars around it): the Settings panel's choice
+mode=$(jq -r '.wallpaper.mode // "fill"' "$HOME/.config/hypr/settings.json" 2>/dev/null)
+setsid uwsm app -- swaybg -i "$current" -m "${mode:-fill}" >/dev/null 2>&1 &

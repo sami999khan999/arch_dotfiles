@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # keys.py — shortcut viewer (Tokyo Night). Reads binds.lua and apps.conf live, so it never goes stale.
-#   type  search (every word must match)     ↑↓ / wheel  scroll     PgUp PgDn  page     Esc  clear / close
+#   type  fuzzy search (every word must match)     ↑↓ / wheel  scroll     PgUp PgDn  page     Esc  clear / close
 # A bind shows its trailing "-- comment" as its description when it has one.
+# Also the search both shortcut lists use (search() below; keysgui.py is the GTK one).
 import os, re
 
 HYPR = os.path.expanduser("~/.config/hypr")
@@ -47,12 +48,15 @@ DESCRIBE = [
     (r'workspace = "previous"', "Last used workspace"),
     (r"focus\(\{ workspace", "Go to workspace"),
     (r"toggle_special", "Show/hide scratchpad"),
+    (r"cycle\(1\)", "Next window in this workspace"),
+    (r"cycle\(-1\)", "Previous window in this workspace"),
     (r"cycle_next\(\{ next = false", "Previous window"),
     (r"cycle_next", "Next window"),
     (r'monitor = "\+1"', "Next monitor"),
     (r'monitor = "-1"', "Previous monitor"),
-    (r"x = -step", "Shrink width"), (r"x = step", "Grow width"),
-    (r"y = -step", "Shrink height"), (r"y = step", "Grow height"),
+    # the resize loop binds each key three times: plain, + Alt (fine), + Ctrl (big)
+    (r"x = -step", "Shrink width (+ Alt finer, + Ctrl bigger)"), (r"x = step", "Grow width (+ Alt finer, + Ctrl bigger)"),
+    (r"y = -step", "Shrink height (+ Alt finer, + Ctrl bigger)"), (r"y = step", "Grow height (+ Alt finer, + Ctrl bigger)"),
     (r"window\.drag", "Move window"),
     (r"window\.resize\(\)", "Resize window"),
     (r"out_of_group", "Remove window from group"),
@@ -144,7 +148,7 @@ def read_binds():
         cm = re.search(r"\)\s*--\s*(.+)$", rest)
         if cm:
             comment, rest = cm.group(1), rest[:cm.start() + 1]
-        if rest.startswith("function"):   # inline function: describe from its body
+        if rest.startswith("function") and not re.search(r"\bend\)", rest):   # multi-line function: describe from its body
             body = []
             for nxt in lines[i + 1:]:
                 if nxt.strip().startswith("end"): break
@@ -186,6 +190,17 @@ def read_wsgroups():
         return []
     return rows
 
+def read_agentmux():
+    """agentmux's keys as remapped in its settings (config/agentmux/settings.json)."""
+    try:
+        import sys
+        sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
+        import lib
+        keys = lib.load_settings()["keys"]
+    except Exception:
+        return []
+    return [(lib.key_label(keys[a]), f"agentmux: {label}") for a, label, _, _ in lib.ACTIONS if keys.get(a)]
+
 def sections():
     out = read_binds()
     apps = read_apps()
@@ -194,18 +209,127 @@ def sections():
     groups = read_wsgroups()
     if groups:
         out.insert(2 if apps else 1, ("Workspace Groups (workspaces.conf)", groups))
+    agentmux = read_agentmux()
+    if agentmux:
+        out.append(("agentmux (Ctrl+Alt+S to remap)", agentmux))
     return out
+
+# ---- fuzzy search ------------------------------------------------------------------------------
+# Plain character matching, cheap enough to run on every keystroke over a few hundred rows.
+# Each query word must match the row ("keys  description"), by the first rule that works:
+#   1. as a substring          "ful"   -> "Fullscreen"            best, more at a word start
+#   2. as an abbreviation      "nwin"  -> "New WINdow"            letters in order, within words or at their starts
+#   3. with one typo           "fulscren" -> "Fullscreen"         words of 4+ letters, not the first letter
+# Rows are ranked by their total score; the matched letters are returned for highlighting.
+ALIASES = {"win": "super", "mod": "super", "meta": "super", "cmd": "super", "return": "enter",
+           "control": "ctrl", "escape": "esc", "option": "alt"}
+
+def _starts(text):
+    """Indexes where a word starts in text."""
+    return {i for i, c in enumerate(text) if c.isalnum() and (i == 0 or not text[i - 1].isalnum())}
+
+def _subsequence(word, text, starts):
+    """Letters of word in order in text, each one either right inside the same word as the letter
+    before it or at the start of a later word ("nwin" -> "New WINdow"); (score, positions) or None."""
+    best = None
+    for first in (i for i in sorted(starts) if text[i] == word[0]):   # starts at a word start
+        pos, at = [first], first
+        for ch in word[1:]:
+            nxt, same_word = -1, True
+            for j in range(at + 1, len(text)):
+                if not text[j].isalnum():
+                    same_word = False
+                if text[j] == ch and (same_word or j in starts):
+                    nxt = j
+                    break
+            if nxt < 0:
+                break
+            pos.append(nxt)
+            at = nxt
+        else:
+            span = pos[-1] - pos[0] + 1
+            if span > 4 * len(word):            # scattered over the whole line: not a match
+                continue
+            score = 40 + 8 * sum(p in starts for p in pos) - (span - len(word))
+            if best is None or score > best[0]:
+                best = (score, pos)
+    return best
+
+def _one_typo(a, b):
+    """True if a and b differ by at most one edit (insert, delete, substitute, swap)."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(diff) <= 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
+                                   and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:]
+
+def _match_word(word, text, starts):
+    i = text.find(word)
+    if i >= 0:
+        return 100 + (30 if i in starts else 0) - min(i, 40) / 10, range(i, i + len(word))
+    if len(word) > 1:
+        sub = _subsequence(word, text, starts)
+        if sub:
+            return sub
+    if len(word) >= 4:
+        for start in sorted(starts):
+            end = start
+            while end < len(text) and text[end].isalnum():
+                end += 1
+            token = text[start:end]
+            # the word against the token, or a prefix of it ("fulscreen" vs "fullscreen", "scren" vs "screenshot")
+            if token[:1] == word[0] and (_one_typo(word, token) or _one_typo(word, token[:len(word)])):
+                return 30, range(start, min(end, start + len(word)))
+    return None
+
+def fuzzy(query, keys, desc):
+    """(score, key positions, description positions) if every word of query matches, else None."""
+    text = f"{keys}  {desc}".lower()
+    starts = _starts(text)
+    score, hit = 0, set()
+    for word in query.lower().split():
+        m = _match_word(word, text, starts)
+        if m is None and word in ALIASES:
+            m = _match_word(ALIASES[word], text, starts)
+        if m is None:
+            return None
+        score += m[0]
+        hit.update(m[1])
+    cut = len(keys) + 2
+    return score, {p for p in hit if p < len(keys)}, {p - cut for p in hit if p >= cut}
+
+def search(data, query):
+    """[(title, [(keys, desc, key positions, desc positions)])] matching query, best first.
+    No query: everything, in config order."""
+    if not query.split():
+        return [(t, [(k, d, set(), set()) for k, d in items]) for t, items in data]
+    out = []
+    for title, items in data:
+        hits = []
+        for n, (k, d) in enumerate(items):
+            m = fuzzy(query, k, d)
+            if m:
+                hits.append((m[0], -n, (k, d, m[1], m[2])))
+        if hits:
+            hits.sort(reverse=True)
+            out.append((hits[0][0], title, [h[2] for h in hits]))
+    out.sort(key=lambda s: -s[0])
+    return [(title, rows) for _, title, rows in out]
 
 # ---- drawing -----------------------------------------------------------------------------------
 def build(query):
     rows = []
-    words = query.lower().split()
-    for title, items in sections():
-        hits = [(k, d) for k, d in items if all(w in f"{k} {d}".lower() for w in words)]
-        if not hits: continue
+    for title, items in search(sections(), query):
         if rows: rows.append(("", ""))
         rows.append(("#", title))
-        rows.extend(hits)
+        rows.extend((k, d) for k, d, _, _ in items)
     return rows
 
 def render(rows, top, query):

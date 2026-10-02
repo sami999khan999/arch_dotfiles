@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Comment=Appearance, input, display, power, notifications, default apps and more
+Exec=python3 /home/sami/.local/lib/panels/settingsgui.py
+Icon=preferences-system
+Categories=Settings;
+Keywords=settings;preferences;control;configure;wallpaper;display;keyboard;mouse;theme;

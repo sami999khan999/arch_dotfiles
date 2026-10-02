@@ -47,17 +47,25 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 - GTK ellipsizes a `max-length` label before it moves the centre island, and an ellipsizing label
   in the left section can't cross the middle of the bar. Truncate in the script instead
   (`wintitle.py`, `MAX`).
-- Changing the bar's own geometry (`margin-*`, `height`, `layer`, `position`) with a live
-  `pkill -SIGUSR2 waybar` can crash waybar. After such a change relaunch it instead:
-  `pkill -x waybar; hyprctl dispatch 'hl.dsp.exec_cmd("uwsm app -- waybar")'`, then check `pgrep waybar`.
+- waybar runs as its packaged systemd user service (`autostart.lua`: `systemctl --user start
+  waybar.service`, `Restart=on-failure`): a crash brings it back by itself. Restart it with
+  `systemctl --user restart waybar`, never `pkill -x waybar` (a clean stop: systemd leaves it off)
+  nor `uwsm app -- waybar` (a second bar outside the service).
+- A live `pkill -SIGUSR2 waybar` can crash waybar, at once (bar geometry: `margin-*`, `height`,
+  `layer`, `position`) or minutes later (it segfaulted in glibmm's dispatcher after reloads that
+  restarted the custom scripts). Prefer `systemctl --user restart waybar` to apply a change.
 - **The power button never moves.** The visualizer is the centre module with max-length: GTK
   places a centre module in the space the sides leave (off-centre if needed) and shrinks it rather
   than push a side. Don't move it into a side section: there a shrinkable label stops at the bar's
   middle, and an unshrinkable one pushes the right section off when the bar runs out of room.
-- To fill that space exactly (no `…`, no empty strip), `scripts/visualizer.py` follows everything on
-  the right that changes width: title, group count, play button, tray icons, indicators, clock
-  view; the rest is fixed-width (min-width or padded formats: cpu, memory, volume, battery). A new
-  right-side module needs one of the two.
+- To fill that space exactly (no `…`, no empty strip), `scripts/visualizer.py` measures the gap on
+  the bar while the bars show: a one-pixel-high `grim` of the bar finds the divider after the
+  workspace buttons and the right section's first divider (`#2F354D`, `DIVIDER`), every second and
+  0.3 s after a window event. So the right side may change width freely; keep a divider at both
+  ends of the gap. When it can't measure (silent, grim missing) it falls back to sums over what's
+  on the right (title, group count, play button, indicators, clock view) from `GAP_REF`.
+- Its recounts run under one lock: Pango isn't thread-safe, and two threads measuring text at once
+  aborted the script (`fc_thread_func: code should not be reached`), freezing the bars.
 - Check for a push: the power button's divider must be at x 1335 (`grim` the bar). Calibrate the
   visualizer's `GAP_REF` only from an un-pushed bar: measured gap minus the push.
 - Signal the visualizer by its pid (`$XDG_RUNTIME_DIR/waybar-visualizer.pid`), never `pkill -f`:
@@ -66,8 +74,8 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 ## Apply and verify
 
 ```bash
-pkill -SIGUSR2 waybar                   # reloads config + CSS, restarts custom scripts
-sleep 1.5; grim -g "0,0 1366x34" /tmp/bar.png
+systemctl --user restart waybar         # config + CSS + custom scripts, all fresh
+sleep 2; grim -g "0,0 1366x34" /tmp/bar.png
 ```
 
 Look at the screenshot (zoom: `magick /tmp/bar.png -crop 480x34+886+0 -scale 250% /tmp/z.png`).

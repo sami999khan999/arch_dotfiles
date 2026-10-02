@@ -7,7 +7,8 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("dbus-update-activation-environment --systemd --all")
     hl.exec_cmd("xhost +SI:localuser:root")
 
-    hl.exec_cmd(launch .. "waybar")
+    -- the packaged user service (Restart=on-failure): waybar comes back by itself if it crashes
+    hl.exec_cmd("systemctl --user start waybar.service")
     hl.exec_cmd(launch .. "mako")
     hl.exec_cmd(launch .. "swayosd-server")
     hl.exec_cmd(launch .. "hypridle")
@@ -16,6 +17,7 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("systemctl --user start hyprpolkitagent")
     hl.exec_cmd("~/.config/hypr/scripts/wallpaper.sh restore")
     hl.exec_cmd("~/.config/hypr/scripts/toggle.sh nightlight auto quiet") -- on now if inside its schedule (Settings)
-    hl.exec_cmd("wl-paste --watch cliphist store")
+    -- gsettings (theme, cursor, fonts, clock) back in line with the repo: a new PC, or a change synced from the other one
+    hl.exec_cmd("python3 ~/.local/lib/panels/settingslib.py restore")
     hl.exec_cmd("~/.local/bin/wsgroups launch 10 --background") -- Control Center on workspace 10 (Super + Ctrl + 0)
 end)

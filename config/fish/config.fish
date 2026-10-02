@@ -1,9 +1,10 @@
 source /usr/share/cachyos-fish-config/cachyos-config.fish
 
-# The greeting (fastfetch, from the CachyOS config) only where it fits: in a narrow terminal, such
-# as agentmux's terminals column or a VS Code kitty, it wraps into a mess, so those get just the prompt
+# The greeting (~/.local/bin/greet: a spinning bagel beside the system summary, any key skips it) only
+# where it fits: in a narrow terminal, such as agentmux's terminals column or a VS Code kitty, it
+# wraps into a mess, so those get just the prompt
 function fish_greeting
-    test $COLUMNS -ge 100; and fastfetch
+    test $COLUMNS -ge 100; and ~/.local/bin/greet
 end
 
 # Omarchy prompt

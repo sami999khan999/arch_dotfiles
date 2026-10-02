@@ -88,7 +88,7 @@ directly into each app. Nothing generates them:
 | kitty, alacritty, btop | `themes/tokyo-night.*` in each |
 | GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
 | KDE apps (Dolphin) | `config/kdeglobals` |
-| fastfetch (terminal greeting) | `config/fastfetch/config.jsonc` |
+| terminal greeting (a spinning bagel + the system summary; any key skips it) | `local/bin/greet` (data from fastfetch), `config/fastfetch/config.jsonc` for plain `fastfetch` |
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. Helper scripts (power menu, toggles, screenshots) are in

@@ -257,11 +257,18 @@ class Sidebar(App):
                                         "⚠", "amber", "sub", "adopt", "amber"))
                 rows.append(Row("", kind="gap"))
                 rows.append(Row("New thread", ("new",), "+", "accent", "accent"))
+        # The selection is kept as the item, not its row number (a project coming or going above it
+        # moved it onto another row, or onto "+ Open project"). Without the keyboard it marks the
+        # current project / thread; while you move through the list it stays where you put it.
+        held = self.rows[self.sel].action if self.rows and 0 <= self.sel < len(self.rows) else None
+        current = ("project", project) if self.role == "projects" else ("show", self.shown)
+        actions = [r.action for r in rows]
         self.rows = rows
-        if jump:   # the project or thread changed: the selection goes to the current one
-            want = ("project", project) if self.role == "projects" else ("show", self.shown)
-            self.sel = next((i for i, r in enumerate(rows) if r.action == want), self.sel)
-        self.sel = min(self.sel, len(rows) - 1)
+        if (jump or not self.focused) and current in actions:
+            self.sel = actions.index(current)
+        elif held in actions:
+            self.sel = actions.index(held)
+        self.sel = max(0, min(self.sel, len(rows) - 1))
         if rows and not rows[self.sel].action:
             self.move(1)
 
@@ -325,7 +332,7 @@ class Sidebar(App):
                 for text, fg in detail:
                     d.add(fit(text, max(w - d.w - 1, 0)), fg)
                 body.append(d); owner.append(i)
-            if self.confirm and self.confirm["row"] == i:
+            if self.confirm and self.confirm["action"] == r.action:
                 self.confirm_lines(body, owner, i, w)
             if r.detail:
                 body.append(Line()); owner.append(None)   # air between projects / threads
@@ -335,7 +342,8 @@ class Sidebar(App):
         room = max(h - len(lines) - foot, 1)
         # kept in view: the open question with its row (it may not be the selected one: a hovered
         # row's ×), else the selected row. Last line last: a question taller than the room keeps its buttons.
-        keep = self.confirm["row"] if self.confirm else self.sel
+        asked = [i for i, r in enumerate(self.rows) if self.confirm and r.action == self.confirm["action"]]
+        keep = asked[0] if asked else self.sel
         mine = [n for n, o in enumerate(owner) if o == keep]
         if len(body) <= room:
             self.scroll = 0
@@ -475,7 +483,7 @@ class Sidebar(App):
         """A question about a row (the selected one unless given), shown under it with its buttons
         (confirm_lines)."""
         self.confirm = {"title": title, "detail": detail, "yes": yes, "fn": fn,
-                        "row": self.sel if row is None else row}
+                        "action": self.rows[self.sel if row is None else row].action}   # the item, not its row
 
     def on_signal(self):
         """agentmux close-thread (Ctrl+Alt+X, remappable) asks a sidebar to close something: the

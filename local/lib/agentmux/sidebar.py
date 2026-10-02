@@ -68,6 +68,7 @@ class Sidebar(App):
         self.role = role
         self.rows, self.sel, self.threads = [], 0, []
         self.scroll = 0   # the first laid-out line shown (render keeps the selection in view)
+        self.free = False  # the wheel scrolled the view: it stays put until the selection moves
         self.unshared, self.unshared_at = [], 0
         self.msg, self.confirm = "", None
         self.ask_at, self.buttons_at, self.button_y, self.button_x = set(), None, None, None   # the open question's lines
@@ -264,6 +265,8 @@ class Sidebar(App):
         current = ("project", project) if self.role == "projects" else ("show", self.shown)
         actions = [r.action for r in rows]
         self.rows = rows
+        if jump:   # another project / thread: the view goes back to it
+            self.free = False
         if (jump or not self.focused) and current in actions:
             self.sel = actions.index(current)
         elif held in actions:
@@ -345,9 +348,11 @@ class Sidebar(App):
         asked = [i for i, r in enumerate(self.rows) if self.confirm and r.action == self.confirm["action"]]
         keep = asked[0] if asked else self.sel
         mine = [n for n, o in enumerate(owner) if o == keep]
+        if self.confirm:
+            self.free = False   # an open question is always shown
         if len(body) <= room:
             self.scroll = 0
-        elif mine:
+        elif mine and not self.free:
             first, last = mine[0], mine[-1]
             if first < self.scroll + 1:
                 self.scroll = max(first - 1, 0)
@@ -444,8 +449,9 @@ class Sidebar(App):
             if i is not None:
                 self.sel = i
                 self.act(self.rows[i].action)
-        elif isinstance(k, tuple) and k[0] == "wheel":
-            self.move(k[1])
+        elif isinstance(k, tuple) and k[0] == "wheel":   # scrolls the view; the highlight stays put
+            self.scroll += 3 * k[1]
+            self.free = True
         elif self.role == "projects" and k == "o":
             self.act(("open",))
         elif k in ("x", "delete"):
@@ -528,8 +534,8 @@ class Sidebar(App):
         self.ask_at.add(self.buttons_at)
 
     def move(self, d):
-        """The next selectable row that way; at either end it stays (no wrapping round: the wheel
-        would spin through the list)."""
+        """The next selectable row that way (↑↓); at either end it stays. The view follows it again."""
+        self.free = False
         i = self.sel + d
         while 0 <= i < len(self.rows):
             if self.rows[i].action:

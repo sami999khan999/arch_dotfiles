@@ -3,9 +3,13 @@
 
 Runs cava with raw text output and turns each frame ("0;3;7;…") into block characters (▁▂▃…█).
 The bars fill the gap between the workspace buttons and the right section of the bar, to the pixel.
-Everything on the right that can change width is followed live, so the bars make room and nothing
-gets pushed off the screen: the window title and the group count (their text), the play button,
-the idle / do-not-disturb indicators and the clock's view (short or long).
+The gap is measured on the bar itself while the bars show: a one-pixel-high screenshot of the bar
+(grim) finds the divider after the workspace buttons and the first one of the right section, every
+second and just after a window change, so any change on the right (a title, the play button, an
+indicator, the clock, the code-backup icon) is followed within a second, to the pixel. Without a
+measurement (grim missing, the dividers not found) the gap is worked out from what's on the right:
+the window title and the group count (their text), the play button, the idle / do-not-disturb
+indicators and the clock's view (short or long).
 cava always makes RAW_BARS; each shown bar is the loudest of its share of them.
 Silent for SILENT_AFTER seconds: prints empty text, so waybar hides the module until something
 plays again. Prints one JSON line per change (return-type json). SIGUSR1: recount now (clock.py
@@ -37,6 +41,9 @@ FIT_SLACK = 0         # px kept free: none, the gap is measured to the pixel (te
 HAIR = "\u200a"       # hair space: exactly 1 px in this font (measured with Pango). The bars are
                       # spaced with these, not with Pango letter_spacing: a label with letter spacing
                       # gets its last character cut ("…") even when it has all the room it asked for
+
+PROBE_Y = 4           # px from the top: the bar row screenshotted to find the dividers (above the bars)
+DIVIDER = (0x2F, 0x35, 0x4D)   # a section divider as drawn: @line at 70 % over the bar (style.css)
 
 RAW_BARS = 64         # what cava makes; more than ever fit
 FPS = 25              # frames per second (cava's framerate; also how often waybar can redraw)
@@ -93,7 +100,7 @@ def screen_width():
 
 WIDTH = screen_width()
 state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True,
-         "indicators": 0, "clock": CLOCK_REF_LEN, "shown": 16, "gaps": [1] * 15}
+         "indicators": 0, "clock": CLOCK_REF_LEN, "shown": 16, "gaps": [1] * 15, "playing": False}
 
 
 _layout = None
@@ -115,8 +122,30 @@ def text_px(text):
     return _layout.get_extents()[1].width / 1024   # Pango units
 
 
-def recount():
-    """How many bars fit now and how far apart, so they fill the gap exactly (read by the loop)."""
+def measured_gap():
+    """The gap as the bar draws it now: from the workspace buttons' divider to the right section's
+    first one, in a one-pixel-high screenshot (grim, PPM). None if it can't tell."""
+    try:
+        out = subprocess.run(["grim", "-g", f"0,{PROBE_Y} {int(WIDTH)}x1", "-t", "ppm", "-"],
+                             capture_output=True, timeout=2).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    head = out.split(b"\n", 3)
+    if len(head) < 4 or head[0] != b"P6":
+        return None
+    px, w = head[3], int(head[1].split()[0])
+
+    def divider(x):
+        r, g, b = px[3 * x:3 * x + 3]
+        return abs(r - DIVIDER[0]) <= 4 and abs(g - DIVIDER[1]) <= 4 and abs(b - DIVIDER[2]) <= 5
+    lines = [x for x in range(1, w - 1) if divider(x) and not divider(x - 1) and not divider(x + 1)]
+    if len(lines) < 2 or lines[0] > w / 2:
+        return None
+    return (lines[1] - lines[0] - 1) * WIDTH / w   # px as the bar counts them (a scaled screen)
+
+
+def modelled_gap():
+    """The gap worked out from what's on the right (when it can't be measured)."""
     s = state
     gap = GAP_REF + WIDTH - 1366
     if s["title"]:
@@ -127,6 +156,28 @@ def recount():
         gap += PLAYER_PX
     gap -= s["indicators"] * INDICATOR_PX
     gap -= (s["clock"] - CLOCK_REF_LEN) * CHAR_PX
+    return gap
+
+
+LOCK = threading.Lock()   # one recount at a time: Pango isn't thread-safe (two threads measuring
+                          # text at once aborted the whole script: "fc_thread_func: code should not
+                          # be reached"), and the bars froze until waybar restarted it
+WAKE = threading.Event()  # SIGUSR1: the tick thread recounts now (not the handler itself, which
+                          # could run in the middle of a Pango call on the main thread)
+
+
+def recount():
+    """How many bars fit now and how far apart, so they fill the gap exactly (read by the loop).
+    The gap is measured while the bars show; silent, the sums do (no screenshots while hidden)."""
+    with LOCK:
+        _recount()
+
+
+def _recount():
+    s = state
+    measured = measured_gap() if s["playing"] else None
+    gap = measured if measured is not None else modelled_gap()
+    s["measured"] = measured is not None
     room = gap - PADDING - FIT_SLACK
     # n bars and the n - 1 spaces between them fill the room; none after the last bar, so both
     # ends of the block have the same padding
@@ -173,6 +224,8 @@ def follow_windows():
                 if any(e.startswith(wanted) for e in events):
                     read_windows()
                     recount()
+                    # again once waybar has redrawn the right side (the measurement sees the bar)
+                    threading.Timer(0.3, recount).start()
         except OSError:
             time.sleep(2)
 
@@ -208,7 +261,8 @@ def tick():
     while True:
         read_rest()
         recount()
-        time.sleep(1)
+        WAKE.wait(1)
+        WAKE.clear()
 
 
 def emit(text, cls):
@@ -223,7 +277,8 @@ def main():
     with open(conf, "w") as f:
         f.write(CONFIG)
     read_rest()
-    signal.signal(signal.SIGUSR1, lambda *_: (read_rest(), recount()))
+    text_px(COUNT_REF)   # Pango set up here, on one thread, before the others start
+    signal.signal(signal.SIGUSR1, lambda *_: WAKE.set())
     with open(PID_FILE, "w") as f:   # who to signal: by pid, a name match would hit editors too
         f.write(str(os.getpid()))
     for watcher in (follow_windows, follow_player, tick):
@@ -238,6 +293,11 @@ def main():
         n = state["shown"]
         if now - heard > SILENT_AFTER or not levels or not n:
             out = ("", "silent")
+            state["playing"] = False
+        elif not state["playing"]:   # starts showing: measure the gap first
+            state["playing"] = True
+            recount()
+            continue
         else:
             raw = len(levels)
             bars = (max(levels[i * raw // n:(i + 1) * raw // n] or [0]) for i in range(n))

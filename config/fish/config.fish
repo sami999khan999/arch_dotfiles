@@ -1,10 +1,10 @@
 source /usr/share/cachyos-fish-config/cachyos-config.fish
 
-# The greeting (~/.local/bin/greet: a spinning bagel beside the system summary, any key skips it) only
-# where it fits: in a narrow terminal, such as agentmux's terminals column or a VS Code kitty, it
-# wraps into a mess, so those get just the prompt
+# The greeting: ~/.local/bin/greet, a spinning bagel beside the system summary (any key skips it). It
+# fits itself to the terminal: wide gets the bagel, medium the summary alone, narrow (agentmux's
+# terminals column, a VS Code kitty) nothing, just the prompt
 function fish_greeting
-    test $COLUMNS -ge 100; and ~/.local/bin/greet
+    ~/.local/bin/greet
 end
 
 # Omarchy prompt

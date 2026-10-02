@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""greet — the terminal greeting (fish_greeting): a spinning 3D bagel beside a boxed system summary.
+"""greet — the terminal greeting (fish_greeting): a spinning 3D bagel beside a boxed system summary,
+laid out for the terminal it opens in.
 
 The bagel is a torus drawn as text (after Andy Sloane's donut.c): every frame rotates it, lights it
 from above-behind and shades each cell by brightness, in Tokyo Night blues. It spins for SPIN seconds
 and settles; any key stops it at once, and that key still reaches the shell (it is never read here).
-The summary comes from fastfetch's JSON (fastfetch --format json), laid out in boxes that fit their
-widest line, with level bars for memory, swap and disks.
+The summary comes from fastfetch's JSON (fastfetch --format json).
+
+Layout, by the terminal's size:
+  wide      the bagel (about 40 % of the width, as tall as the window allows) beside the boxes
+  medium    the boxes alone, full width
+  narrow    nothing (agentmux's terminal column, a VS Code kitty: it would only wrap)
+The boxes fill the width they get: system and desktop side by side when both fit, hardware below;
+the level bars grow with them, and a value too long for its box is cut with "…".
 
   greet            animated (a still frame when the output isn't a terminal)
   greet --still    no animation
@@ -14,14 +21,14 @@ import json, math, os, select, shutil, subprocess, sys, termios, time, unicodeda
 
 SPIN = 1.6            # seconds of spinning before it settles
 FPS = 30
-BAGEL_W, BAGEL_H = 34, 17   # cells; a cell is about twice as tall as wide, so ~2:1 keeps it round
 SHADES = ".,-~:;=!*#$@"     # dim to bright
-GAP = 3                     # columns between the bagel and the boxes
+NARROW, WIDE = 60, 110      # columns: below NARROW nothing, from WIDE the bagel too
+GAP = 4                     # columns between the bagel and the boxes, and between two boxes
 
 # Tokyo Night (AGENTS.md "Colours")
 LINE, MUTED, SUB, TEXT, ACCENT = "#3b4261", "#565f89", "#a9b1d6", "#c0caf5", "#6b8fe0"
 GREEN, AMBER, RED, MAGENTA, CYAN = "#9ece6a", "#e0af68", "#f7768e", "#bb9af7", "#7dcfff"
-RESET = "\x1b[0m"
+RESET, BOLD = "\x1b[0m", "\x1b[1m"
 
 
 def fg(hexcolour):
@@ -34,12 +41,12 @@ def mix(a, b, t):
     return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(pa, pb))
 
 
-# brightness 0…1 -> colour: the dark line colour, through the accent blue, to the text white
+# brightness, dim to bright: the line colour, through the accent blue, to the text white
 RAMP = [fg(mix(LINE, ACCENT, i / 6)) for i in range(7)] + [fg(mix(ACCENT, TEXT, i / 5)) for i in range(1, 6)]
 
 
 def width(s):
-    """Cells a string takes (escapes skipped; Nerd Font icons are one cell, wide CJK two)."""
+    """Cells a string takes (escapes skipped; Nerd Font icons one cell, wide CJK two)."""
     w, esc = 0, False
     for ch in s:
         if esc:
@@ -51,60 +58,74 @@ def width(s):
     return w
 
 
+def cut(s, n):
+    """s (plain text) in at most n cells, "…" where it was cut."""
+    if width(s) <= n:
+        return s
+    out = ""
+    for ch in s:
+        if width(out + ch) > n - 1:
+            break
+        out += ch
+    return out + "…"
+
+
 # ---- the bagel ---------------------------------------------------------------------------------
-def bagel(a, b):
-    """One frame: BAGEL_H lines of BAGEL_W cells, a torus rotated by a (about x) and b (about z)."""
+class Bagel:
+    """A torus rendered into w x h cells. The sample points scale with the size (no holes when it's
+    big, no waste when it's small); their sines are worked out once."""
     R1, R2, K2 = 1.0, 2.0, 5.0
-    K1 = BAGEL_W * K2 * 3 / (8 * (R1 + R2)) * 0.82   # a margin: no frame touches the edges
-    out = [[" "] * BAGEL_W for _ in range(BAGEL_H)]
-    lum_at = [[-1.0] * BAGEL_W for _ in range(BAGEL_H)]
-    zbuf = [[0.0] * BAGEL_W for _ in range(BAGEL_H)]
-    ca, sa, cb, sb = math.cos(a), math.sin(a), math.cos(b), math.sin(b)
-    theta = 0.0
-    while theta < 2 * math.pi:
-        ct, st = math.cos(theta), math.sin(theta)
-        phi = 0.0
-        while phi < 2 * math.pi:
-            cp, sp = math.cos(phi), math.sin(phi)
+
+    def __init__(self, w, h):
+        self.w, self.h = w, h
+        # a cell is about twice as tall as wide: the vertical scale is halved; fit both ways
+        self.k1 = min(w, 2 * h) * self.K2 * 3 / (8 * (self.R1 + self.R2)) * 0.82
+        steps = max(w, 2 * h)
+        self.thetas = [(math.cos(t), math.sin(t)) for t in frange(0, 2 * math.pi, 3.6 / steps)]
+        self.phis = [(math.cos(p), math.sin(p)) for p in frange(0, 2 * math.pi, 1.5 / steps)]
+
+    def frame(self, a, b):
+        w, h, k1, R1, R2, K2 = self.w, self.h, self.k1, self.R1, self.R2, self.K2
+        zbuf = [0.0] * (w * h)
+        lum_at = [0.0] * (w * h)
+        ca, sa, cb, sb = math.cos(a), math.sin(a), math.cos(b), math.sin(b)
+        for ct, st in self.thetas:
             cx, cy = R2 + R1 * ct, R1 * st
-            x = cx * (cb * cp + sa * sb * sp) - cy * ca * sb
-            y = cx * (sb * cp - sa * cb * sp) + cy * ca * cb
-            z = K2 + ca * cx * sp + cy * sa
-            ooz = 1 / z
-            xp = int(BAGEL_W / 2 + K1 * ooz * x)
-            yp = int(BAGEL_H / 2 - K1 * ooz * y / 2)
-            lum = cp * ct * sb - ca * ct * sp - sa * st + cb * (ca * st - ct * sa * sp)
-            if 0 <= xp < BAGEL_W and 0 <= yp < BAGEL_H and ooz > zbuf[yp][xp]:
-                zbuf[yp][xp] = ooz
-                lum_at[yp][xp] = lum
-            phi += 0.045
-        theta += 0.11
-    lines = []
-    for y in range(BAGEL_H):
-        line = ""
-        for x in range(BAGEL_W):
-            lum = lum_at[y][x]
-            if lum < -0.99 and zbuf[y][x] == 0:
-                line += " "
-                continue
-            # lit from above-behind: lum runs about -√2…√2; the far side stays faint, never blank
-            i = max(0, min(len(SHADES) - 1, int((lum + 1.2) / 2.6 * (len(SHADES) - 1) + 0.5)))
-            line += RAMP[i] + SHADES[i]
-        lines.append(line + RESET)
-    return lines
+            for cp, sp in self.phis:
+                x = cx * (cb * cp + sa * sb * sp) - cy * ca * sb
+                y = cx * (sb * cp - sa * cb * sp) + cy * ca * cb
+                ooz = 1 / (K2 + ca * cx * sp + cy * sa)
+                xp = int(w / 2 + k1 * ooz * x)
+                yp = int(h / 2 - k1 * ooz * y / 2)
+                if 0 <= xp < w and 0 <= yp < h:
+                    i = yp * w + xp
+                    if ooz > zbuf[i]:
+                        zbuf[i] = ooz
+                        lum_at[i] = cp * ct * sb - ca * ct * sp - sa * st + cb * (ca * st - ct * sa * sp)
+        lines, top = [], len(SHADES) - 1
+        for y in range(h):
+            line = ""
+            for x in range(w):
+                i = y * w + x
+                if not zbuf[i]:
+                    line += " "
+                    continue
+                # lit from above-behind: lum runs about -√2…√2; the far side stays faint, never blank
+                s = max(0, min(top, int((lum_at[i] + 1.2) / 2.6 * top + 0.5)))
+                line += RAMP[s] + SHADES[s]
+            lines.append(line + RESET)
+        return lines
 
 
-# ---- the summary -------------------------------------------------------------------------------
+def frange(start, stop, step):
+    while start < stop:
+        yield start
+        start += step
+
+
+# ---- the facts ---------------------------------------------------------------------------------
 def gib(n):
     return f"{n / 1073741824:.1f} GiB"
-
-
-def bar(used, total, cells=12):
-    pct = used / total if total else 0
-    colour = GREEN if pct < .6 else AMBER if pct < .85 else RED
-    n = round(pct * cells)
-    return f"{fg(colour)}{'■' * n}{fg(LINE)}{'■' * (cells - n)}{RESET}  {fg(TEXT)}{gib(used)} / {gib(total)} " \
-           f"{fg(MUTED)}({pct * 100:.0f}%){RESET}"
 
 
 def facts():
@@ -118,14 +139,14 @@ def facts():
 
 
 def sections(f):
-    """[(title, [(icon, key, value)])], every value a coloured string; missing facts are left out."""
+    """[(title, [(icon, key, value)])]: value is plain text, or ("bar", used, total) for a level."""
     def get(kind, *path, default=None):
         v = f.get(kind)
         for p in path:
             v = v.get(p) if isinstance(v, dict) else None
         return v if v not in (None, "") else default
 
-    up = get("Uptime", "uptime", default=0) // 1000
+    up = (get("Uptime", "uptime", default=0) or 0) // 1000
     days, hours, mins = up // 86400, up % 86400 // 3600, up % 3600 // 60
     uptime = (f"{days} d " if days else "") + (f"{hours} h " if hours or days else "") + f"{mins} min"
     pkgs = get("Packages", default={}) or {}
@@ -141,76 +162,124 @@ def sections(f):
              if d.get("mountpoint") == "/" or str(d.get("mountpoint", "")).startswith("/mnt/")]
     ip = next((i.get("ipv4") for i in (get("LocalIp", default=[]) or []) if i.get("ipv4")), None)
     theme = ", ".join(t for t in (get("Theme", "theme2"), get("Theme", "theme1")) if t)
+    joined = lambda *parts: " ".join(str(p) for p in parts if p) or None
 
-    def val(text):
-        return f"{fg(TEXT)}{text}{RESET}" if text else None
-    system = [("", "os", val(f"{get('OS', 'name', default='Linux')} {get('Kernel', 'architecture', default='')}")),
-              ("", "kernel", val(get("Kernel", "release"))),
-              ("\U000f03d7", "pkgs", val(f"{pkgs.get('all')} (pacman)" if pkgs.get("all") else None)),
-              ("\U000f0954", "uptime", val(uptime))]
-    desktop = [("", "wm", val(f"{get('WM', 'prettyName', default='')} {get('WM', 'version', default='')}".strip())),
-               ("", "term", val(f"{get('Terminal', 'prettyName', default='')} {get('Terminal', 'version', default='')}".strip())),
-               ("", "shell", val(f"{get('Shell', 'prettyName', default='')} {get('Shell', 'version', default='')}".strip())),
-               ("", "font", val(font.get("pretty") or (f"{font.get('name')} {font.get('size')}pt" if font.get("name") else None))),
-               ("\U000f03d8", "theme", val(theme))]
-    hardware = [("", "cpu", val(f"{cpu.get('cpu')} ({(cpu.get('cores') or {}).get('logical')})"
-                                       + (f" @ {freq / 1000:.2f} GHz" if freq else "") if cpu.get("cpu") else None)),
-                *[("\U000f0379", "gpu", val(g)) for g in gpus],
-                *[("\U000f0379", "display", val(d)) for d in shows],
-                ("", "ram", bar(mem["used"], mem["total"]) if mem.get("total") else None),
-                ("\U000f04b9", "swap", bar(sum(s["used"] for s in swaps), sum(s["total"] for s in swaps))
+    system = [("", "os", joined(get("OS", "name"), get("Kernel", "architecture"))),
+              ("", "kernel", get("Kernel", "release")),
+              ("\U000f03d7", "pkgs", f"{pkgs['all']} (pacman)" if pkgs.get("all") else None),
+              ("\U000f0954", "uptime", uptime)]
+    desktop = [("", "wm", joined(get("WM", "prettyName"), get("WM", "version"))),
+               ("", "term", joined(get("Terminal", "prettyName"), get("Terminal", "version"))),
+               ("", "shell", joined(get("Shell", "prettyName"), get("Shell", "version"))),
+               ("", "font", font.get("pretty") or joined(font.get("name"), font.get("size") and f"{font['size']}pt")),
+               ("\U000f03d8", "theme", theme or None)]
+    hardware = [("", "cpu", joined(cpu.get("cpu"), cpu.get("cores") and f"({cpu['cores'].get('logical')})",
+                                         freq and f"@ {freq / 1000:.2f} GHz") if cpu.get("cpu") else None),
+                *[("\U000f0379", "gpu", g) for g in gpus],
+                *[("\U000f0379", "display", d) for d in shows],
+                ("", "ram", ("bar", mem["used"], mem["total"]) if mem.get("total") else None),
+                ("\U000f04b9", "swap", ("bar", sum(s["used"] for s in swaps), sum(s["total"] for s in swaps))
                  if sum(s.get("total", 0) for s in swaps) else None),
-                *[("\U000f02ca", d["mountpoint"], bar(d["bytes"]["used"], d["bytes"]["total"])) for d in disks],
-                ("\U000f0200", "lan", val(ip))]
+                *[("\U000f02ca", d["mountpoint"], ("bar", d["bytes"]["used"], d["bytes"]["total"])) for d in disks],
+                ("\U000f0200", "lan", ip)]
     return [(t, [r for r in rows if r[2]]) for t, rows in
             (("system", system), ("desktop", desktop), ("hardware", hardware))]
 
 
-def panel(f):
-    """The right side: user@host, then a box per section, all as wide as the widest line."""
-    title = get_title(f)
-    secs = sections(f)
-    key_w = max(len(k) for _, rows in secs for _, k, _ in rows) + 2
-    rows_txt = {id(r): f" {fg(ACCENT)}{r[0]}  {r[1]:<{key_w}}{r[2]}" for _, rows in secs for r in rows}
-    inner = max(width(t) for t in rows_txt.values()) + 2
-    out = [title, ""]
-    for name, rows in secs:
-        head = f" {name} "
-        out.append(f"{fg(LINE)}╭─{fg(SUB)}{head}{fg(LINE)}{'─' * (inner - width(head) - 1)}╮{RESET}")
-        for r in rows:
-            t = rows_txt[id(r)]
-            out.append(f"{fg(LINE)}│{RESET}{t}{' ' * (inner - width(t))}{fg(LINE)}│{RESET}")
-        out.append(f"{fg(LINE)}╰{'─' * inner}╯{RESET}")
-    dots = "  ".join(fg(c) + "" for c in (LINE, MUTED, SUB, ACCENT, CYAN, MAGENTA, GREEN, AMBER, RED))
-    out += ["", " " + dots + RESET]
+# ---- the boxes ---------------------------------------------------------------------------------
+def box(title, rows, w, key_w):
+    """A box exactly w cells wide: rounded corners, the title in the top edge, one row per fact."""
+    inner = w - 2
+    head = f" {title} "
+    out = [f"{fg(LINE)}╭─{fg(SUB)}{head}{fg(LINE)}{'─' * max(inner - width(head) - 1, 0)}╮{RESET}"]
+    room = inner - (1 + 1 + 2 + key_w) - 1   # after " icon  key"
+    # one bar length for the whole box (the longest "used / total (pct)" decides), so they line up
+    tails = [width(level_tail(*v[1:])) for _, _, v in rows if isinstance(v, tuple)]
+    cells = max(6, min(40, room - max(tails))) if tails else 0
+    for icon, key, value in rows:
+        lead = f" {fg(ACCENT)}{icon}  {key:<{key_w}}"
+        if isinstance(value, tuple):
+            text = level(*value[1:], cells)
+        else:
+            text = f"{fg(TEXT)}{cut(value, room)}{RESET}"
+        body = lead + text
+        out.append(f"{fg(LINE)}│{RESET}{body}{' ' * max(inner - width(body), 0)}{fg(LINE)}│{RESET}")
+    out.append(f"{fg(LINE)}╰{'─' * inner}╯{RESET}")
     return out
 
 
-def get_title(f):
+def level_tail(used, total):
+    return f"  {gib(used)} / {gib(total)} ({(used / total if total else 0) * 100:.0f}%)"
+
+
+def level(used, total, cells):
+    """A bar cells long, then "used / total (pct)"."""
+    pct = used / total if total else 0
+    colour = GREEN if pct < .6 else AMBER if pct < .85 else RED
+    n = round(pct * cells)
+    return (f"{fg(colour)}{'■' * n}{fg(LINE)}{'■' * (cells - n)}{RESET}  {fg(TEXT)}{gib(used)} / {gib(total)} "
+            f"{fg(MUTED)}({pct * 100:.0f}%){RESET}")
+
+
+def panel(f, w):
+    """The right side, w cells wide: a header line, then the boxes (two side by side when they fit)."""
+    secs = dict(sections(f))
+    key_w = max(len(k) for rows in secs.values() for _, k, _ in rows) + 2
     t = f.get("Title") or {}
     user, host = t.get("userName", os.environ.get("USER", "")), t.get("hostName", os.uname().nodename)
-    return f"{fg(ACCENT)}\x1b[1m{user}{RESET}{fg(MUTED)}@{fg(ACCENT)}\x1b[1m{host}{RESET}"
+    when = time.strftime("%a %d %b  %H:%M")
+    left = f"{fg(ACCENT)}{BOLD}{user}{RESET}{fg(MUTED)}@{fg(ACCENT)}{BOLD}{host}{RESET}"
+    out = [left + " " * max(w - width(left) - len(when) - 1, 1) + f"{fg(MUTED)}{when}{RESET}", ""]
+    half = (w - GAP) // 2
+    pair_fits = half >= key_w + 34   # each of the two still holds a full line
+    if pair_fits:
+        a, b = box("system", secs["system"], half, key_w), box("desktop", secs["desktop"], w - GAP - half, key_w)
+        blank_a, blank_b = " " * half, " " * (w - GAP - half)
+        for i in range(max(len(a), len(b))):
+            out.append((a[i] if i < len(a) else blank_a) + " " * GAP + (b[i] if i < len(b) else blank_b))
+    else:
+        out += box("system", secs["system"], w, key_w) + box("desktop", secs["desktop"], w, key_w)
+    out += box("hardware", secs["hardware"], w, key_w)
+    dots = "  ".join(fg(c) + "" for c in (LINE, MUTED, SUB, ACCENT, CYAN, MAGENTA, GREEN, AMBER, RED))
+    return out + ["", " " + dots + RESET]
 
 
-# ---- drawing -----------------------------------------------------------------------------------
-def compose(frame, right):
-    """The bagel beside the panel, the bagel centred against it."""
-    h = max(len(right), BAGEL_H)
-    top = max((len(right) - BAGEL_H) // 2, 0)
-    lines = []
+# ---- layout and drawing ------------------------------------------------------------------------
+def layout(cols, rows):
+    """(bagel w, h, panel w) for this terminal; bagel w 0 when there's no room for it."""
+    margin = 2
+    if cols < WIDE:
+        return 0, 0, cols - 2 * margin
+    bw = max(30, min(int(cols * 0.40), 80))
+    bh = min(bw // 2, max(rows - 6, 12))   # leaves the prompt room below it
+    bw = min(bw, bh * 2 + 2)               # a short window: a narrower bagel, still round
+    return bw, bh, cols - 2 * margin - bw - GAP
+
+
+def compose(frame, right, bw):
+    """The bagel beside the panel, centred against it."""
+    h = max(len(right), len(frame))
+    top = max((len(right) - len(frame)) // 2, 0)
+    out = []
     for i in range(h):
-        b = frame[i - top] if 0 <= i - top < BAGEL_H else " " * BAGEL_W
+        b = frame[i - top] if 0 <= i - top < len(frame) else " " * bw
         r = right[i] if i < len(right) else ""
-        lines.append("  " + b + " " * GAP + r)
-    return lines
+        out.append("  " + (b + " " * GAP if bw else "") + r)
+    return out
 
 
 def main():
-    still = "--still" in sys.argv or not sys.stdout.isatty()
-    right = panel(facts())
+    cols, rows = shutil.get_terminal_size((120, 40))
+    if cols < NARROW:
+        return
+    bw, bh, pw = layout(cols, rows)
+    right = panel(facts(), pw)
+    still = "--still" in sys.argv or not sys.stdout.isatty() or not bw
     a, b = 1.0, 0.6
+    bagel = Bagel(bw, bh) if bw else None
     if still:
-        print("\n".join(compose(bagel(a + 1.2, b + 0.5), right)) + "\n")
+        frame = bagel.frame(a + 1.2, b + 0.5) if bagel else []
+        print("\n".join(compose(frame, right, bw)) + "\n")
         return
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd) if sys.stdin.isatty() else None
@@ -220,7 +289,7 @@ def main():
         termios.tcsetattr(fd, termios.TCSANOW, new)
     out = sys.stdout
     out.write("\x1b[?25l")
-    lines = compose(bagel(a, b), right)
+    lines = compose(bagel.frame(a, b), right, bw)
     out.write("\n".join(lines) + "\n")
     h = len(lines)
     start, frames = time.time(), int(SPIN * FPS)
@@ -229,8 +298,7 @@ def main():
             ease = 1 - (n / frames) ** 2          # slows down to a stop
             a += 0.09 * ease + 0.004
             b += 0.045 * ease + 0.002
-            frame = compose(bagel(a, b), right)
-            out.write(f"\x1b[{h}F" + "\n".join(l + "\x1b[K" for l in frame) + "\n")
+            out.write(f"\x1b[{h}F" + "\n".join(l + "\x1b[K" for l in compose(bagel.frame(a, b), right, bw)) + "\n")
             out.flush()
             if old and select.select([fd], [], [], 0)[0]:
                 break                              # a key: stop here, the key is the shell's

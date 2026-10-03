@@ -332,14 +332,15 @@ The older terminal versions (`sysmon.py`, `keys.py`, `audiopanel.py`, `netpanel.
 
 `Super + A` (or workspace 4's button in waybar) opens **agentmux**, a tmux workspace for coding agents, by
 project: **Projects** | **Agents** (that project's threads) | the thread | **terminals** (regular
-shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the last one closes the column). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembered.
+shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembered.
 
 ```
-┌Projects─┬Agents──────┬─ the thread ────────────────┬─ terminals ─┐
-│▸cloud_t │◐ 1 diagram │                            │ $ pnpm dev  │
-│ inkwell │✳ 2 docs    │                            ├─────────────┤
-│+ open   │+ new thread│                            │ $ git st…   │
-└─────────┴────────────┴────────────────────────────┴─────────────┘
+┌Projects─┬Agents──────┬─ the thread ───────────────┬─ terminal ──┬─────────────┐
+│▸cloud_t │◐ 1 diagram │                           │ $ pnpm dev  │ ▣    + ◫ ─  │
+│ inkwell │✳ 2 docs    │                           │             │▎▣ pnpm  ◫ × │
+│+ open   │+ new thread│                           │             │ ┌◫ fish     │
+│         │            │                           │             │ └◫ git      │
+└─────────┴────────────┴───────────────────────────┴─────────────┴─────────────┘
  agentmux │ + Terminal Ctrl+Alt+T  × Terminal Ctrl+Alt+W  + Thread Ctrl+Alt+N  Open project Ctrl+Alt+O  ? keys   cloud_track · 1
 ```
 
@@ -375,7 +376,7 @@ shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the 
   the keyboard on its prompt. `+ thread` starts fresh. Skipped for an
   agent whose conversation already runs straight in the project's VS Code kitty.
 - **Panels close and reopen:** `Ctrl+Alt+1` / `Ctrl+Alt+2` / `Ctrl+Alt+3` (Projects / Threads / Terminals), or the `×` in a
-  panel's header; a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
+  panel's header (`─` in the terminal list's); a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
   until reopened. Closing Terminals only hides the column: its shells keep running.
 - **States and notifications, for every agent.** Each thread shows *needs you* (a permission prompt,
   a question, a plan to approve), *error*, *working*, *done* (finished, not looked at yet), *waiting*
@@ -391,6 +392,17 @@ shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the 
   thread stays *working* ("· 2 agents") while its subagents or background agents run, even after its
   own turn ended, and notifies *done* when the last one finishes (SubagentStart / SubagentStop hooks,
   Claude's `◯ <agent> <task>` rows on screen, agy's `fullyIdle`).
+- **Terminals, like VS Code's:** the shown terminal takes the column's full height; a thin list at
+  its right names every terminal of the project (`+` in its header, or `Ctrl+Alt+T`, adds one).
+  Click a row (or `↑↓` `↵` in the list, `Ctrl+Alt+↑↓` anywhere) to show it; a long list scrolls
+  (the wheel, `↑ more` / `↓ more`). Split is separate: the split button (`Ctrl+Alt+D`) splits the
+  shown terminal in two, stacked, sharing the height evenly; the list shows each half as its own
+  row, joined by `┌ └`. The shown and the hovered row have their own split button (that terminal in
+  two) and a `×` that closes that terminal alone (one half of a split stays); `Ctrl+Alt+W` closes
+  the focused one; the last one closes the column. `─` in the header minimizes the column (`Ctrl+Alt+3`): its shells keep running,
+  `▸ terminals` in the status bar brings it back. Drag the border left of the list (or of the
+  column) to resize; both widths are remembered. Dragged very narrow, the list shows only the icons. Each terminal is a window of the project's
+  `<project>·terms` session on the agents server (`local/lib/agentmux/termlist.py` is the list).
 - **Terminals are per project:** the column shows only in the projects where you opened it (`Ctrl+Alt+T`);
   switching to another project hides it (its shells keep running) and brings it back when you return.
 - **Agents started before this** (straight in a kitty, not in tmux) show as `⚠ title`; Enter on
@@ -400,7 +412,7 @@ shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the 
   Settings: `Ctrl+Alt+P` / `Ctrl+Alt+A` / `Ctrl+Alt+M` / `Ctrl+Alt+E` focus Projects / Threads / the
   thread / the terminals (a closed one is brought back), `Ctrl+Alt+F` the next part (left to right,
   wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
-  `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+←→`
+  `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+←→`
   resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
   and shells keep running), `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the
   wheel; long lists scroll with the selection (`↑ more` / `↓ more`); Agents: `n` new, `a` adopt, `r` rescan.
@@ -428,7 +440,7 @@ shells, `+ Terminal`; `× Terminal` or `Ctrl+Alt+W` closes the focused one, the 
   selection. A selection also goes to the primary selection (middle-click). Shift + drag is kitty's
   own selection (`Ctrl+Shift+C` / `V`).
 
-Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home.py`), `local/lib/panels/agentmuxgui.py` (settings), `local/lib/panels/agentpickgui.py` (the two pickers),
+Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home.py`, `termlist.py`), `local/lib/panels/agentmuxgui.py` (settings), `local/lib/panels/agentpickgui.py` (the two pickers),
 `config/agentmux/{agents,app}.conf`, `local/bin/kitty-pair`. Needs `tmux` (in `setup/packages.txt`).
 
 ### Docker panel (workspace 9)

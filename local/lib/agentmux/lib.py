@@ -275,6 +275,9 @@ ACTIONS = [
     ("new-thread", "New thread", "new-thread", "C-M-n"),
     ("open-project", "Open project", "open", "C-M-o"),
     ("new-terminal", "New terminal", "term", "C-M-t"),
+    ("split-terminal", "Split terminal", "split-term", "C-M-d"),
+    ("next-terminal", "Next terminal", "next-term 1", "C-M-Down"),
+    ("previous-terminal", "Previous terminal", "next-term -1", "C-M-Up"),
     ("close-terminal", "Close terminal", "close-term", "C-M-w"),
     ("close-thread", "Close (selected row or thread)", "close-thread", "C-M-x"),
     ("toggle-projects", "Show / hide Projects", "toggle projects", "C-M-1"),
@@ -491,7 +494,8 @@ def has_history(path, harness):
 
 
 def terms_session(path):
-    """The project's terminals session (regular shells), made on first use."""
+    """The project's terminals session (regular shells), made on first use: one window per terminal,
+    a split is panes in one window. agentmux shows it with the list of its terminals (termlist.py)."""
     name = f"{session_base(path)}{SEP}terms"
     if agents("has-session", "-t", f"={name}")[0] != 0:
         new_session(name, path, "terms")

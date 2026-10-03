@@ -9,8 +9,10 @@
   agentmux new                 Super + N on its workspace: a new thread, or agentmux itself if it isn't open
   agentmux open                project picker (a folder browser; the first time it asks for the
                                projects folder, then opens there)
-  agentmux term                regular terminal in the right column (opens the column)
-  agentmux close-term          close the focused terminal of the column
+  agentmux term                new terminal (full height, listed at the right) in the terminals column (opens it)
+  agentmux split-term [pane]   split a terminal (the shown one), stacked
+  agentmux next-term [1|-1]    show the next / previous terminal
+  agentmux close-term [pane]   close a terminal of the column (the focused one; a split half, else the terminal)
   agentmux close-thread        close the selected row of the focused sidebar, else the shown thread (asks)
   agentmux close-project <dir> close a project: ends its threads and terminals, drops it from the list
   agentmux focus projects|agents|main|terms
@@ -31,7 +33,7 @@
                                dismiss its "needs your input" / error notifications (no longer true)
   agentmux hooks               install those hooks in each agent's own config (idempotent)
 
-Layout (tmux -L agentmux):  Projects | Agents | the thread | terminals
+Layout (tmux -L agentmux):  Projects | Agents | the thread | terminal | terminal list
 Threads are sessions on the agents server (tmux -L agents): the middle pane and the terminals column
 are nested clients of them, as is the kitty beside a VS Code window, so the same agent shows live in
 both places. See local/lib/agentmux/lib.py.
@@ -44,8 +46,8 @@ import lib
 HERE = os.path.expanduser("~/.local/lib/agentmux")
 SELF = os.path.expanduser("~/.local/bin/agentmux")
 SESSION = "main"
-WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32}   # columns; terms: share of the screen
-MIN = {"projects": 16, "agents": 20}                       # a sidebar is never narrower than this
+WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
+MIN = {"projects": 16, "agents": 20, "termlist": 4}                       # a sidebar is never narrower than this
 
 
 def opt(name):
@@ -266,13 +268,11 @@ def switch_project(path, build_only=False):
     if terms_shown(path) and not show_terms:
         set_terms_shown(path, False)
     if show_terms and terms:
-        lib.app("respawn-pane", "-k", "-t", terms, nested(lib.terms_session(path), hint=False))
-        lib.app("set-option", "-p", "-t", terms, "@label", f"Terminals · {lib.project_name(path)}")
+        respawn_terms(path)
     elif show_terms:
         open_terms(path)
     elif terms:   # hidden here; that project's shells keep running
-        save_widths()
-        lib.app("kill-pane", "-t", terms)
+        close_terms_column()
     mark_closed()
     if not build_only:
         where()
@@ -330,30 +330,102 @@ def new_thread(harness=None, prompt_file=None):
         msg(f"{name} started")
 
 
+# The column is two panes: the shown terminal (a client of the terms session) and, at its right, the
+# list of its terminals (termlist.py), as in VS Code's terminal panel. Its width (state "terms") is the
+# two together; the list keeps its own (state "termlist", in columns).
+def termlist_cmd(project):
+    return f"exec python3 {HERE}/termlist.py {shlex.quote(project)}"
+
+
 def open_terms(project):
-    """The terminals column (the project's terminals session), at its remembered width."""
+    """The terminals column (the project's terminals session and their list), at its remembered width."""
     col = pane("terms")
     if col is None:   # its share of the whole window, in columns (a % would be of the middle pane)
         total = int(lib.app("display-message", "-p", "-t", pane("main"), "#{window_width}")[1] or 0)
-        cols = max(int(total * widths()["terms"]), 20)
+        cols = max(int(total * widths()["terms"]), 20 + widths()["termlist"])
         rc, col = lib.app("split-window", "-h", "-d", "-t", pane("main"), "-l", str(cols),
                           "-P", "-F", "#{pane_id}", nested(lib.terms_session(project), hint=False))
         set_opt("@p_terms", col)
         lib.app("set-option", "-p", "-t", col, "@label", f"Terminals · {lib.project_name(project)}")
+    if pane("termlist") is None:
+        rc, lst = lib.app("split-window", "-h", "-d", "-t", col, "-l", str(widths()["termlist"]),
+                          "-P", "-F", "#{pane_id}", termlist_cmd(project))
+        set_opt("@p_termlist", lst)
+        lib.app("set-option", "-p", "-t", lst, "@label", "Terminal list")
+    return col
+
+
+def respawn_terms(project):
+    """The column shows project's terminals (after a project switch, a reload)."""
+    lib.app("respawn-pane", "-k", "-t", pane("terms"), nested(lib.terms_session(project), hint=False))
+    lib.app("set-option", "-p", "-t", pane("terms"), "@label", f"Terminals · {lib.project_name(project)}")
+    if pane("termlist"):
+        lib.app("respawn-pane", "-k", "-t", pane("termlist"), termlist_cmd(project))
+    else:
+        open_terms(project)
+
+
+def close_terms_column():
+    """Hide the column (both its panes); the shells keep running."""
+    save_widths()
+    for role in ("terms", "termlist"):
+        if pane(role):
+            lib.app("kill-pane", "-t", pane(role))
+
+
+def terms_closed(project):
+    """The list saw the project's last terminal end: the column goes (if that's still the project shown)."""
+    set_terms_shown(project, False)
+    if lib.load_state().get("project") == project:
+        close_terms_column()
+    mark_closed()
+
+
+def show_terms(project):
+    """The column shown (opened if it's hidden) and focused; returns its pane."""
+    if pane("terms") is None:
+        set_terms_shown(project, True)
+        open_terms(project)
+        mark_closed()
+    col = pane("terms")
+    lib.app("select-pane", "-t", col)
     return col
 
 
 def term():
+    """A new terminal: a window of its own, full height, in the project folder (the first one comes with
+    the session)."""
     project = lib.load_state().get("project")
     if not project:
         return msg("Open a project first (Ctrl+Alt+O)")
-    if pane("terms") is None:
-        set_terms_shown(project, True)
-        col = open_terms(project)
-    else:   # one more shell in the column
-        col = pane("terms")
-        lib.agents("split-window", "-v", "-t", f"={lib.terms_session(project)}:", "-c", project)
-    lib.app("select-pane", "-t", col)
+    fresh = not terms_alive(project)
+    show_terms(project)
+    if not fresh:
+        lib.agents("new-window", "-t", f"={lib.terms_session(project)}:", "-c", project)
+
+
+def split_term(target=None):
+    """A terminal split in two, stacked (the column is narrow), the new one in the same folder: the
+    given pane (a row's split button in the list), else the shown one. The splits share the height
+    evenly."""
+    project = lib.load_state().get("project")
+    if not (project and terms_alive(project)):
+        return term()   # nothing to split yet
+    show_terms(project)
+    if target:   # that terminal's window is shown first
+        lib.agents("select-window", "-t", target)
+    target = target or f"={lib.terms_session(project)}:"
+    lib.agents("split-window", "-v", "-t", target, "-c", "#{pane_current_path}")
+    lib.agents("select-layout", "-t", target, "even-vertical")
+
+
+def next_term(step):
+    """The next (step 1) or previous (-1) terminal, round again."""
+    project = lib.load_state().get("project")
+    if not (project and terms_alive(project)):
+        return msg("No terminal open (+ terminal: Ctrl+Alt+T)")
+    show_terms(project)
+    lib.agents("next-window" if step > 0 else "previous-window", "-t", f"={lib.terms_session(project)}")
 
 
 def set_hidden(role, closed):
@@ -371,12 +443,13 @@ def toggle(role):
     p = pane(role)
     project = lib.load_state().get("project")
     if p:
-        save_widths()
         if role == "terms":
             set_terms_shown(project, False)
+            close_terms_column()
         else:
+            save_widths()
             set_hidden(role, True)
-        lib.app("kill-pane", "-t", p)
+            lib.app("kill-pane", "-t", p)
         mark_closed()
         w = widths()   # the freed columns go to the thread, not to the other sidebar
         for other in ("projects", "agents"):
@@ -394,15 +467,20 @@ def toggle(role):
         ensure_layout()
 
 
-def close_term():
-    """The focused shell of the terminals column (the last one closes the column)."""
+def close_term(target=None):
+    """A terminal of the column: the given pane (a row's × in the list), else the focused one; one half
+    of a split, else the whole terminal. The last one closes the column."""
     project = lib.load_state().get("project")
     if not (project and pane("terms")):
         return msg("No terminal open (+ terminal: Ctrl+Alt+T)")
-    session = f"={lib.terms_session(project)}"
-    if int(lib.agents("display-message", "-p", "-t", f"{session}:", "#{window_panes}")[1] or 0) <= 1:
+    target = target or f"={lib.terms_session(project)}:"
+    out = lib.agents("display-message", "-p", "-t", target, "#{session_windows} #{window_panes} #{window_id}")[1].split()
+    tabs, panes, window = (int(out[0]), int(out[1]), out[2]) if len(out) == 3 else (0, 0, "")
+    if tabs <= 1 and panes <= 1:
         set_terms_shown(project, False)   # the last one: the column closes with it
-    lib.agents("kill-pane", "-t", f"{session}:")
+    lib.agents("kill-pane", "-t", target)
+    if panes > 2:   # the splits left share the height again
+        lib.agents("select-layout", "-t", window, "even-vertical")
 
 
 def close_thread():
@@ -502,7 +580,7 @@ def msg(text):
 
 
 def click(rng):
-    {"term": term, "close-term": close_term, "thread": new_thread, "open": lambda: popup("project"), "help": help_line,
+    {"term": term, "close-term": lambda: close_term(), "thread": new_thread, "open": lambda: popup("project"), "help": help_line,
      "settings": settings, "show-projects": lambda: toggle("projects"), "show-agents": lambda: toggle("agents"),
      "show-terms": lambda: toggle("terms")}.get(rng, lambda: None)()
 
@@ -527,7 +605,7 @@ def reload():
     elif pane("main"):
         lib.app("respawn-pane", "-k", "-t", pane("main"), idle_cmd())
     if pane("terms") and project:
-        lib.app("respawn-pane", "-k", "-t", pane("terms"), nested(lib.terms_session(project), hint=False))
+        respawn_terms(project)
     mark_closed()
     where()
     msg("agentmux reloaded")
@@ -1045,15 +1123,23 @@ def settings():
 
 
 def save_widths():
-    """Remember the sidebar and column widths (after a drag or Ctrl+Alt+←→)."""
+    """Remember the sidebar and column widths (after a drag, Ctrl+Alt+←→ or the window resizing)."""
     s = lib.load_state()
     w = s.get("widths", {})
     total = int(lib.app("display-message", "-p", "#{window_width}")[1] or 0)
-    for role in ("projects", "agents", "terms"):
-        p = pane(role)
-        width = int(lib.app("display-message", "-p", "-t", p, "#{pane_width}")[1] or 0) if p else 0
-        if width >= 8:   # a pane that's gone (or squeezed to nothing) keeps its last width
-            w[role] = round(width / total, 2) if role == "terms" and total else width
+    size = lambda p: int(lib.app("display-message", "-p", "-t", p, "#{pane_width}")[1] or 0) if p else 0
+    # the terminal list squeezed below its icons (tmux takes a resize out of the rightmost pane, or a
+    # drag went too far): back to its last width. That resize runs this again, with the right widths.
+    if pane("termlist") and size(pane("termlist")) < MIN["termlist"]:
+        lib.app("resize-pane", "-t", pane("termlist"), "-x", str(widths()["termlist"]))
+        return
+    for role in ("projects", "agents", "terms", "termlist"):
+        width = size(pane(role))
+        if width >= MIN.get(role, 8):   # a pane that's gone (or squeezed to nothing) keeps its last width
+            if role == "terms":   # the column: the terminal and its list, as a share of the window
+                width += size(pane("termlist")) + 1 if pane("termlist") else 0
+                width = round(width / total, 2) if total else 0
+            w[role] = width
     s["widths"] = w
     lib.save_state(s)
 
@@ -1084,7 +1170,9 @@ def main(argv):
         "new-thread": lambda: new_thread(next((a for a in args if not a.startswith("--") and a not in pfile), None),
                                          pfile[0] if pfile else None),
         "open": lambda: popup("project"), "first-run": first_run, "new": new_from_desktop,
-        "term": term, "close-term": close_term, "close-thread": close_thread,
+        "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
+        "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),
+        "close-thread": close_thread,
         "close-project": lambda: close_project(args[0]),
         "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,

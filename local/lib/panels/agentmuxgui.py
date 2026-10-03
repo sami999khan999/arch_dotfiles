@@ -20,7 +20,7 @@ DEFAULT_OPTS = {o: d for o, _, _, d in lib.OPTIONS}
 GROUPS = [
     ("Focus", ["focus-projects", "focus-threads", "focus-thread", "focus-terminals", "focus-next"]),
     ("Threads & projects", ["new-thread", "close-thread", "open-project"]),
-    ("Terminals", ["new-terminal", "close-terminal"]),
+    ("Terminals", ["new-terminal", "split-terminal", "next-terminal", "previous-terminal", "close-terminal"]),
     ("Columns", ["toggle-projects", "toggle-threads", "toggle-terminals", "resize-left", "resize-right"]),
     ("agentmux", ["settings", "reload", "help"]),
 ]
@@ -28,7 +28,9 @@ EXPLAIN = {   # the dim line under a shortcut
     "focus-terminals": "Opens the column first if it's closed (the same for Projects and Threads)",
     "focus-next": "Left to right: Projects, Threads, the thread, the terminals, round again",
     "close-thread": "The selected project or thread in a sidebar, else the shown thread; asks under its row first",
-    "close-terminal": "The focused shell; the last one closes the column",
+    "new-terminal": "Full height, listed at the right of the column, like VS Code's terminals",
+    "split-terminal": "The shown terminal in two, stacked; each half is its own row in the list",
+    "close-terminal": "The focused shell (one half of a split, else the terminal); the last one closes the column",
     "toggle-terminals": "Hiding the column keeps its shells running",
     "reload": "Configs read again, every pane restarted; agents and shells keep running",
     "help": "The list in the status bar",

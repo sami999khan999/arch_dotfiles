@@ -3,6 +3,24 @@
 CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
 (its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Tokyo Night.
 
+![agentmux: projects, threads, an agent and its terminals side by side](docs/screenshots/agentmux.png)
+
+**agentmux** (`Super + A`): coding agents by project, each thread a live tmux session shared with
+the kitty beside VS Code, terminals at the right. [More below](#agents-agentmux).
+
+| | |
+|---|---|
+| ![Control Center](docs/screenshots/controlcenter.png) | ![System panel](docs/screenshots/system.png) |
+| **Control Center** (workspace 10): workspaces, system, shortcuts, audio, network at a glance | **System** (`Super + Ctrl + T`): CPU, memory and GPU with their history, processes, storage |
+| ![Settings](docs/screenshots/settings.png) | ![Notifications](docs/screenshots/notifications.png) |
+| **Settings** (`Super + I`): every setting in one place, searchable | **Notifications** (the bell, `Super + .`): history by day, do not disturb |
+
+![The bar](docs/screenshots/bar.png)
+
+The bar: workspace buttons, an audio visualizer while sound plays, the window's title, controls,
+stats, the clock and the notification bell. (Screenshots: `docs/screenshots/`, taken on the
+1366×768 PC.)
+
 ## Bootstrap a new machine
 
 Install CachyOS with Hyprland, then:
@@ -49,6 +67,7 @@ zone, power profile, the GPU's own services.
 | `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
+| `docs/screenshots/` | — | the screenshots at the top of this README |
 
 `setup/install.sh` is idempotent and never deletes: anything real it finds in the way
 is moved to `~/.config-backup-<timestamp>/` first.

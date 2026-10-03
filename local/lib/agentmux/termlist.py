@@ -114,21 +114,28 @@ class TermList(App):
         self.ys, self.row_buttons = {}, {}
         narrow = w < ICONS_ONLY
         pad = 1 if narrow else PAD
-        # header: the icon left (if there's room), the buttons right, then the blue-then-grey underline
-        buttons = list(range(len(BUTTONS)))
-        # the collapse / expand chevron at the left always stays; the other buttons fit or drop
-        while buttons and sum(width(BUTTONS[i][0]) + 2 for i in buttons) - 2 > w - 2 * pad - 3:
-            buttons.remove(next(i for i in DROP + [0] if i in buttons))
-        x, self.button_xs = w - pad, []
-        for i in reversed(buttons):   # laid out from the right edge
-            x -= width(BUTTONS[i][0])
-            self.button_xs.insert(0, (x, x + width(BUTTONS[i][0]), BUTTONS[i][2]))
-            x -= 2
-        top = Line().pad(pad).add(EXPAND if narrow else COLLAPSE, "accent")
-        self.chevron = (pad, "expand" if narrow else "collapse")
-        for i, (x0, _, _) in zip(buttons, self.button_xs):
-            top.pad(x0 - top.w).add(BUTTONS[i][0], BUTTONS[i][1])
-        under = Line().pad(pad).add("━", "accent").add("━" * max(w - 2 * pad - 1, 0), "overlay")
+        # header: the chevron over the icons' column; expanded, the count beside it (underlined in blue,
+        # like a sidebar's title) and the buttons at the right; collapsed, only the chevron
+        lead = 2   # the rows' icons sit in column 2 (edge, tree, icon)
+        if narrow:
+            top = Line().pad(lead).add(EXPAND, "accent")
+            under = Line().pad(1).add("━" * max(w - 2, 0), "overlay")
+            self.chevron, self.button_xs = (lead, "expand"), []
+        else:
+            title = f"{COLLAPSE} {len(self.panes)}"
+            top = Line().pad(lead).add(COLLAPSE, "accent").add(f" {len(self.panes)}", "sub", bold=True)
+            self.chevron = (lead, "collapse")
+            buttons = list(range(len(BUTTONS)))   # the split goes first when they don't fit, then minimize
+            while buttons and sum(width(BUTTONS[i][0]) + 2 for i in buttons) - 2 > w - PAD - top.w - 2:
+                buttons.remove(next(i for i in DROP + [0] if i in buttons))
+            x, self.button_xs = w - PAD, []
+            for i in reversed(buttons):   # laid out from the right edge
+                x -= width(BUTTONS[i][0])
+                self.button_xs.insert(0, (x, x + width(BUTTONS[i][0]), BUTTONS[i][2]))
+                x -= 2
+            for i, (x0, _, _) in zip(buttons, self.button_xs):
+                top.pad(x0 - top.w).add(BUTTONS[i][0], BUTTONS[i][1])
+            under = Line().pad(lead).add("━" * width(title), "accent").add("━" * max(w - lead - PAD - width(title), 0), "overlay")
         lines = [top, under, Line()]
         # the rows: one per pane, a split's halves joined by ┌ │ └
         shown = self.shown()
@@ -155,7 +162,7 @@ class TermList(App):
                 # the shown and the hovered row: split it, close it (as VS Code's on hover); the name
                 # gives way first, then the split button
                 acts = [(SPLIT_ICON, ["split-term", p["pane"]]), (CLOSE, ["close-term", p["pane"]])] if sel or hov else []
-                need = lambda a: sum(width(t) + 2 for t, _ in a)
+                need = lambda a: sum(width(t) + 1 for t, _ in a)   # " ◫ ×": a space before each
                 if acts and w - l.w - 1 - PAD - need(acts) < 3:
                     acts = acts[1:]
                 l.add(" ").add(fit(p["command"], max(w - l.w - PAD - need(acts), 0)), "text" if on else "sub", bold=on)
@@ -164,7 +171,7 @@ class TermList(App):
                 for text, cmd in reversed(acts):
                     x -= width(text)
                     spots.insert(0, (x, text, cmd))
-                    x -= 2
+                    x -= 1
                 for x0, text, cmd in spots:
                     l.pad(x0 - l.w).add(text, "muted")
                 self.row_buttons[len(lines)] = [(x0, x0 + width(text), cmd) for x0, text, cmd in spots]

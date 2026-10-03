@@ -574,6 +574,7 @@ def close_thread():
 
 def kill_thread(name):
     lib.forget_thread(name)   # closed on purpose: not resumed next time
+    clear_notices(name)
     lib.agents("kill-session", "-t", f"={name}")
     project = lib.load_state().get("project")
     if project:
@@ -599,6 +600,7 @@ def close_project(path):
             kept += 1
             continue
         lib.agents("kill-session", "-t", f"={t['name']}")
+        clear_notices(t["name"])
     s = lib.load_state()
     s["projects"] = [p for p in s.get("projects", []) if p != path]
     s.get("threads", {}).pop(path, None)
@@ -846,7 +848,7 @@ def hook_event(src, event, data):
         if event == "SessionStart":   # a (re)started agent has none running
             return "sub0", ""
     if src == "claude":
-        if event == "UserPromptSubmit":
+        if event in ("UserPromptSubmit", "PostToolUse"):   # PostToolUse: a permission prompt was answered
             return "working", ""
         if event == "Notification":
             kind, message = data.get("notification_type", ""), data.get("message", "")
@@ -930,12 +932,13 @@ def notify(args):
     if state == "done" and subagents(name) > 0:
         state = "background"   # the turn ended but subagents still run: not done yet
     lib.agents("set-option", "-t", f"={name}:", "@agent_state", state)
+    if state in ("working", "done", "background"):   # it moved on: "needs your input" / an error is old news
+        clear_notices(name)
     if state == "background":
         return
     if state == "working":   # a new turn: earlier notices may be sent again when it gets there
         for key in ("asked", "finished", "told_done", "errored"):
             lib.mark_finished([name], False, key=key)
-        clear_notices(name)   # it was answered: "needs your input" is old news
     else:
         if state == "done":
             lib.mark_finished([name], True)   # the sidebars show it "done" until it's looked at
@@ -979,6 +982,7 @@ def notify_screen(name, kind):
     conversation isn't reopened after a restart)."""
     if kind == "exited":
         lib.forget_session(name)
+        clear_notices(name)
     notice(name, kind)
 
 
@@ -1017,7 +1021,7 @@ def install_hooks():
     except (OSError, ValueError):
         s = {}
     s["hooks"] = _merge_hook_events(s.get("hooks", {}), ("UserPromptSubmit", "Notification", "Stop", "StopFailure",
-                                                         "SubagentStart", "SubagentStop", "SessionStart"),
+                                                         "SubagentStart", "SubagentStop", "SessionStart", "PostToolUse"),
                                     HOOK_CMD.format("claude"), {"async": True, "timeout": 10})
     _write_json(claude, s)
     done.append("Claude Code")

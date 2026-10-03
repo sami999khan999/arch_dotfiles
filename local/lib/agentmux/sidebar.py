@@ -486,7 +486,8 @@ class Sidebar(App):
             if t.get("attached", 0) > 1:
                 detail += " It's also open in the VS Code kitty: that view closes too."
             self.ask(f"Close #{sel[1].rsplit(lib.SEP, 1)[-1]} {title}?", detail, "Close",
-                     lambda n=sel[1]: (lib.forget_thread(n), lib.agents("kill-session", "-t", f"={n}")), row)
+                     lambda n=sel[1]: (lib.forget_thread(n), lib.agents("kill-session", "-t", f"={n}"),
+                                       subprocess.Popen([AGENTMUX, "clear-notices", n], start_new_session=True)), row)
 
     def ask(self, title, detail, yes, fn, row=None):
         """A question about a row (the selected one unless given), shown under it with its buttons

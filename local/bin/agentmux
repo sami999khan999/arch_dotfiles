@@ -41,7 +41,7 @@ Threads are sessions on the agents server (tmux -L agents): the middle pane and 
 are nested clients of them, as is the kitty beside a VS Code window, so the same agent shows live in
 both places. See local/lib/agentmux/lib.py.
 """
-import json, os, shlex, shutil, socket, subprocess, sys
+import json, os, re, shlex, shutil, socket, subprocess, sys
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
 import lib
@@ -213,6 +213,9 @@ def ensure_layout():
 def attach():
     if lib.app("has-session", "-t", f"={SESSION}")[0] != 0:
         build()
+        if lib.option("resume-on-open"):   # the threads come back while the client attaches
+            subprocess.Popen([SELF, "restore"], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         ensure_layout()
     apply_keys()
@@ -255,8 +258,8 @@ def switch_project(path, build_only=False):
     mine = [t["name"] for t in lib.threads() if t["project"] == path and t["kind"] == "agent"]
     last = s.get("threads", {}).get(path)
     target = last if last in mine else (mine[-1] if mine else None)
-    if not target and not build_only and lib.option("resume-on-open"):
-        target = resume_latest(path)
+    if not build_only and lib.option("resume-on-open"):   # threads that should be running but aren't
+        target = resume_project(path) or target
     if target:
         show(target)
     elif pane("main"):
@@ -283,27 +286,63 @@ def switch_project(path, build_only=False):
         poke()
 
 
-def resume_latest(path):
-    """A project opened with no live thread: continue the latest session of every agent used there
-    (lib.project_agents; none remembered yet: nothing, the home screen asks), each in a new thread. Skipped for
-    an agent with nothing to continue there, or whose conversation already runs straight in the
-    project's VS Code kitty (it would run twice). agy can't continue a session: it starts fresh.
-    Returns the thread to show (the agent used last) or None."""
+def resume_project(path, quiet=False):
+    """Bring back the project's threads that aren't running: each one remembered with its conversation
+    (state "sessions") reopens on that exact conversation under its old name; with nothing remembered
+    but no thread open at all, the latest session of every agent used there continues (lib.project_agents;
+    none remembered: nothing, the home screen asks). Skipped for an agent whose conversation already
+    runs straight in the project's VS Code kitty (it would run twice). agy can't continue a session:
+    it starts fresh. Returns the thread to show (the one shown last, else the last started) or None."""
+    live = {t["name"]: t for t in lib.threads()}
+    mine = [n for n, t in live.items() if t["project"] == path and t["kind"] == "agent"]
+    saved = sorted(((n, r) for n, r in lib.load_state().get("sessions", {}).items()
+                    if r.get("project") == path and n not in live),
+                   key=lambda nr: int(nr[0].rsplit(lib.SEP, 1)[-1]) if nr[0].rsplit(lib.SEP, 1)[-1].isdigit() else 0)
+    if not saved and mine:
+        return None
     installed = {k for k, _ in lib.installed_harnesses()}
-    wanted = [h for h in lib.project_agents(path) if h in installed]
     in_kitty = {h for *_, h in lib.unshared_agents(path)}
-    started = []
-    for harness in wanted:
-        if not harness or harness in in_kitty or not lib.has_history(path, harness):
+    running = {r.get("id") for n, r in lib.load_state().get("sessions", {}).items() if n in live}
+    started, continued = [], set()
+    for name, r in saved:
+        harness, sid = r.get("harness"), r.get("id")
+        if harness not in installed or harness in in_kitty or sid in running:
             continue
-        name = lib.new_thread(path, harness, resume=True)
-        started.append((name, harness))
+        if sid and lib.session_exists(path, harness, sid):
+            started.append((lib.new_thread(path, harness, session=sid, name=name), harness))
+        elif harness not in continued:   # its conversation is gone: the latest one there, once
+            continued.add(harness)
+            started.append((lib.new_thread(path, harness, resume=True, name=name), harness))
+    if not mine and not started:   # nothing remembered thread by thread: the agents used here
+        for harness in lib.project_agents(path):
+            if harness in installed and harness not in in_kitty and lib.has_history(path, harness):
+                started.append((lib.new_thread(path, harness, resume=True), harness))
     if not started:
         return None
-    lib.wait_started(*started[-1])
-    names = ", ".join(lib.HARNESSES[h][0] + ("" if lib.CONTINUE_ARGS.get(h) else " (new)") for _, h in started)
-    msg(f"Continuing {names} · Ctrl+Alt+N for a new thread")
-    return started[-1][0]
+    if not quiet:
+        lib.wait_started(*started[-1])
+        names = ", ".join(lib.HARNESSES[h][0] for _, h in started)
+        msg(f"Reopened {names} · Ctrl+Alt+N for a new thread")
+    last = lib.load_state().get("threads", {}).get(path)
+    return last if last in [n for n, _ in started] + mine else started[-1][0]
+
+
+def restore():
+    """agentmux opened on a fresh agents server (after a restart or a logout): every open project gets
+    its threads back, the current one first, then the thread you had in front of you is shown."""
+    s = lib.load_state()
+    current = s.get("project", "")
+    projects = [current] + [p for p in s.get("projects", []) if p != current]
+    count = 0
+    for p in projects:
+        if p and os.path.isdir(p):
+            before = len(lib.threads())
+            resume_project(p, quiet=True)
+            count += len(lib.threads()) - before
+    if current and os.path.isdir(current):
+        switch_project(current)
+    if count:
+        msg(f"Reopened {count} thread{'s' * (count != 1)} where you left them")
 
 
 def new_from_desktop():
@@ -872,6 +911,11 @@ def notify(args):
     name = thread_of_hook()
     if not name:
         return
+    sid = str(data.get("session_id") or data.get("sessionId") or "")
+    if src in lib.RESUME_ARGS and re.fullmatch(r"[A-Za-z0-9-]{8,80}", sid):   # the thread's conversation
+        project, _, harness = lib.agents("display-message", "-p", "-t", f"={name}:", "#{@project}\t#{@harness}")[1].partition("\t")
+        if project and harness == src:
+            lib.remember_session(name, project, harness, sid)
     state, note = hook_event(src, event, data)
     if not state:
         return
@@ -931,7 +975,10 @@ def subagents(name, change="", agent_id=""):
 
 
 def notify_screen(name, kind):
-    """A sidebar saw it on screen (a dialog that waits for you, or the agent quitting)."""
+    """A sidebar saw it on screen (a dialog that waits for you, or the agent quitting: then its
+    conversation isn't reopened after a restart)."""
+    if kind == "exited":
+        lib.forget_session(name)
     notice(name, kind)
 
 
@@ -1266,7 +1313,7 @@ def main(argv):
         "close-project": lambda: close_project(args[0]),
         "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,
-        "toggle": lambda: toggle(args[0]), "reload": reload, "maximize": lambda: maximize(args[0] if args else None),
+        "toggle": lambda: toggle(args[0]), "reload": reload, "restore": restore, "maximize": lambda: maximize(args[0] if args else None),
         "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,

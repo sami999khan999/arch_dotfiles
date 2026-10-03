@@ -32,6 +32,8 @@ HARNESSES = {
 PROMPT_ARGS = {"claude": '"$p"', "codex": '"$p"', "opencode": '--prompt "$p"', "agy": None}
 # how each continues the latest session in the folder it starts in; None: it can't, start fresh
 CONTINUE_ARGS = {"claude": "--continue", "opencode": "--continue", "codex": "resume --last", "agy": None}
+# how each reopens one exact session ({} its id), for the ones whose hooks tell us the id
+RESUME_ARGS = {"claude": "--resume {}", "codex": "resume {}"}
 # the process name the agent runs as, when it isn't the command (node-based CLIs)
 PROCESS = {"claude": {"claude"}, "opencode": {"opencode", ".opencode"}, "agy": {"agy", "antigravity"},
            "codex": {"codex", "node"}}
@@ -410,9 +412,40 @@ def project_agents(path):
     return list(load_state().get("agents", {}).get(path, []))
 
 
+# ---- each thread's own conversation ---------------------------------------------------------------
+# state "sessions": thread name -> {project, harness, id}: the conversation running in it, as the agent's
+# hooks report it (agentmux notify; Claude Code and Codex send their session id). After the agents server
+# is gone (a restart, a logout) agentmux reopens every thread on the conversation it had, under the same
+# name (agentmux restore). Closing a thread on purpose, or quitting its agent, forgets it.
+def remember_session(name, project, harness, sid):
+    s = load_state()
+    want = {"project": project, "harness": harness, "id": sid}
+    if s.get("sessions", {}).get(name) != want:
+        s.setdefault("sessions", {})[name] = want
+        save_state(s)
+
+
+def forget_session(name):
+    s = load_state()
+    if name in s.get("sessions", {}):
+        del s["sessions"][name]
+        save_state(s)
+
+
+def session_exists(path, harness, sid):
+    """True if the agent still has that conversation on disk (so --resume won't just fail)."""
+    if harness == "claude":
+        return os.path.exists(f"{HOME}/.claude/projects/" + re.sub(r"[^A-Za-z0-9]", "-", path) + f"/{sid}.jsonl")
+    if harness == "codex":
+        import glob
+        return bool(glob.glob(f"{HOME}/.codex/sessions/*/*/*/rollout-*-{sid}.jsonl"))
+    return False
+
+
 def forget_thread(name):
-    """A thread is being closed on purpose: its agent is no longer one the project uses, unless
-    another thread of it is still open there."""
+    """A thread is being closed on purpose: its conversation isn't reopened after a restart, and its
+    agent is no longer one the project uses, unless another thread of it is still open there."""
+    forget_session(name)
     ts = threads()
     t = next((t for t in ts if t["name"] == name), None)
     if not t or not t["harness"]:
@@ -426,15 +459,19 @@ def forget_thread(name):
         save_state(s)
 
 
-def new_thread(path, harness, prompt_file=None, resume=False):
-    """A new agent thread in path running the harness: a fresh session, or (resume) the latest one
-    of that agent in path. prompt_file's text, if given, is its first message (the file is removed).
-    Quitting the agent leaves a shell in the thread. Any number of threads, of any agent, per project:
-    each is its own session named <project>·<n>."""
-    name = next_name(path)
+def new_thread(path, harness, prompt_file=None, resume=False, session=None, name=None):
+    """A new agent thread in path running the harness: a fresh session, (resume) the latest one of
+    that agent in path, or (session) that exact conversation. prompt_file's text, if given, is its
+    first message (the file is removed). Quitting the agent leaves a shell in the thread. Any number
+    of threads, of any agent, per project: each is its own session named <project>·<n> (name: that
+    one, if it's free)."""
+    if not name or agents("has-session", "-t", f"={name}")[0] == 0:
+        name = next_name(path)
     cmd = HARNESSES.get(harness, ("", harness))[1]
     how = PROMPT_ARGS.get(harness, '"$p"')
-    if resume and CONTINUE_ARGS.get(harness):
+    if session and RESUME_ARGS.get(harness):
+        cmd = f"{cmd} {RESUME_ARGS[harness].format(session)}"
+    elif resume and CONTINUE_ARGS.get(harness):
         cmd = f"{cmd} {CONTINUE_ARGS[harness]}"
     script = 'exec "${SHELL:-/bin/sh}"'
     if cmd:

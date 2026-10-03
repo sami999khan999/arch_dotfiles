@@ -106,8 +106,7 @@ hl.window_rule({
 -- Omarchy-style floating windows: TUIs, viewers, file dialogs
 hl.window_rule({ match = { class = "^(TUI\\.float|imv|mpv|org\\.gnome\\.NautilusPreviewer|org\\.gnome\\.Evince|xdg-desktop-portal-gtk|codesync\\.folderpick|panels\\..*)$", title = "negative:^(panels-backdrop)$" }, tag = "+floating-window" })
 hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?|Save.*As|Save|All Files|[Cc]hoose.*)$" }, tag = "+floating-window" })
--- (not the notification panel: centring would win over its place under the bell, below)
-hl.window_rule({ match = { tag = "floating-window", class = "negative:^(panels\\.notifications)$" }, float = true, center = true, size = { 875, 600 } })
+hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
 -- the code sync panel (waybar sync icon): two columns of details
 hl.window_rule({ match = { tag = "floating-window", title = "^(syncpanel\\.py)$" }, size = { 1180, 640 } })
 -- GUI panels (local/lib/panels, GTK): sized here, not by the app, so they open the same every time
@@ -115,9 +114,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.workspac
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$" }, size = { 980, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.network)$" }, size = { 680, 590 } })
--- the notification panel drops down at the top right, under the bell beside the clock
-hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.notifications)$" }, float = true,
-                 size = { 460, 620 }, move = { "monitor_w-window_w-8", 42 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.notifications)$" }, size = { 460, 620 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })

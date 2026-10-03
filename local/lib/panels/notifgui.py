@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # notifgui.py — the notification panel (GTK, Tokyo Night): the bell beside the clock, or Super + Ctrl + N.
-# Running it again closes it. Opens at the top right, under the bell (modules/windowrules.lua).
+# Running it again closes it. Opens in the middle, like every panel (modules/windowrules.lua).
 #
 # Every notification since the log began (config/hypr/scripts/notifications.py keeps it: mako logs each
 # one), newest first, by day; the new ones (since the panel last opened) have the blue edge. A click on

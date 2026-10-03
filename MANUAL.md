@@ -1,25 +1,10 @@
-# dotfiles
+# dotfiles: the manual
 
 CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
 (its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Tokyo Night.
 
-![agentmux: projects, threads, an agent and its terminals side by side](docs/screenshots/agentmux.png)
-
-**agentmux** (`Super + A`): coding agents by project, each thread a live tmux session shared with
-the kitty beside VS Code, terminals at the right. [More below](#agents-agentmux).
-
-| | |
-|---|---|
-| ![Control Center](docs/screenshots/controlcenter.png) | ![System panel](docs/screenshots/system.png) |
-| **Control Center** (workspace 10): workspaces, system, shortcuts, audio, network at a glance | **System** (`Super + Ctrl + T`): CPU, memory and GPU with their history, processes, storage |
-| ![Settings](docs/screenshots/settings.png) | ![Notifications](docs/screenshots/notifications.png) |
-| **Settings** (`Super + I`): every setting in one place, searchable | **Notifications** (the bell, `Super + .`): history by day, do not disturb |
-
-![The bar](docs/screenshots/bar.png)
-
-The bar: workspace buttons, an audio visualizer while sound plays, the window's title, controls,
-stats, the clock and the notification bell. (Screenshots: `docs/screenshots/`, taken on the
-1366×768 PC.)
+This is the full manual: what everything does and how it's put together. For screenshots and a
+short overview, see the [README](README.md).
 
 ## Bootstrap a new machine
 
@@ -67,7 +52,7 @@ zone, power profile, the GPU's own services.
 | `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
-| `docs/screenshots/` | — | the screenshots at the top of this README |
+| `docs/screenshots/` | — | the screenshots in the README |
 
 `setup/install.sh` is idempotent and never deletes: anything real it finds in the way
 is moved to `~/.config-backup-<timestamp>/` first.
@@ -314,8 +299,7 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 ### Notifications
 
 The bell beside the clock shows them: a plain bell, blue with a dot when something new came since you
-last looked, crossed out (red) while **do not disturb** is on. Click it for the panel (it drops down
-under the bell); right-click it, `Super + Ctrl + ,` or the panel's switch for do not disturb (nothing
+last looked, crossed out (red) while **do not disturb** is on. Click it for the panel; right-click it, `Super + Ctrl + ,` or the panel's switch for do not disturb (nothing
 pops up; everything is still kept for the panel). The panel lists every notification, newest first,
 by day, with its time; the new ones have a blue edge. Click one to open what it's about (an agentmux
 one shows its thread; one still on screen runs its own action); `×` (or `Delete`) takes it out,

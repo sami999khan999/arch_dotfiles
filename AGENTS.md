@@ -3,7 +3,8 @@
 CachyOS + Hyprland desktop config for one user (sami), shared between PCs through GitHub.
 Riced after Omarchy (waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg), Tokyo Night,
 plus custom tools: workspace groups, a Control Center, and `codesync` (code backup SSD → HDD).
-`README.md` is the user manual; this file is what an agent needs to change things safely.
+`MANUAL.md` is the user manual (`README.md` is GitHub's front page: screenshots, an overview, links
+into the manual); this file is what an agent needs to change things safely.
 
 Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable by any agent):
 
@@ -74,7 +75,8 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
 - Match the surrounding code: short header comment saying what the file is and how it's used,
   comments that explain *why*, no dead code. Lua and Python modules follow the existing layout.
 - A new keybind gets a trailing `-- description` comment: `keys.py` (Super + K) shows it.
-- When behaviour changes, update the matching README section in the same commit.
+- When behaviour changes, update the matching MANUAL.md section in the same commit (and README.md if
+  its overview, keys or screenshots no longer match).
 
 ## Hard-won gotchas
 

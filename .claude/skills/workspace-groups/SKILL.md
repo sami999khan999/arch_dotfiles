@@ -37,7 +37,8 @@ Readers of that file:
 3. Icon on the bar button: the 6th column (a Nerd Font glyph; empty shows the digit). It moves with
    its line, so a reorder needs nothing else.
 4. Prefer Settings → Workspaces for all of this: it writes the file through `wsgroups`.
-5. Update the tables in `README.md` ("Workspace groups", "Control Center").
+5. Update the tables in `MANUAL.md` ("Workspace groups", "Control Center"), and the group list in
+   `README.md` ("What's in it").
 6. Apply:
 
 ```bash

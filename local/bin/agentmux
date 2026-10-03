@@ -18,6 +18,7 @@
   agentmux close-thread        close the selected row of the focused sidebar, else the shown thread (asks)
   agentmux close-project <dir> close a project: ends its threads and terminals, drops it from the list
   agentmux focus projects|agents|main|terms
+  agentmux maximize [role]     the focused panel (or role's) takes the whole width; again: back
   agentmux click <range>       a status-bar button
   agentmux reload              refresh everything without closing it (Ctrl+Alt+R)
   agentmux speak <pane>        the read-aloud key (Ctrl+Alt+L) in a thread: Audio Cursor reads the
@@ -389,6 +390,8 @@ def respawn_terms(project):
 
 def close_terms_column():
     """Hide the column (both its panes); the shells keep running."""
+    if opt("@max") == "terms":   # its own window goes with it
+        set_opt("@max", "")
     save_widths()
     for role in ("terms", "termlist"):
         if pane(role):
@@ -462,6 +465,8 @@ def set_hidden(role, closed):
 def toggle(role):
     """Ctrl+Alt+1/2/3 or a panel's ×: close it (its width is kept), or bring it back. Closing the
     terminals column only hides it: the shells keep running."""
+    if opt("@max"):
+        unmaximize()
     p = pane(role)
     project = lib.load_state().get("project")
     if p:
@@ -574,8 +579,61 @@ def close_project(path):
     msg(f"Closed {name}" + (f" · {kept} thread{'s' * (kept > 1)} kept: open in VS Code" if kept else ""))
 
 
+# ---- maximize: one panel takes the whole width (Ctrl+Alt+Z), again puts the layout back ------------
+# Projects, Threads and the thread are zoomed (tmux resize-pane -Z). The terminals column is two panes,
+# the terminal and its list, that go together: they move to a window of their own ("max") and back.
+# Option @max: the maximized role, or "". While it's set no width is remembered (save_widths).
+def focused_role():
+    current = lib.app("display-message", "-p", "#{pane_id}")[1]
+    role = next((r for r in ("projects", "agents", "main", "terms", "termlist") if pane(r) == current), None)
+    return "terms" if role == "termlist" else role
+
+
+def maximize(role=None):
+    """Maximize role's panel (the focused one by default), or put the layout back if one is."""
+    if opt("@max"):
+        unmaximize()
+        return
+    role = role or focused_role()
+    if not role or pane(role) is None:
+        return
+    set_opt("@max", role)   # first: the resizes that follow mustn't be remembered as widths
+    if role == "terms":
+        col, lst = pane("terms"), pane("termlist")
+        lib.app("break-pane", "-d", "-s", col, "-n", "max")
+        if lst:
+            lib.app("join-pane", "-h", "-d", "-s", lst, "-t", col, "-l", str(list_width()))
+        lib.app("select-window", "-t", col)
+    else:
+        lib.app("resize-pane", "-Z", "-t", pane(role))
+    lib.app("select-pane", "-t", pane(role))
+    lib.app("refresh-client", "-S")
+
+
+def unmaximize():
+    """The maximized panel back in the layout, at its remembered width."""
+    role = opt("@max")
+    if role == "terms" and pane("terms") and pane("main"):
+        col, lst = pane("terms"), pane("termlist")
+        total = int(lib.app("display-message", "-p", "-t", pane("main"), "#{window_width}")[1] or 0)
+        cols = max(int(total * widths()["terms"]), 20 + list_width())
+        lib.app("join-pane", "-h", "-d", "-s", col, "-t", pane("main"), "-l", str(cols))
+        if lst:
+            lib.app("join-pane", "-h", "-d", "-s", lst, "-t", col, "-l", str(list_width()))
+        lib.app("select-window", "-t", pane("main"))
+        lib.app("select-pane", "-t", col)
+    elif role and pane("main"):
+        if lib.app("display-message", "-p", "-t", pane("main"), "#{window_zoomed_flag}")[1] == "1":
+            lib.app("resize-pane", "-Z", "-t", pane("main"))
+    set_opt("@max", "")
+    lib.app("refresh-client", "-S")
+
+
 def focus(role):
-    """Focus a part; a closed one (Projects, Threads, the terminals) is brought back first."""
+    """Focus a part; a closed one (Projects, Threads, the terminals) is brought back first, and a
+    maximized other one goes back into the layout."""
+    if opt("@max") and opt("@max") != role:
+        unmaximize()
     if pane(role) is None and role != "main":
         toggle(role)
     p = pane(role)
@@ -1133,6 +1191,8 @@ def focus_next():
     parts = [p for p in (pane(r) for r in ("projects", "agents", "main", "terms")) if p]
     if not parts:
         return
+    if opt("@max"):
+        unmaximize()
     current = lib.app("display-message", "-p", "#{pane_id}")[1]
     nxt = parts[(parts.index(current) + 1) % len(parts)] if current in parts else parts[0]
     lib.app("select-pane", "-t", nxt)
@@ -1145,7 +1205,10 @@ def settings():
 
 
 def save_widths():
-    """Remember the sidebar and column widths (after a drag, Ctrl+Alt+←→ or the window resizing)."""
+    """Remember the sidebar and column widths (after a drag, Ctrl+Alt+←→ or the window resizing). Not
+    while a panel is maximized: those widths are the maximized ones."""
+    if opt("@max"):
+        return
     s = lib.load_state()
     w = s.get("widths", {})
     total = int(lib.app("display-message", "-p", "#{window_width}")[1] or 0)
@@ -1203,7 +1266,7 @@ def main(argv):
         "close-project": lambda: close_project(args[0]),
         "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,
-        "toggle": lambda: toggle(args[0]), "reload": reload,
+        "toggle": lambda: toggle(args[0]), "reload": reload, "maximize": lambda: maximize(args[0] if args else None),
         "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,

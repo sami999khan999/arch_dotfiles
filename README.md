@@ -405,6 +405,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   `›` at the left of its header (beside the count of terminals) collapses it to just that (`‹` expands it back to its width; it stays
   collapsed in every project until expanded). Each terminal is a window of the project's
   `<project>·terms` session on the agents server (`local/lib/agentmux/termlist.py` is the list).
+- **Maximize a panel:** `Ctrl+Alt+Z` gives the focused panel (Projects, Threads, the thread, or the
+  terminals, which count as one with their list) the whole width; the others are hidden and the
+  status bar says `maximized`. `Ctrl+Alt+Z` again puts the layout back as it was (the widths aren't
+  touched). A focus key for another panel, or closing one, also puts it back first.
 - **Terminals are per project:** the column shows only in the projects where you opened it (`Ctrl+Alt+T`);
   switching to another project hides it (its shells keep running) and brings it back when you return.
 - **Agents started before this** (straight in a kitty, not in tmux) show as `⚠ title`; Enter on
@@ -414,7 +418,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   Settings: `Ctrl+Alt+P` / `Ctrl+Alt+A` / `Ctrl+Alt+M` / `Ctrl+Alt+E` focus Projects / Threads / the
   thread / the terminals (a closed one is brought back), `Ctrl+Alt+F` the next part (left to right,
   wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
-  `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+←→`
+  `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+Z` maximize, `Ctrl+Alt+←→`
   resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
   and shells keep running), `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the
   wheel; long lists scroll with the selection (`↑ more` / `↓ more`); Agents: `n` new, `a` adopt, `r` rescan.

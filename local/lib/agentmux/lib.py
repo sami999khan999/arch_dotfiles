@@ -283,6 +283,7 @@ ACTIONS = [
     ("toggle-projects", "Show / hide Projects", "toggle projects", "C-M-1"),
     ("toggle-threads", "Show / hide Threads", "toggle agents", "C-M-2"),
     ("toggle-terminals", "Show / hide terminals", "toggle terms", "C-M-3"),
+    ("maximize", "Maximize the focused panel (again: back)", "maximize", "C-M-z"),
     ("resize-left", "Narrower (focused column)", "tmux:resize-pane -L 3", "C-M-Left"),
     ("resize-right", "Wider (focused column)", "tmux:resize-pane -R 3", "C-M-Right"),
     ("settings", "Settings", "settings", "C-M-s"),

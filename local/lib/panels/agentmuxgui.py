@@ -21,7 +21,7 @@ GROUPS = [
     ("Focus", ["focus-projects", "focus-threads", "focus-thread", "focus-terminals", "focus-next"]),
     ("Threads & projects", ["new-thread", "close-thread", "open-project"]),
     ("Terminals", ["new-terminal", "split-terminal", "next-terminal", "previous-terminal", "close-terminal"]),
-    ("Columns", ["toggle-projects", "toggle-threads", "toggle-terminals", "resize-left", "resize-right"]),
+    ("Columns", ["toggle-projects", "toggle-threads", "toggle-terminals", "maximize", "resize-left", "resize-right"]),
     ("agentmux", ["settings", "reload", "help"]),
 ]
 EXPLAIN = {   # the dim line under a shortcut
@@ -32,6 +32,7 @@ EXPLAIN = {   # the dim line under a shortcut
     "split-terminal": "The shown terminal in two, stacked; each half is its own row in the list",
     "close-terminal": "The focused shell (one half of a split, else the terminal); the last one closes the column",
     "toggle-terminals": "Hiding the column keeps its shells running",
+    "maximize": "Projects, Threads, the thread or the terminals (with their list) take the whole width; the focus keys go back first",
     "reload": "Configs read again, every pane restarted; agents and shells keep running",
     "help": "The list in the status bar",
 }

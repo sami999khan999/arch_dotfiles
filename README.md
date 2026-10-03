@@ -13,17 +13,21 @@ PCs through this repo: a fresh install plus one script gives the same desktop.
 is a live tmux session, shared with the kitty beside VS Code; terminals at the right; threads come
 back on their own conversation after a restart. [More](MANUAL.md#agents-agentmux)
 
-| | |
-|---|---|
-| ![Control Center](docs/screenshots/controlcenter.png) | ![System panel](docs/screenshots/system.png) |
-| **Control Center** (workspace 10): workspaces, system, shortcuts, audio, network at a glance. [More](MANUAL.md#control-center-workspace-10) | **System** (`Super + Ctrl + T`): CPU, memory and GPU with their history, processes, storage. [More](MANUAL.md#panels) |
-| ![Settings](docs/screenshots/settings.png) | ![Notifications](docs/screenshots/notifications.png) |
-| **Settings** (`Super + I`): every setting in one place, searchable. [More](MANUAL.md#settings-panel) | **Notifications** (the bell, `Super + .`): history by day, do not disturb. [More](MANUAL.md#notifications) |
-
 ![The bar](docs/screenshots/bar.png)
 
 The bar: workspace buttons, an audio visualizer while sound plays, the window's title, controls,
 stats, the clock and the notification bell.
+
+| | |
+|---|---|
+| ![Control Center](docs/screenshots/controlcenter.png) | ![Docker panel](docs/screenshots/docker.png) |
+| **Control Center** (workspace 10): workspaces, system, shortcuts, audio, network at a glance. [More](MANUAL.md#control-center-workspace-10) | **Docker** (workspace 9): containers by compose project, images, volumes, networks; start, stop, logs, exec. [More](MANUAL.md#docker-panel-workspace-9) |
+| ![System panel](docs/screenshots/system.png) | ![Settings](docs/screenshots/settings.png) |
+| **System** (`Super + Ctrl + T`): CPU, memory and GPU with their history, processes, storage. [More](MANUAL.md#panels) | **Settings** (`Super + I`): every setting in one place, searchable. [More](MANUAL.md#settings-panel) |
+| ![Audio panel](docs/screenshots/audio.png) | ![Network panel](docs/screenshots/network.png) |
+| **Audio** (`Super + Ctrl + A`): outputs and inputs, volume, mute, the default device. [More](MANUAL.md#panels) | **Network** (`Super + Ctrl + W`): the connection, live traffic, addresses. [More](MANUAL.md#panels) |
+| ![Workspaces panel](docs/screenshots/workspaces.png) | ![Notifications](docs/screenshots/notifications.png) |
+| **Workspaces** (`Super + Ctrl + G`): which app each workspace is for, launch and go. [More](MANUAL.md#workspace-groups) | **Notifications** (the bell, `Super + .`): history by day, do not disturb. [More](MANUAL.md#notifications) |
 
 ## What's in it
 

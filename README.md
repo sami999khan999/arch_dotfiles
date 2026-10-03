@@ -368,14 +368,16 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   the shown one: "Open this folder"), `^R` makes the shown folder the root. Typing searches folders
   up to 3 levels below (fuzzy, like the shortcut list); a query starting with `/` or `~` is a path.
   Git repos show a branch icon, open projects a `●`.
-- **Threads come back where you left them.** Each thread remembers its own conversation (Claude
-  Code's and Codex's hooks report its session id; `sessions` in `state.json`). When agentmux opens
-  after a restart or a logout, every open project gets its threads back at once, each on its exact
-  conversation (`claude --resume <id>`, `codex resume <id>`) under its old name, and the thread you
-  had in front of you is shown. Opening a project later brings back any of its threads that should be
-  running but aren't. A thread without a known conversation (opencode, agy, or one that hadn't heard
-  from its agent yet) continues the latest session of its agent there instead (`opencode --continue`;
-  agy starts fresh). Closing a thread yourself (`x`, `×`, `Ctrl+Alt+X`) or quitting its agent forgets
+- **Threads come back where you left them.** Each thread remembers its own conversation
+  (`sessions` in `state.json`): Claude Code, Codex and agy report its id through their hooks;
+  opencode has no hooks, so agentmux names its session itself when it starts the thread
+  (`opencode --session <id>`). When agentmux opens after a restart or a logout, every open project
+  gets its threads back at once, each on its exact conversation (`claude --resume <id>`,
+  `codex resume <id>`, `agy --conversation <id>`, `opencode --session <id>`) under its old name, and
+  the thread you had in front of you is shown. Opening a project later brings back any of its
+  threads that should be running but aren't. A thread without a known conversation (one that hadn't
+  heard from its agent yet) continues the latest session of its agent there instead (`--continue`,
+  `codex resume --last`). Closing a thread yourself (`x`, `×`, `Ctrl+Alt+X`) or quitting its agent forgets
   it; closing the project doesn't (reopen it and its threads come back). A project with nothing
   remembered (a new one) starts nothing: the home screen asks which agent, with the keyboard on its
   prompt. `+ thread` starts fresh. Skipped for an agent whose conversation already runs straight in

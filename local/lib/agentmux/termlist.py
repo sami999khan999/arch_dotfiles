@@ -117,10 +117,10 @@ class TermList(App):
         # header: the chevron over the icons' column; expanded, the count beside it (underlined in blue,
         # like a sidebar's title) and the buttons at the right; collapsed, only the chevron
         lead = 2   # the rows' icons sit in column 2 (edge, tree, icon)
+        mid = (w - 1) // 2   # collapsed, everything sits in the middle column
         if narrow:
-            top = Line().pad(lead).add(EXPAND, "accent")
-            under = Line().pad(1).add("━" * max(w - 2, 0), "overlay")
-            self.chevron, self.button_xs = (lead, "expand"), []
+            top, under = Line().pad(mid).add(EXPAND, "accent"), Line()
+            self.chevron, self.button_xs = (mid, "expand"), []
         else:
             title = f"{COLLAPSE} {len(self.panes)}"
             top = Line().pad(lead).add(COLLAPSE, "accent").add(f" {len(self.panes)}", "sub", bold=True)
@@ -156,8 +156,11 @@ class TermList(App):
             p, tree, split = body[n]
             sel, hov, on = p["pane"] == current, p["pane"] == self.hover, p["pane"] == shown
             bg = "overlay" if sel else ("hover" if hov else None)
-            l = Line(bg).add("▎" if on else " ", "accent").add(tree, "line")
-            l.add(SPLIT_ICON if split else TERM_ICON, "accent" if on else "muted")
+            icon = (SPLIT_ICON if split else TERM_ICON, "accent" if on else "muted")
+            if narrow:   # only the icon, centred; the shown one has the band (no edge against the border)
+                l = Line("overlay" if on else ("hover" if hov else None)).pad(mid).add(*icon)
+            else:
+                l = Line(bg).add("▎" if on else " ", "accent").add(tree, "line").add(*icon)
             if not narrow:
                 # the shown and the hovered row: split it, close it (as VS Code's on hover); the name
                 # gives way first, then the split button

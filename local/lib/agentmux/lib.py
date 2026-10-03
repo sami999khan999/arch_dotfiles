@@ -31,9 +31,11 @@ HARNESSES = {
 # how each takes a first message on its command line ($p); None: typed in once it's up
 PROMPT_ARGS = {"claude": '"$p"', "codex": '"$p"', "opencode": '--prompt "$p"', "agy": None}
 # how each continues the latest session in the folder it starts in; None: it can't, start fresh
-CONTINUE_ARGS = {"claude": "--continue", "opencode": "--continue", "codex": "resume --last", "agy": None}
-# how each reopens one exact session ({} its id), for the ones whose hooks tell us the id
-RESUME_ARGS = {"claude": "--resume {}", "codex": "resume {}"}
+CONTINUE_ARGS = {"claude": "--continue", "opencode": "--continue", "codex": "resume --last", "agy": "--continue"}
+# how each reopens one exact session ({} its id). Claude Code, Codex and agy tell us the id through their
+# hooks; opencode has none, so agentmux names its session itself when it starts the thread (--session
+# creates it under that id)
+RESUME_ARGS = {"claude": "--resume {}", "codex": "resume {}", "agy": "--conversation {}", "opencode": "--session {}"}
 # the process name the agent runs as, when it isn't the command (node-based CLIs)
 PROCESS = {"claude": {"claude"}, "opencode": {"opencode", ".opencode"}, "agy": {"agy", "antigravity"},
            "codex": {"codex", "node"}}
@@ -243,7 +245,8 @@ def project_name(path):
 def session_base(path):
     """The project's name as a session name: tmux can't target a name with . or : in it (it reads
     them as window / pane separators), so they become _ ("my.app" -> "my_app·1")."""
-    return re.sub(r"[.:]", "_", project_name(path))
+    # (a leading _ is dropped: names starting with _ are agentmux's hidden sessions, e.g. ".app")
+    return re.sub(r"[.:]", "_", project_name(path)).lstrip("_") or "project"
 
 
 def next_name(path):
@@ -439,6 +442,10 @@ def session_exists(path, harness, sid):
     if harness == "codex":
         import glob
         return bool(glob.glob(f"{HOME}/.codex/sessions/*/*/*/rollout-*-{sid}.jsonl"))
+    if harness == "agy":
+        return os.path.exists(f"{HOME}/.gemini/antigravity-cli/conversations/{sid}.db")
+    if harness == "opencode":   # stored in its database: --session reopens it, or starts it afresh
+        return True
     return False
 
 
@@ -469,6 +476,8 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
         name = next_name(path)
     cmd = HARNESSES.get(harness, ("", harness))[1]
     how = PROMPT_ARGS.get(harness, '"$p"')
+    if not session and not resume and harness == "opencode":   # no hooks to tell its id: name it now
+        session = "ses_agentmux" + os.urandom(8).hex()
     if session and RESUME_ARGS.get(harness):
         cmd = f"{cmd} {RESUME_ARGS[harness].format(session)}"
     elif resume and CONTINUE_ARGS.get(harness):
@@ -480,6 +489,8 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
         else:
             script = f"{cmd}; " + script
     new_session(name, path, "agent", harness, ["sh", "-c", script, "agentmux", prompt_file or ""])
+    if session:   # its conversation, to reopen after a restart (the others report theirs: agentmux notify)
+        remember_session(name, path, harness, session)
     if prompt_file and cmd and how is None:   # no prompt flag: type it in once the agent is up
         text = open(prompt_file).read()
         os.remove(prompt_file)

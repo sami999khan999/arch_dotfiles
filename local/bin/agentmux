@@ -52,6 +52,7 @@ SESSION = "main"
 WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
 MIN = {"projects": 16, "agents": 20, "termlist": 4}                       # a sidebar is never narrower than this
 ICONS_ONLY = 9   # the terminal list narrower than this shows only icons (termlist.py)
+COLLAPSED = 5    # the collapsed list: its icons in the middle column
 
 
 def opt(name):
@@ -291,8 +292,7 @@ def resume_project(path, quiet=False):
     (state "sessions") reopens on that exact conversation under its old name; with nothing remembered
     but no thread open at all, the latest session of every agent used there continues (lib.project_agents;
     none remembered: nothing, the home screen asks). Skipped for an agent whose conversation already
-    runs straight in the project's VS Code kitty (it would run twice). agy can't continue a session:
-    it starts fresh. Returns the thread to show (the one shown last, else the last started) or None."""
+    runs straight in the project's VS Code kitty (it would run twice). Returns the thread to show (the one shown last, else the last started) or None."""
     live = {t["name"]: t for t in lib.threads()}
     mine = [n for n, t in live.items() if t["project"] == path and t["kind"] == "agent"]
     saved = sorted(((n, r) for n, r in lib.load_state().get("sessions", {}).items()
@@ -379,7 +379,7 @@ def new_thread(harness=None, prompt_file=None):
 def list_width():
     """The terminal list's width: its icons only while collapsed (state "termlist_collapsed"), else
     the remembered width."""
-    return MIN["termlist"] if lib.load_state().get("termlist_collapsed") else widths()["termlist"]
+    return COLLAPSED if lib.load_state().get("termlist_collapsed") else widths()["termlist"]
 
 
 def collapse_list(how):
@@ -392,7 +392,7 @@ def collapse_list(how):
     if not collapsed and width < ICONS_ONLY:   # it was dragged down to the icons: the default width
         width = WIDTHS["termlist"]
     if lst:
-        lib.app("resize-pane", "-t", lst, "-x", str(MIN["termlist"] if collapsed else width))
+        lib.app("resize-pane", "-t", lst, "-x", str(COLLAPSED if collapsed else width))
 
 
 def termlist_cmd(project):
@@ -911,7 +911,7 @@ def notify(args):
     name = thread_of_hook()
     if not name:
         return
-    sid = str(data.get("session_id") or data.get("sessionId") or "")
+    sid = str(data.get("session_id") or data.get("sessionId") or data.get("conversationId") or "")
     if src in lib.RESUME_ARGS and re.fullmatch(r"[A-Za-z0-9-]{8,80}", sid):   # the thread's conversation
         project, _, harness = lib.agents("display-message", "-p", "-t", f"={name}:", "#{@project}\t#{@harness}")[1].partition("\t")
         if project and harness == src:

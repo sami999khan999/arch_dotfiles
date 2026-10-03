@@ -6,6 +6,9 @@ background-color=#1a1b26
 anchor=top-right
 group-by=app-name,summary,body
 default-timeout=5000
+# every notification goes into the panel's log (scripts/notifications.py, local/lib/panels/notifgui.py)
+on-notify=exec ~/.config/hypr/scripts/notifications.py log "$id"
+max-history=50
 width=420
 outer-margin=20
 padding=10,15

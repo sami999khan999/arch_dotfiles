@@ -114,6 +114,9 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.workspac
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$" }, size = { 980, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.network)$" }, size = { 680, 590 } })
+-- the notification panel drops down at the top right, under the bell beside the clock
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.notifications)$" }, size = { 460, 620 },
+                 center = false, move = { "monitor_w-window_w-8", 42 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })

@@ -29,8 +29,8 @@
     "pulseaudio",
     "group/stats",
     "custom/clock",
+    "custom/notifications",
     "custom/idle-indicator",
-    "custom/notification-silencing-indicator",
     "custom/power"
   ],
   "group/stats": {
@@ -352,11 +352,14 @@
     "interval": 10,
     "return-type": "json"
   },
-  "custom/notification-silencing-indicator": {
-    "on-click": "~/.config/hypr/scripts/toggle.sh notifications",
-    "exec": "~/.config/hypr/scripts/indicator.sh notifications",
+  // the bell beside the clock: new notifications (a dot), do not disturb (crossed out). Click: the
+  // notification panel; right-click: do not disturb. Refreshed by mako's on-notify (signal 10)
+  "custom/notifications": {
+    "exec": "~/.config/hypr/scripts/notifications.py bar",
+    "on-click": "~/.local/lib/panels/notifgui.py",
+    "on-click-right": "~/.config/hypr/scripts/toggle.sh notifications",
     "signal": 10,
-    "interval": 10,
+    "interval": "once",
     "return-type": "json"
   },
   "custom/logo": {

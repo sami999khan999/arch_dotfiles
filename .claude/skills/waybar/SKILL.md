@@ -14,7 +14,8 @@ centre: audio visualizer (custom/visualizer: cava, only while sound plays), fill
 right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
         (custom/window, max 30 chars in wintitle.py, hidden on an empty workspace) │
         codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │
-        clock (custom/clock: scripts/clock.py) + idle / notification indicators │ power (far right)
+        clock (custom/clock: scripts/clock.py) + notification bell (custom/notifications:
+        scripts/notifications.py; always shown) + idle indicator │ power (far right)
 ```
 
 ## Adding a module

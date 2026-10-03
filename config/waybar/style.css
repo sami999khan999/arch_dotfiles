@@ -39,7 +39,7 @@ window#waybar {
 /* ---- every module: same chip size, same hover ------------------------------------------ */
 #custom-clock, #custom-wsgroups, #custom-keys, #custom-settings,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
-#custom-idle-indicator, #custom-notification-silencing-indicator,
+#custom-idle-indicator, #custom-notifications,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
   padding: 0 10px;
   margin: 0;      /* full bar height, no gaps: dividers and hover blocks meet exactly */
@@ -189,9 +189,13 @@ window#waybar {
 }
 
 #custom-idle-indicator,
-#custom-notification-silencing-indicator {
+#custom-notifications {
   font-size: 11px;
   padding: 0 6px;
+}
+
+#custom-notifications.unread {
+  color: @accent;
 }
 
 /* ---- right: group, controls, stats, power ---------------------------------------------- */
@@ -261,7 +265,7 @@ window#waybar {
 
 /* ---- states ------------------------------------------------------------------------------ */
 #custom-idle-indicator.active,
-#custom-notification-silencing-indicator.active,
+#custom-notifications.silenced,
 #battery.warning,
 #battery.critical,
 #cpu.critical,

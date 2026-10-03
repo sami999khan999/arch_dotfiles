@@ -41,14 +41,7 @@ case "$1" in
       pkill -x hyprsunset
       [[ $3 == quiet ]] || notify-send -u low "  Nightlight off"
     fi ;;
-  notifications)
-    if makoctl mode | grep -qx do-not-disturb; then
-      makoctl mode -r do-not-disturb
-      notify-send -u low "󰂚  Notifications on"
-    else
-      notify-send -u low "󰂛  Notifications silenced"
-      makoctl mode -a do-not-disturb
-    fi
-    pkill -RTMIN+10 waybar
+  notifications)   # do not disturb (the bell beside the clock shows it)
+    ~/.config/hypr/scripts/notifications.py dnd toggle
     poke_visualizer ;;
 esac

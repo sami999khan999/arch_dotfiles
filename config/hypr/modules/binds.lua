@@ -229,7 +229,8 @@ bind("SUPER + comma",                "makoctl dismiss")
 bind("SUPER + SHIFT + comma",        "makoctl dismiss --all")
 bind("SUPER + ALT + comma",          "makoctl invoke")
 bind("SUPER + SHIFT + ALT + comma",  "makoctl restore")
-bind("SUPER + CTRL + comma",         scripts .. "toggle.sh notifications")
+bind("SUPER + CTRL + comma",         scripts .. "toggle.sh notifications") -- Do not disturb
+bind("SUPER + period",               panels .. "notifgui.py") -- Notifications (history, do not disturb)
 
 -- Toggles
 bind("SUPER + SHIFT + SPACE",        "pkill -SIGUSR1 waybar")

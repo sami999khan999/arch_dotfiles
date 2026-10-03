@@ -290,6 +290,23 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | Shortcuts (`keysgui.py`) | `Super + K`, waybar keyboard icon | every shortcut, live from the config; type to fuzzy-search |
 | Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
+| Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |
+
+### Notifications
+
+The bell beside the clock shows them: a plain bell, blue with a dot when something new came since you
+last looked, crossed out (red) while **do not disturb** is on. Click it for the panel (it drops down
+under the bell); right-click it, `Super + Ctrl + ,` or the panel's switch for do not disturb (nothing
+pops up; everything is still kept for the panel). The panel lists every notification, newest first,
+by day, with its time; the new ones have a blue edge. Click one to open what it's about (an agentmux
+one shows its thread; one still on screen runs its own action); `×` (or `Delete`) takes it out,
+Clear all empties it. At the bottom, what notifies at all: **Apps** (Settings → Power & bar →
+Notifications: hide an app's notifications, the corner, how long they stay) and **Agents**
+(agentmux's settings: needs you / finished / error / agent quit, each on or off). `Super + ,`
+dismisses the newest on screen, `Super + Shift + ,` all of them.
+How: mako runs `scripts/notifications.py log` for every notification (`on-notify` in
+`config/mako/config`), which keeps the last 200 with their time in `~/.local/state/notifications.json`
+and signals the bell (waybar signal 10). Nothing polls.
 
 ### Settings panel
 
@@ -388,7 +405,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - **States and notifications, for every agent.** Each thread shows *needs you* (a permission prompt,
   a question, a plan to approve), *error*, *working*, *done* (finished, not looked at yet), *waiting*
   or *agent exited*; a desktop notification comes when it needs you (stays until you act, and goes away by itself once
-  you open the thread, answer it, or it ends), finishes,
+  you open the thread, answer it (a permission approved counts: Claude Code's PostToolUse hook), the
+  agent finishes or quits, or the thread is closed), finishes,
   fails or exits, once, and not for the thread you're looking at; clicking it opens the thread.
   Where it comes from: the agents' own hooks (`agentmux hooks` installs them into
   `~/.claude/settings.json`, `~/.codex/hooks.json` + `codex_hooks` in `~/.codex/config.toml`,

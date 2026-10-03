@@ -32,7 +32,7 @@ CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; 
 EMPTY_PX = 38         # px freed on an empty workspace besides the title text: the title's padding
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
-INDICATOR_PX = 19     # px per active indicator (idle off / do not disturb)
+INDICATOR_PX = 19     # px per indicator shown (the notification bell, idle off)
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars
@@ -245,10 +245,9 @@ def follow_player():
 
 
 def indicators():
-    """Active indicators, by the same tests as scripts/indicator.sh."""
+    """Indicators shown: the notification bell (always), and idle off (scripts/indicator.sh)."""
     idle_off = subprocess.run(["pgrep", "-x", "hypridle"], capture_output=True).returncode != 0
-    mode = subprocess.run(["makoctl", "mode"], capture_output=True, text=True).stdout.split()
-    return int(idle_off) + int("do-not-disturb" in mode)
+    return 1 + int(idle_off)
 
 
 def read_rest():

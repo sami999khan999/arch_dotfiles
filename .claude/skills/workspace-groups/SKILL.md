@@ -1,6 +1,6 @@
 ---
 name: workspace-groups
-description: Add, move, rename or remove a workspace group (one workspace per kind of app, e.g. Code on 1, Web on 2) in this dotfiles repo, keeping Hyprland, the waybar buttons and the README in step.
+description: Add, move, rename or remove a workspace group (one workspace per kind of app, e.g. Agents on 1, Code on 2) in this dotfiles repo, keeping Hyprland, the waybar buttons and the README in step.
 ---
 
 # Workspace groups

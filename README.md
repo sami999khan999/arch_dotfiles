@@ -198,10 +198,10 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 
 | Workspace | Group | Apps |
 |---|---|---|
-| 1 | Code | VS Code windows, each with its kitty (below) |
-| 2 | Web | Chrome windows |
-| 3 | Terminal | kitty |
-| 4 | Agents | agentmux (Super + A) |
+| 1 | Agents | agentmux (Super + A) |
+| 2 | Code | VS Code windows, each with its kitty (below) |
+| 3 | Web | Chrome windows |
+| 4 | Terminal | kitty |
 | 7 | Files | Dolphin |
 | 8 | Discord | Discord |
 | 9 | Docker | the Docker panel (below) |
@@ -330,7 +330,7 @@ The older terminal versions (`sysmon.py`, `keys.py`, `audiopanel.py`, `netpanel.
 
 ### Agents: agentmux
 
-`Super + A` (or workspace 4's button in waybar) opens **agentmux**, a tmux workspace for coding agents, by
+`Super + A` (or workspace 1's button in waybar) opens **agentmux**, a tmux workspace for coding agents, by
 project: **Projects** | **Agents** (that project's threads) | the thread | **terminals** (regular
 shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembered.
 
@@ -349,7 +349,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   middle pane attaches to the same one: one agent, two live views, nothing restarted or copied. A
   new thread made in agentmux also opens as a tab in that project's VS Code kitty. The agent
   redraws at the size of the view you last typed in.
-- **`Super + N`** on its workspace (4) starts a new thread (`Ctrl+Alt+N`), opens agentmux if it
+- **`Super + N`** on its workspace (1) starts a new thread (`Ctrl+Alt+N`), opens agentmux if it
   isn't open, or asks for a project first if none is open.
 - **The home screen** (the middle pane with no thread shown) has a prompt box: `↵` starts a thread
   in the agent picked with `Tab`, your text as its first message. Above it are the project's threads,

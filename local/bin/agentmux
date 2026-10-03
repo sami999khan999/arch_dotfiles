@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agentmux — an agent-first, project-based tmux (Super + A, or workspace 4 in waybar).
+"""agentmux — an agent-first, project-based tmux (Super + A, or workspace 1 in waybar).
 
   agentmux                     open the workspace (builds it the first time, then reattaches)
   agentmux project <dir>       switch to a project (opens it if it isn't yet)

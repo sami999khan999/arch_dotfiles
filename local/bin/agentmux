@@ -12,6 +12,8 @@
   agentmux term                new terminal (full height, listed at the right) in the terminals column (opens it)
   agentmux split-term [pane]   split a terminal (the shown one), stacked
   agentmux next-term [1|-1]    show the next / previous terminal
+  agentmux collapse-list collapse|expand
+                               the terminal list down to its icons, or back to its width
   agentmux close-term [pane]   close a terminal of the column (the focused one; a split half, else the terminal)
   agentmux close-thread        close the selected row of the focused sidebar, else the shown thread (asks)
   agentmux close-project <dir> close a project: ends its threads and terminals, drops it from the list
@@ -48,6 +50,7 @@ SELF = os.path.expanduser("~/.local/bin/agentmux")
 SESSION = "main"
 WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
 MIN = {"projects": 16, "agents": 20, "termlist": 4}                       # a sidebar is never narrower than this
+ICONS_ONLY = 9   # the terminal list narrower than this shows only icons (termlist.py)
 
 
 def opt(name):
@@ -333,6 +336,25 @@ def new_thread(harness=None, prompt_file=None):
 # The column is two panes: the shown terminal (a client of the terms session) and, at its right, the
 # list of its terminals (termlist.py), as in VS Code's terminal panel. Its width (state "terms") is the
 # two together; the list keeps its own (state "termlist", in columns).
+def list_width():
+    """The terminal list's width: its icons only while collapsed (state "termlist_collapsed"), else
+    the remembered width."""
+    return MIN["termlist"] if lib.load_state().get("termlist_collapsed") else widths()["termlist"]
+
+
+def collapse_list(how):
+    """The list's ‹ / › button: collapse it to its icons, or expand it back to its remembered width
+    (one wide enough for the names). Kept for every project and the next time the column opens."""
+    lst = pane("termlist")
+    collapsed = how == "collapse"
+    lib.update_state(termlist_collapsed=collapsed)   # first: save-widths (the resize hook) reads it
+    width = widths()["termlist"]
+    if not collapsed and width < ICONS_ONLY:   # it was dragged down to the icons: the default width
+        width = WIDTHS["termlist"]
+    if lst:
+        lib.app("resize-pane", "-t", lst, "-x", str(MIN["termlist"] if collapsed else width))
+
+
 def termlist_cmd(project):
     return f"exec python3 {HERE}/termlist.py {shlex.quote(project)}"
 
@@ -342,13 +364,13 @@ def open_terms(project):
     col = pane("terms")
     if col is None:   # its share of the whole window, in columns (a % would be of the middle pane)
         total = int(lib.app("display-message", "-p", "-t", pane("main"), "#{window_width}")[1] or 0)
-        cols = max(int(total * widths()["terms"]), 20 + widths()["termlist"])
+        cols = max(int(total * widths()["terms"]), 20 + list_width())
         rc, col = lib.app("split-window", "-h", "-d", "-t", pane("main"), "-l", str(cols),
                           "-P", "-F", "#{pane_id}", nested(lib.terms_session(project), hint=False))
         set_opt("@p_terms", col)
         lib.app("set-option", "-p", "-t", col, "@label", f"Terminals · {lib.project_name(project)}")
     if pane("termlist") is None:
-        rc, lst = lib.app("split-window", "-h", "-d", "-t", col, "-l", str(widths()["termlist"]),
+        rc, lst = lib.app("split-window", "-h", "-d", "-t", col, "-l", str(list_width()),
                           "-P", "-F", "#{pane_id}", termlist_cmd(project))
         set_opt("@p_termlist", lst)
         lib.app("set-option", "-p", "-t", lst, "@label", "Terminal list")
@@ -1131,15 +1153,20 @@ def save_widths():
     # the terminal list squeezed below its icons (tmux takes a resize out of the rightmost pane, or a
     # drag went too far): back to its last width. That resize runs this again, with the right widths.
     if pane("termlist") and size(pane("termlist")) < MIN["termlist"]:
-        lib.app("resize-pane", "-t", pane("termlist"), "-x", str(widths()["termlist"]))
+        lib.app("resize-pane", "-t", pane("termlist"), "-x", str(list_width()))
         return
+    # collapsed, the list's width isn't one to remember; dragged open far enough for the names, it's
+    # expanded again
+    if s.get("termlist_collapsed") and size(pane("termlist")) >= ICONS_ONLY:
+        s["termlist_collapsed"] = False
     for role in ("projects", "agents", "terms", "termlist"):
         width = size(pane(role))
         if width >= MIN.get(role, 8):   # a pane that's gone (or squeezed to nothing) keeps its last width
             if role == "terms":   # the column: the terminal and its list, as a share of the window
                 width += size(pane("termlist")) + 1 if pane("termlist") else 0
                 width = round(width / total, 2) if total else 0
-            w[role] = width
+            if role != "termlist" or not s.get("termlist_collapsed"):
+                w[role] = width
     s["widths"] = w
     lib.save_state(s)
 
@@ -1172,7 +1199,7 @@ def main(argv):
         "open": lambda: popup("project"), "first-run": first_run, "new": new_from_desktop,
         "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
         "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),
-        "close-thread": close_thread,
+        "close-thread": close_thread, "collapse-list": lambda: collapse_list(args[0] if args else "collapse"),
         "close-project": lambda: close_project(args[0]),
         "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,

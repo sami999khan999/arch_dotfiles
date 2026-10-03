@@ -336,7 +336,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 
 ```
 ┌Projects─┬Agents──────┬─ the thread ───────────────┬─ terminal ──┬─────────────┐
-│▸cloud_t │◐ 1 diagram │                           │ $ pnpm dev  │ ▣    + ◫ ─  │
+│▸cloud_t │◐ 1 diagram │                           │ $ pnpm dev  │ ›    + ◫ ─  │
 │ inkwell │✳ 2 docs    │                           │             │▎▣ pnpm  ◫ × │
 │+ open   │+ new thread│                           │             │ ┌◫ fish     │
 │         │            │                           │             │ └◫ git      │
@@ -401,7 +401,9 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   two) and a `×` that closes that terminal alone (one half of a split stays); `Ctrl+Alt+W` closes
   the focused one; the last one closes the column. `─` in the header minimizes the column (`Ctrl+Alt+3`): its shells keep running,
   `▸ terminals` in the status bar brings it back. Drag the border left of the list (or of the
-  column) to resize; both widths are remembered. Dragged very narrow, the list shows only the icons. Each terminal is a window of the project's
+  column) to resize; both widths are remembered. Dragged very narrow, the list shows only the icons;
+  `›` at the left of its header collapses it to just that (`‹` expands it back to its width; it stays
+  collapsed in every project until expanded). Each terminal is a window of the project's
   `<project>·terms` session on the agents server (`local/lib/agentmux/termlist.py` is the list).
 - **Terminals are per project:** the column shows only in the projects where you opened it (`Ctrl+Alt+T`);
   switching to another project hides it (its shells keep running) and brings it back when you return.

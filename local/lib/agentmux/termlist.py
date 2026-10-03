@@ -5,13 +5,15 @@
 # this list); a split lists each of its halves, joined by ┌ │ └. The shown one has the blue edge; the
 # shown and the hovered row show a split button (that terminal in two) and a × (closes that terminal
 # alone). The header has + (new terminal), split, and ─ (minimize: hide the column, the shells keep
-# running). Long lists scroll (the wheel, ↑ more / ↓ more). Drag its left border to resize it (the
-# width is remembered); very narrow, it shows only the icons.
+# running); at its left, › collapses the list to its icons and ‹ expands it back (remembered).
+# Long lists scroll (the wheel, ↑ more / ↓ more). Drag its left border to resize it (the width is
+# remembered); very narrow, it shows only the icons.
 #
 # Kept current like the sidebars: a control-mode client on the agents server subscribes to the terms
 # sessions' windows and panes; tmux sends a line only when something changed. No polling.
 #
 # keys   ↑↓ / j k  move     ↵ / click  show it     x / Delete  close it     n new     s split it
+#        c  collapse / expand
 import os, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,6 +27,7 @@ SUB = ("#{S:#{?#{m:*" + lib.SEP + "terms,#{session_name}},#{W:#{P:" + FS.join(
     ["#{session_name}", "#{window_index}", "#{window_active}", "#{pane_id}", "#{pane_active}",
      "#{pane_current_command}", "#{window_panes}"]) + RS + "}},}}")
 TERM_ICON, SPLIT_ICON, MINIMIZE = "\uf489", "\ueb56", "\ueaba"
+COLLAPSE, EXPAND = "\ueab6", "\ueab5"   # chevrons: › folds the list to its icons, ‹ opens it
 # the header's buttons, left to right: (text, colour, what it runs). Too narrow for all of them, the
 # split goes first, then minimize (Ctrl+Alt+D, Ctrl+Alt+3 still do it).
 BUTTONS = [("+", "accent", ["term"]), (SPLIT_ICON, "muted", ["split-term"]), (MINIMIZE, "muted", ["toggle", "terms"])]
@@ -53,6 +56,7 @@ class TermList(App):
         self.scroll, self.free = 0, False
         self.ys, self.row_buttons, self.button_xs = {}, {}, []
         self.width = 20
+        self.chevron = (PAD, "collapse")   # the header's ‹ / ›: its column, what it does
         self.ctl, self.buf = None, ""
 
     # ---- the control-mode client (as in sidebar.py) ----
@@ -112,16 +116,16 @@ class TermList(App):
         pad = 1 if narrow else PAD
         # header: the icon left (if there's room), the buttons right, then the blue-then-grey underline
         buttons = list(range(len(BUTTONS)))
-        while buttons and sum(width(BUTTONS[i][0]) + 2 for i in buttons) - 2 > w - 2 * pad - (0 if narrow else 3):
+        # the collapse / expand chevron at the left always stays; the other buttons fit or drop
+        while buttons and sum(width(BUTTONS[i][0]) + 2 for i in buttons) - 2 > w - 2 * pad - 3:
             buttons.remove(next(i for i in DROP + [0] if i in buttons))
         x, self.button_xs = w - pad, []
         for i in reversed(buttons):   # laid out from the right edge
             x -= width(BUTTONS[i][0])
             self.button_xs.insert(0, (x, x + width(BUTTONS[i][0]), BUTTONS[i][2]))
             x -= 2
-        top = Line().pad(pad)
-        if not narrow:
-            top.add(TERM_ICON, "accent")
+        top = Line().pad(pad).add(EXPAND if narrow else COLLAPSE, "accent")
+        self.chevron = (pad, "expand" if narrow else "collapse")
         for i, (x0, _, _) in zip(buttons, self.button_xs):
             top.pad(x0 - top.w).add(BUTTONS[i][0], BUTTONS[i][1])
         under = Line().pad(pad).add("━", "accent").add("━" * max(w - 2 * pad - 1, 0), "overlay")
@@ -195,7 +199,9 @@ class TermList(App):
         elif isinstance(k, tuple) and k[0] == "click":
             _, x, y = k
             hit = lambda spots: next((cmd for x0, x1, cmd in spots if x0 - 1 <= x <= x1), None)
-            if y == 0:
+            if y == 0 and self.chevron[0] - 1 <= x <= self.chevron[0] + 1:
+                run("collapse-list", self.chevron[1])
+            elif y == 0:
                 cmd = hit(self.button_xs)
                 if cmd:
                     run(*cmd)
@@ -216,6 +222,8 @@ class TermList(App):
             self.sel = None
         elif k == "n":
             run("term")
+        elif k == "c":
+            run("collapse-list", "expand" if self.width < ICONS_ONLY else "collapse")
         elif k == "s" and current:
             run("split-term", current)
 

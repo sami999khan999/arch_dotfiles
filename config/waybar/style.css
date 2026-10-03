@@ -58,7 +58,8 @@ window#waybar {
 /* dividers between sections: 1px, full height, same colour as the bottom line */
 /* #custom-codesync: closes the group count + title block; on the next module, so the divider
    stays when the title is hidden (empty workspace) */
-#stats, #custom-clock, #custom-power, #custom-codesync {
+/* #custom-notifications: the bell is its own block after the clock */
+#stats, #custom-clock, #custom-notifications, #custom-power, #custom-codesync {
   border-left: 1px solid alpha(@line, 0.7);
 }
 /* the right section starts with a divider (the play button's, or the group count's when nothing
@@ -188,10 +189,14 @@ window#waybar {
   padding: 0 12px;
 }
 
-#custom-idle-indicator,
-#custom-notifications {
+#custom-idle-indicator {
   font-size: 11px;
   padding: 0 6px;
+}
+
+#custom-notifications {   /* a block of its own (divider before it): the clock's breathing room */
+  font-size: 11px;
+  padding: 0 10px;
 }
 
 #custom-notifications.unread {

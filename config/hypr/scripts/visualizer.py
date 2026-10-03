@@ -32,7 +32,8 @@ CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; 
 EMPTY_PX = 38         # px freed on an empty workspace besides the title text: the title's padding
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
 PLAYER_PX = 30        # px: the play button with its divider
-INDICATOR_PX = 19     # px per indicator shown (the notification bell, idle off)
+INDICATOR_PX = 19     # px: the idle-off indicator, when shown
+BELL_PX = 28          # px: the notification bell with its divider (always shown; not in GAP_REF)
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars
@@ -154,7 +155,7 @@ def modelled_gap():
         gap += TITLE_REF * CHAR_PX + EMPTY_PX
     if not s["player"]:
         gap += PLAYER_PX
-    gap -= s["indicators"] * INDICATOR_PX
+    gap -= s["indicators"] * INDICATOR_PX + BELL_PX
     gap -= (s["clock"] - CLOCK_REF_LEN) * CHAR_PX
     return gap
 
@@ -245,9 +246,8 @@ def follow_player():
 
 
 def indicators():
-    """Indicators shown: the notification bell (always), and idle off (scripts/indicator.sh)."""
-    idle_off = subprocess.run(["pgrep", "-x", "hypridle"], capture_output=True).returncode != 0
-    return 1 + int(idle_off)
+    """Indicators shown besides the bell: idle off (scripts/indicator.sh)."""
+    return int(subprocess.run(["pgrep", "-x", "hypridle"], capture_output=True).returncode != 0)
 
 
 def read_rest():

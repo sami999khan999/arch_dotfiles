@@ -509,8 +509,15 @@ class PanelApp(Gtk.Application):
         lead = box(False, 10, *([label(self.view.icon, "head-icon")] if self.view.icon else []),
                    label(self.view.title, "title"))
         self.subtitle_label = label(self.view.subtitle, "dim", xalign=1.0, ellipsize=True)
-        top = box(False, 12, lead, self.subtitle_label, *self.view.header_extra(),
-                  *([button("Close", self.win.close, "flat", tooltip="Esc")] if self.toggle else []))
+        extra = self.view.header_extra()
+        close = button("Close", self.win.close, "flat", tooltip="Esc")
+        # the header's buttons never take the focus: GTK gives a new window's focus to its first focusable
+        # widget, and Enter would then press Close (or Tidy, Wiremix…) instead of reaching the panel
+        # (Network's "Manage connections", the theme picker). They're clicked, or have their own key.
+        for b in [close] + extra:
+            if isinstance(b, Gtk.Button):
+                b.set_focusable(False)
+        top = box(False, 12, lead, self.subtitle_label, *extra, *([close] if self.toggle else []))
         under_lead = Gtk.Box(css_classes=["head-line-lead"])
         group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)   # blue exactly under icon + title
         group.add_widget(lead)

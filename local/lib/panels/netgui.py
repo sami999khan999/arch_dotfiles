@@ -152,6 +152,9 @@ class Network(View):
     def manage(self):
         subprocess.Popen([TUI, "nmtui"], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # the popup goes: it's pinned above its backdrop, so nmtui would open underneath both
+        # (in the Control Center close() does nothing)
+        self.close()
 
     def key(self, keyval, state):
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and not self.typing():

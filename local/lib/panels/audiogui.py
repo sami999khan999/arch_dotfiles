@@ -186,6 +186,7 @@ class Audio(View):
     def wiremix(self):
         subprocess.Popen([TUI, "wiremix"], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.close()   # as Network's nmtui: a popup pinned above its backdrop would cover wiremix
 
     def key(self, keyval, state):
         if self.typing():

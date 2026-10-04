@@ -8,3 +8,6 @@ THEME_MAGENTA    = "rgba(bb9af7ff)"
 THEME_CYAN       = "rgba(0db9d7ff)"
 THEME_BORDER     = "rgba(3b4261b3)" -- same as the waybar islands
 THEME_BORDER_DIM = "rgba(3b4261b3)"
+
+-- the colour theme (local/bin/theme): its values for the names above, which stay when it's missing
+pcall(dofile, os.getenv("HOME") .. "/.config/themes/current/hypr.lua")

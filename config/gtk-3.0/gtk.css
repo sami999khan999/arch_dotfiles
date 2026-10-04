@@ -1,2 +1,3 @@
 @import url("tokyo-night.css");
 @import url("prompt.css");  /* the password prompt (gcr): square, Tokyo Night */
+@import url("../themes/current/gtk3.css");  /* the colour theme (local/bin/theme) */

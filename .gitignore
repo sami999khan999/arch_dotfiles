@@ -8,6 +8,10 @@ config/btop/themes/noctalia*
 config/kitty/noctalia*
 config/alacritty/noctalia*
 
+# ---- Made by `theme apply` (local/bin/theme) from the active colour theme
+config/themes/current/
+config/btop/themes/current.theme
+
 # ---- Runtime state, not configuration
 config/fish/fish_variables
 *.log

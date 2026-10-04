@@ -291,3 +291,6 @@ tooltip label {
   color: @text;
   padding: 4px 6px;
 }
+
+/* the colour theme (local/bin/theme): its colours after these, which stay when it's missing */
+@import url("../themes/current/waybar.css");

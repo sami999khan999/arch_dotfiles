@@ -2,6 +2,8 @@
 text-color=#a9b1d6
 border-color=#414868
 background-color=#1a1b26
+# the colour theme (local/bin/theme): its colours after these, which stay when it's missing
+include=~/.config/themes/current/mako
 
 anchor=top-right
 group-by=app-name,summary,body

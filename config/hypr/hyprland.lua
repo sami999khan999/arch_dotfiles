@@ -1,5 +1,8 @@
 -- CachyOS Hyprland Configuration
 
+-- the colour theme (local/bin/theme): its files are made before the modules read them (a new PC, a synced change)
+pcall(os.execute, "~/.local/bin/theme restore >/dev/null 2>&1")
+
 require("modules.animations")
 require("modules.autostart")
 require("modules.colors")

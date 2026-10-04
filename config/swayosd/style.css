@@ -31,3 +31,6 @@ progressbar {
 progress {
   background-color: @progress;
 }
+
+/* the colour theme (local/bin/theme): its colours after these, which stay when it's missing */
+@import url("../themes/current/swayosd.css");

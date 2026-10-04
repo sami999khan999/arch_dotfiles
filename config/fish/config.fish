@@ -7,7 +7,10 @@ function fish_greeting
     ~/.local/bin/greet
 end
 
-# Omarchy prompt
+# Omarchy prompt (in the colour theme's colours: local/bin/theme makes this file, Tokyo Night's own when it's active)
+if test -f ~/.config/themes/current/starship.toml
+    set -gx STARSHIP_CONFIG ~/.config/themes/current/starship.toml
+end
 if status is-interactive; and type -q starship
     starship init fish | source
 end

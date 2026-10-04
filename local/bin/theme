@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""theme — the desktop's colour theme (the picker: Super + Shift + T; local/lib/panels/themegui.py).
+
+  theme list            every theme (the active one marked *)
+  theme current         the active theme's id
+  theme apply <id>      switch to it: make the files, reload what's running
+  theme next            the next theme in the list
+  theme restore         make the files for the active theme if they're missing or stale (no reload):
+                        hyprland.lua runs this before the config loads, so a new PC or a synced
+                        change comes up right
+
+A theme is config/themes/<id>/theme.json: one colour for every role of Tokyo Night, the palette all
+the repo's files are written in. The files programs read are made from those files by swapping each
+Tokyo Night colour for the theme's (local/lib/theme/themelib.py recolor) into config/themes/current/
+(gitignored), and each program has one line that reads its file after its own colours:
+  kitty, alacritty, btop, qt6ct, GTK 3 / 4 apps, waybar, walker, swayosd, mako, hyprlock,
+  Hyprland's borders, agentmux's tmux, starship.
+The GTK panels and agentmux's screens recolor their own text at start (themelib). With Tokyo Night
+active every file made is the original's bytes or empty: nothing changes. Not themed: the login screen
+(system/greeter, root), the polkit password prompt (hyprtoolkit.conf), VS Code (Settings Sync), lazydocker,
+wiremix.
+"""
+import hashlib, json, os, re, subprocess, sys, time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "lib", "theme"))
+import themelib as T
+
+# output file -> (the files it's made from, how)
+#   full   the whole file, recolored: a theme file the program reads instead of its own
+#   lines  only the lines (a tmux / lua / mako / hyprlang command each) that change
+#   css    only the top-level statements ({} rules, @define-color lines) that change
+# and the comment syntax of a file that may come out empty
+TARGETS = {
+    "kitty.conf": (["config/kitty/themes/tokyo-night.conf"], "full", "#"),
+    "alacritty.toml": (["config/alacritty/themes/tokyo-night.toml"], "full", "#"),
+    "btop.theme": (["config/btop/themes/tokyo-night.theme"], "full", "#"),
+    "qt6ct.conf": (["config/qt6ct/colors/tokyo-night.conf"], "full", "#"),
+    "gtk3.css": (["config/gtk-3.0/tokyo-night.css", "config/gtk-3.0/prompt.css"], "full", "/*"),
+    "gtk4.css": (["config/gtk-4.0/tokyo-night.css"], "full", "/*"),
+    "waybar.css": (["config/waybar/style.css"], "css", "/*"),
+    "walker.css": (["config/walker/themes/omarchy-default/style.css"], "css", "/*"),
+    "swayosd.css": (["config/swayosd/style.css"], "css", "/*"),
+    "mako": (["config/mako/config"], "lines", "#"),
+    "hyprlock.conf": (["config/hypr/hyprlock.conf"], "lines", "#"),
+    "hypr.lua": (["config/hypr/modules/colors.lua"], "lines", "--"),
+    "tmux-app.conf": (["config/agentmux/app.conf"], "lines", "#"),
+    "tmux-agents.conf": (["config/agentmux/agents.conf"], "lines", "#"),
+    "starship.toml": (["config/starship.toml"], "full", "#"),
+}
+
+
+def read(rel):
+    with open(os.path.join(T.REPO, rel), errors="replace") as f:
+        return f.read()
+
+
+def css_statements(text):
+    """A stylesheet's top-level statements (comments dropped): "@define-color x #fff;" and "a { … }"."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    out, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                out.append(text[start:i + 1].strip())
+                start = i + 1
+        elif ch == ";" and depth == 0:
+            out.append(text[start:i + 1].strip())
+            start = i + 1
+    return [s for s in out if s]
+
+
+def make(name, tid):
+    sources, how, comment = TARGETS[name]
+    if how == "full":
+        return "\n".join(T.recolor(read(s), tid) for s in sources)
+    text = "\n".join(read(s) for s in sources)
+    if how == "css":
+        parts = [T.recolor(s, tid) for s in css_statements(text) if T.recolor(s, tid) != s]
+    else:
+        parts = [T.recolor(l, tid) for l in text.splitlines() if T.recolor(l, tid) != l]
+    head = f"/* {T.load(tid)['name']}: what differs from Tokyo Night (made by `theme apply`) */" if comment == "/*" \
+        else f"{comment} {T.load(tid)['name']}: what differs from Tokyo Night (made by `theme apply`)"
+    return head + "\n" + "\n".join(parts) + ("\n" if parts else "")
+
+
+def stamp(tid):
+    """What the files depend on: the theme, the reference palette and every source."""
+    h = hashlib.sha1(tid.encode())
+    for rel in [f"config/themes/{T.BASE}/theme.json", f"config/themes/{tid}/theme.json"] + \
+            sorted({s for srcs, *_ in TARGETS.values() for s in srcs}):
+        try:
+            h.update(read(rel).encode())
+        except OSError:
+            h.update(b"-")
+    return h.hexdigest()
+
+
+def generate(tid, force=False):
+    """config/themes/current/*: every file for theme tid. Returns False if nothing needed doing."""
+    mark = os.path.join(T.CURRENT, ".stamp")
+    want = stamp(tid)
+    try:
+        if not force and open(mark).read() == want and all(os.path.exists(os.path.join(T.CURRENT, n)) for n in TARGETS):
+            return False
+    except OSError:
+        pass
+    os.makedirs(T.CURRENT, exist_ok=True)
+    for name in TARGETS:
+        path = os.path.join(T.CURRENT, name)
+        with open(path, "w") as f:   # in place: a program reading it meanwhile never sees a missing file
+            f.write(make(name, tid))
+    # btop picks a theme by name from its themes folder
+    link = os.path.join(T.REPO, "config", "btop", "themes", "current.theme")
+    if os.path.islink(link) or not os.path.exists(link):
+        if os.path.islink(link):
+            os.remove(link)
+        os.symlink(os.path.join(T.CURRENT, "btop.theme"), link)
+    with open(mark, "w") as f:
+        f.write(want)
+    return True
+
+
+def set_active(tid):
+    with open(os.path.join(T.THEMES, "active"), "w") as f:   # in place: config/themes is a dotfiles link
+        f.write(tid + "\n")
+
+
+# ---- reloading what's running -----------------------------------------------------------------
+def sh(*cmd, detach=False):
+    try:
+        if detach:
+            subprocess.Popen(cmd, start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return 0
+        return subprocess.run(cmd, capture_output=True, timeout=20).returncode
+    except (OSError, subprocess.SubprocessError):
+        return 1
+
+
+def pids(name):
+    r = subprocess.run(["pgrep", "-x", name], capture_output=True, text=True)
+    return [int(p) for p in r.stdout.split()]
+
+
+def reload_running():
+    """Make everything that's up use the new files. Each step on its own: one failing leaves the rest."""
+    sh("hyprctl", "reload")                       # borders and the lua colours
+    sh("makoctl", "reload")
+    for pid in pids("kitty"):                     # kitty reloads its config on SIGUSR1: every terminal
+        try:
+            os.kill(pid, 10)
+        except OSError:
+            pass
+    for name, cmd in (("swayosd-server", ["swayosd-server"]), ("walker", ["walker", "--gapplication-service"])):
+        if pids(name):                            # these read their stylesheet once, at start
+            sh("pkill", "-x", name)
+            time.sleep(0.3)
+            sh("uwsm", "app", "--", *cmd, detach=True)
+    sh("systemctl", "--user", "restart", "waybar")
+    if sh("tmux", "-L", "agentmux", "has-session", "-t", "=main") == 0:
+        sh(os.path.expanduser("~/.local/bin/agentmux"), "reload")   # both tmux configs, the screens, the bar
+    restart_panels()
+
+
+def restart_panels():
+    """The workspace apps (Control Center, Docker) are long-running GTK windows: restart them (a
+    popup panel takes the theme the next time it opens)."""
+    try:
+        clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
+    except (ValueError, OSError):
+        return
+    for c in clients:
+        if c.get("class") in ("sami.controlcenter", "sami.docker") and c.get("pid"):
+            ws = str(c["workspace"]["id"])
+            try:
+                os.kill(c["pid"], 15)
+            except OSError:
+                continue
+            for _ in range(30):   # gone first, or wsgroups would find the old window and launch nothing
+                if not os.path.exists(f"/proc/{c['pid']}"):
+                    break
+                time.sleep(0.1)
+            sh(os.path.expanduser("~/.local/bin/wsgroups"), "launch", ws, "--background", detach=True)
+
+
+def apply(tid):
+    if tid not in T.ids():
+        sys.exit(f"theme: no theme '{tid}' (theme list)")
+    set_active(tid)
+    generate(tid, force=True)
+    reload_running()
+
+
+def main(argv):
+    cmd, args = (argv[1] if len(argv) > 1 else "list"), argv[2:]
+    if cmd == "list":
+        now = T.active()
+        for tid in T.ids():
+            print(("* " if tid == now else "  ") + f"{tid}\t{T.load(tid)['name']}")
+    elif cmd == "current":
+        print(T.active())
+    elif cmd == "apply" and args:
+        apply(args[0])
+    elif cmd == "next":
+        order = T.ids()
+        apply(order[(order.index(T.active()) + 1) % len(order)])
+    elif cmd == "restore":
+        generate(T.active())
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv)

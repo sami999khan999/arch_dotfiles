@@ -144,3 +144,6 @@ child:not(:selected) .item-subtext {
 
 .preview {
 }
+
+/* the colour theme (local/bin/theme): its colours after these, which stay when it's missing */
+@import url("../../../themes/current/walker.css");

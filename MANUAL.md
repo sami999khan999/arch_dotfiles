@@ -82,7 +82,7 @@ any other file: the other PC follows after `dotsync`).
 | Theme | |
 |---|---|
 | Tokyo Night | the original: deep blue-black, a soft blue accent (`#6b8fe0`, a bit darker than stock) |
-| Crimson | neutral charcoal and black, a blood-red accent (`#bd3a40`), soft olive and amber: after the bloodborne wallpaper |
+| Crimson | neutral charcoal and black, a muted blood-red accent (`#b04f53`), soft olive and amber: after the bloodborne wallpaper |
 
 **How it works.** Every file in this repo is written in Tokyo Night's colours, by hand, as before.
 A theme is `config/themes/<id>/theme.json`: one colour for each of Tokyo Night's 32 roles (base,

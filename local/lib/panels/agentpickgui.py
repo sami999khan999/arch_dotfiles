@@ -15,13 +15,13 @@ import os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "agentmux"))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, recolor, run, scrolled
 from keys import fuzzy
 from keysgui import marked
 import lib
 
 AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
-HIT = "#7aa2f7"   # matched letters, as in the shortcut list
+HIT = recolor("#7aa2f7")   # matched letters, as in the shortcut list
 SKIP = {"node_modules", "dist", "build", ".next", "target", ".venv", "venv", "vendor", "__pycache__"}
 SEARCH_DEPTH = 3       # how deep a query searches below the shown folder
 SEARCH_LIMIT = 4000    # folders indexed for a query, at most

@@ -28,9 +28,16 @@ NARROW, BAGEL = 60, 90      # columns: below NARROW nothing, from BAGEL the bage
 GAP = 4                     # columns between the bagel and the summary, and between two sections
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "greet")
 
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:   # the colour theme (local/bin/theme): the colours below are Tokyo Night's, recolored to the active theme's
+    from themelib import recolor
+except ImportError:
+    def recolor(text, tid=None):
+        return text
+
 # Tokyo Night (AGENTS.md "Colours")
-LINE, MUTED, SUB, TEXT, ACCENT = "#3b4261", "#565f89", "#a9b1d6", "#c0caf5", "#6b8fe0"
-GREEN, AMBER, RED, MAGENTA, CYAN = "#9ece6a", "#e0af68", "#f7768e", "#bb9af7", "#7dcfff"
+LINE, MUTED, SUB, TEXT, ACCENT = (recolor(c) for c in ("#3b4261", "#565f89", "#a9b1d6", "#c0caf5", "#6b8fe0"))
+GREEN, AMBER, RED, MAGENTA, CYAN = (recolor(c) for c in ("#9ece6a", "#e0af68", "#f7768e", "#bb9af7", "#7dcfff"))
 RESET, BOLD = "\x1b[0m", "\x1b[1m"
 
 

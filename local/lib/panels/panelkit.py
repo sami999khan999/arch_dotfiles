@@ -16,8 +16,15 @@ CARD = os.environ.get("CONTROL_CENTER") == "1"  # drawn inside the Control Cente
 CHROME = 5  # rows around the body: header (2) + blank above, blank + footer below
 SIZE = None  # (cols, rows) of the card being drawn; None = the whole terminal
 
-def rgb(h): return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
-def bg(h): return f"\033[48;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:   # the colour theme (local/bin/theme): every colour below is Tokyo Night's, recolored to the active theme's
+    from themelib import recolor
+except ImportError:
+    def recolor(text, tid=None):
+        return text
+
+def rgb(h): h = recolor(h); return f"\033[38;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
+def bg(h): h = recolor(h); return f"\033[48;2;{int(h[1:3],16)};{int(h[3:5],16)};{int(h[5:7],16)}m"
 
 FG, DIM, ACCENT, KEY, TRACK = rgb("#c0caf5"), rgb("#565f89"), rgb("#6b8fe0"), rgb("#e0af68"), rgb("#292e42")
 GREEN, YELLOW, RED, CYAN, MAGENTA = rgb("#9ece6a"), rgb("#e0af68"), rgb("#f7768e"), rgb("#7dcfff"), rgb("#bb9af7")

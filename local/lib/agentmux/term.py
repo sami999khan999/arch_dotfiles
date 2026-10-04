@@ -23,9 +23,17 @@ PAD = 2
 TOP = 3
 
 # the theme (AGENTS.md "Colours"; the GTK panels use the same)
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:   # the colour theme (local/bin/theme): colours here are Tokyo Night's, recolored to the active theme's
+    from themelib import recolor
+except ImportError:
+    def recolor(text, tid=None):
+        return text
+
 T = {"bg": "#16161e", "text": "#c0caf5", "sub": "#a9b1d6", "muted": "#565f89", "line": "#3b4261",
      "overlay": "#292e42", "hover": "#1f2233", "accent": "#6b8fe0", "green": "#9ece6a", "amber": "#e0af68", "red": "#f7768e",
      "cyan": "#7dcfff"}
+T = {k: recolor(v) for k, v in T.items()}   # the colour theme (local/bin/theme)
 
 
 def _rgb(hexcolour):

@@ -13,11 +13,18 @@ visualizer (visualizer.py) needs the clock's width to fill the bar without pushi
 """
 import calendar, datetime, json, os, signal, sys, time
 
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:   # the colour theme (local/bin/theme): colours here are Tokyo Night's, recolored to the active theme's
+    from themelib import recolor
+except ImportError:
+    def recolor(text, tid=None):
+        return text
+
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 STATE = f"{RUN}/waybar-clock.json"   # {"long": bool, "month": offset of the tooltip's month}
 PID = f"{RUN}/waybar-clock.pid"
 
-DIM, TEXT, LINE, ACCENT = "#565f89", "#c0caf5", "#3b4261", "#6b8fe0"
+DIM, TEXT, LINE, ACCENT = (recolor(c) for c in ("#565f89", "#c0caf5", "#3b4261", "#6b8fe0"))   # the colour theme (local/bin/theme)
 SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")   # the Settings panel's 24-hour switch
 
 

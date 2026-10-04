@@ -20,6 +20,20 @@ gi.require_version("Graphene", "1.0")
 gi.require_version("Gsk", "4.0")
 from gi.repository import Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango
 
+# The colour theme (local/bin/theme): everything here is written in Tokyo Night's colours and goes
+# through recolor() (CSS, markup, cairo colours via rgbf), which does nothing while Tokyo Night is active.
+import sys
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:
+    from themelib import recolor, rgbf
+except ImportError:   # a PC where setup/install.sh hasn't linked it yet: Tokyo Night as written
+    def recolor(text, tid=None):
+        return text
+
+    def rgbf(colour):
+        h = colour.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+
 CSS = """
 /* Tokens. bg: VS Code's Tokyo Night #16161e, 85 % opaque like kitty, so Hyprland blurs the wallpaper
    behind. text #c0caf5 · secondary #a9b1d6 · muted #565f89 · hairline alpha(#c0caf5, .07) ·
@@ -130,8 +144,8 @@ scrollbar slider:hover, scrollbar.dragging slider { background: #565f89; }
 def hint_markup(pairs):
     """Key hints as markup: keys bright, what they do dim, " · " between."""
     esc = GLib.markup_escape_text
-    return "<span foreground='#3b4261'> · </span>".join(
-        f"<span foreground='#c0caf5'>{esc(k)}</span> <span foreground='#565f89'>{esc(v)}</span>" for k, v in pairs)
+    return recolor("<span foreground='#3b4261'> · </span>".join(
+        f"<span foreground='#c0caf5'>{esc(k)}</span> <span foreground='#565f89'>{esc(v)}</span>" for k, v in pairs))
 
 
 def level(pct):
@@ -282,7 +296,7 @@ def scrolled(child, vexpand=True):
 
 def install_css(extra=""):
     provider = Gtk.CssProvider()
-    provider.load_from_string(CSS + extra)
+    provider.load_from_string(recolor(CSS + extra))
     # above USER priority: ~/.config/gtk-4.0/gtk.css (the Noctalia/GTK theme) mustn't restyle panels
     Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
@@ -465,7 +479,7 @@ class Backdrop(Gtk.Widget):
             if self.blur:
                 snap.pop()
         dark = Gdk.RGBA()
-        dark.parse(f"rgba(22, 22, 30, {self.darken if self.texture else max(self.darken, 0.3)})")
+        dark.parse(recolor(f"rgba(22, 22, 30, {self.darken if self.texture else max(self.darken, 0.3)})"))
         snap.append_color(dark, area)
         snap.pop()
 

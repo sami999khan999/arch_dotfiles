@@ -15,7 +15,7 @@ import os, re, shlex, subprocess, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dockerlogs
 import dockerpanel as dp
-from gtkkit import Gdk, GLib, Gtk, Pango, View, box, button, clear, label, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, Pango, View, box, button, clear, label, recolor, run, scrolled
 
 TAB_NAMES = {"containers": "Containers", "images": "Images", "volumes": "Volumes", "networks": "Networks"}
 
@@ -104,9 +104,9 @@ class Docker(View):
                                  wrap_mode=Gtk.WrapMode.WORD_CHAR, left_margin=20, right_margin=20,
                                  top_margin=6, bottom_margin=10)
         buf = self.text.get_buffer()
-        for name, props in {"dim": {"foreground": "#565f89"}, "red": {"foreground": "#f7768e"},
-                            "accent": {"foreground": "#6b8fe0"}, "sub": {"foreground": "#a9b1d6"},
-                            "green": {"foreground": "#9ece6a"},
+        for name, props in {"dim": {"foreground": recolor("#565f89")}, "red": {"foreground": recolor("#f7768e")},
+                            "accent": {"foreground": recolor("#6b8fe0")}, "sub": {"foreground": recolor("#a9b1d6")},
+                            "green": {"foreground": recolor("#9ece6a")},
                             "bold": {"weight": Pango.Weight.BOLD}}.items():
             buf.create_tag(name, **props)
         self.text_scroll = scrolled(self.text)

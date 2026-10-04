@@ -17,15 +17,16 @@ from collections import deque
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gi.repository import GObject
 from datetime import datetime
-from gtkkit import Gdk, Gio, GLib, Gtk, View, box, button, clear, hint_markup, label, level, rule_heading, run, scrolled
+from gtkkit import (Gdk, Gio, GLib, Gtk, View, box, button, clear, hint_markup, label, level, recolor, rgbf, rule_heading,
+                    run, scrolled)
 import sysmon
 
 HISTORY = 60          # samples kept for the graphs (× INTERVAL = 90 s)
 HOT = 85              # percent: from here a number turns red
 TABS = ["Overview", "Processes", "Storage"]
-ACCENT, TRACK = (0x6b / 255, 0x8f / 255, 0xe0 / 255), (0x29 / 255, 0x2e / 255, 0x42 / 255)
-RED = (0xf7 / 255, 0x76 / 255, 0x8e / 255)
-LEVEL_RGB = {"green": (0x9e / 255, 0xce / 255, 0x6a / 255), "yellow": (0xe0 / 255, 0xaf / 255, 0x68 / 255),
+ACCENT, TRACK = rgbf("#6b8fe0"), rgbf("#292e42")
+RED = rgbf("#f7768e")
+LEVEL_RGB = {"green": rgbf("#9ece6a"), "yellow": rgbf("#e0af68"),
              "red": RED}  # gtkkit.level() classes, for bars drawn with cairo
 GPU_FIELDS = ["name", "driver_version", "utilization.gpu", "memory.used", "memory.total", "temperature.gpu",
               "power.draw", "power.limit", "clocks.gr", "clocks.max.gr", "clocks.mem", "fan.speed", "pstate"]
@@ -316,8 +317,8 @@ class System(View):
     @property
     def tile_footer(self):
         one, five, procs = sysmon.load()
-        return (f"<span foreground='#565f89'>load </span><span foreground='#c0caf5'>{one}</span>"
-                f"<span foreground='#565f89'> · {five}   {procs} processes</span>")
+        return recolor(f"<span foreground='#565f89'>load </span><span foreground='#c0caf5'>{one}</span>"
+                       f"<span foreground='#565f89'> · {five}   {procs} processes</span>")
 
     # ---- layout ----------------------------------------------------------------------------------
     def build(self):

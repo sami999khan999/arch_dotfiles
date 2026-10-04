@@ -45,6 +45,12 @@ import json, os, re, shlex, shutil, socket, subprocess, sys
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
 import lib
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:   # the colour theme (local/bin/theme): colours here are Tokyo Night's, recolored to the active theme's
+    from themelib import recolor
+except ImportError:
+    def recolor(text, tid=None):
+        return text
 
 HERE = os.path.expanduser("~/.local/lib/agentmux")
 SELF = os.path.expanduser("~/.local/bin/agentmux")
@@ -1105,7 +1111,7 @@ def apply_keys():
 def status_right(keys):
     """The status bar's buttons, clickable (MouseDown1Status runs agentmux click <range>). When their
     keys share Ctrl+Alt it's said once: "Ctrl+Alt +  N thread · T terminal …"."""
-    K, T, D, M = "#[fg=#e0af68]", "#[fg=#a9b1d6]", "#[fg=#3b4261]", "#[fg=#565f89]"
+    K, T, D, M = (recolor(c) for c in ("#[fg=#e0af68]", "#[fg=#a9b1d6]", "#[fg=#3b4261]", "#[fg=#565f89]"))
     buttons = [("thread", "new-thread", "thread"), ("term", "new-terminal", "terminal"),
                ("close-term", "close-terminal", "close terminal"), ("open", "open-project", "open project"),
                ("settings", "settings", "settings")]

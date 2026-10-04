@@ -8,7 +8,7 @@
 import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, clear, label, rule_heading, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, clear, label, recolor, rule_heading, run, scrolled
 import keys
 
 
@@ -90,9 +90,9 @@ class Shortcuts(View):
             row = Gtk.ListBoxRow(child=head, activatable=False)
             self.list.append(row)
             for k, d, khit, dhit in hits:
-                key = label(marked(k, khit, "#7aa2f7"), "amber", markup=True)
+                key = label(marked(k, khit, recolor("#7aa2f7")), "amber", markup=True)
                 keycol.add_widget(key)
-                desc = label(marked(d, dhit, "#7aa2f7"), ellipsize=True, markup=True)
+                desc = label(marked(d, dhit, recolor("#7aa2f7")), ellipsize=True, markup=True)
                 line = box(False, 16 if self.compact else 24, key, desc)
                 self.list.append(Gtk.ListBoxRow(child=line, activatable=False))
             shown += len(hits)

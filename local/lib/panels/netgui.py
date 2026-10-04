@@ -8,12 +8,12 @@
 import os, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, Gtk, View, box, button, label, rule_heading, run
+from gtkkit import Gdk, Gtk, View, box, button, label, rgbf, rule_heading, run
 import netpanel
 
 CSS = ".red { color: #f7768e; }"
-ACCENT, TRACK = (0x6b / 255, 0x8f / 255, 0xe0 / 255), (0x29 / 255, 0x2e / 255, 0x42 / 255)
-CYAN, MAGENTA = (0x7d / 255, 0xcf / 255, 0xff / 255), (0xbb / 255, 0x9a / 255, 0xf7 / 255)   # the card: down, up
+ACCENT, TRACK = rgbf("#6b8fe0"), rgbf("#292e42")
+CYAN, MAGENTA = rgbf("#7dcfff"), rgbf("#bb9af7")   # the card: down, up
 TUI = os.path.expanduser("~/.config/hypr/scripts/tui.sh")
 
 

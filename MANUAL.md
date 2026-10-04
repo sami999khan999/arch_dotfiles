@@ -77,7 +77,7 @@ theme's preview in a row, the chosen one large with the accent border, its name 
 bar, window borders, terminals (kitty, alacritty, the starship prompt, btop, the greeting), the
 launcher, notifications, the volume OSD, the lock screen, GTK and Qt apps, every panel and agentmux.
 `theme next` from a terminal goes to the next one. The choice is `config/themes/active` (synced like
-any other file: the other PC follows after `dotsync`).
+any other file: `dotsync` on the other PC applies it there).
 
 | Theme | |
 |---|---|
@@ -165,8 +165,17 @@ dotsync                  # save local changes, pull the other PC's, push, relink
 dotsync "what changed"   # same, with your own commit message
 ```
 
-Run it after changing something, and before starting on the other PC.
-`dotsync` lives in `local/bin/` and is linked into `~/.local/bin`.
+Run it after changing something, and before starting on the other PC. In order: it commits
+everything changed here (`git add -A`), pulls the other PC's commits (`git pull --rebase`), pushes,
+links any new files (`setup/install.sh`) and reloads Hyprland. When the pull brought a theme change
+(`config/themes/`: the other PC switched theme, or changed one's colours), it also runs
+`theme apply`, so the bar, terminals and panels follow at once. If both PCs changed the same lines it
+stops and names the files to fix. `dotsync` lives in `local/bin/` and is linked into `~/.local/bin`.
+
+What doesn't travel, on purpose: monitor modes (`settings.local.json`), `codesync/machine.json`, the
+generated theme files (`config/themes/current/`, made on each PC from the synced palette), agentmux's
+window layout and threads (`~/.local/state`), shell history, and anything outside the repo (VS Code
+syncs through its own Settings Sync, Chrome through your Google account).
 
 ## Code backup (codesync)
 

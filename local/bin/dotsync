@@ -15,6 +15,7 @@ if ! git diff --cached --quiet; then
   echo "saved local changes"
 fi
 
+themes_before=$(git rev-parse -q HEAD:config/themes 2>/dev/null || true)
 if ! git pull --rebase -q; then
   echo "Both PCs changed the same lines. Fix the files git lists above, then run:"
   echo "  cd ~/dotfiles && git add -A && git rebase --continue && dotsync"
@@ -23,4 +24,9 @@ fi
 git push -q
 ./setup/install.sh | grep -Ev '^  ok|^$|^==|^Done\.|^\(Without' || true   # link anything new
 hyprctl reload >/dev/null 2>&1 || true
+# the other PC changed the colour theme (or a theme's colours): apply it here too, so the bar,
+# terminals and panels follow at once, not only after the next login
+if [ "$(git rev-parse -q HEAD:config/themes 2>/dev/null || true)" != "$themes_before" ] && command -v theme >/dev/null; then
+  theme apply "$(theme current)" && echo "colour theme: $(theme current)"
+fi
 echo "dotfiles synced with GitHub"

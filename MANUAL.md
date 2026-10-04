@@ -510,7 +510,12 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   wheel scrolls the history; a drag (or double / triple click) selects; `Ctrl+C` copies the selection
   to the clipboard (nothing selected: interrupt, as usual); `Ctrl+V` pastes; typing or `Esc` drops the
   selection. A selection also goes to the primary selection (middle-click). Shift + drag is kitty's
-  own selection (`Ctrl+Shift+C` / `V`).
+  own selection (`Ctrl+Shift+C` / `V`). The agents differ, and `agents.conf` evens them out: Claude
+  Code and opencode select and paste themselves (the mouse goes to them). Codex and agy take the
+  mouse but can't select, so there a drag or double / triple click is tmux's selection; `Ctrl+V`
+  there pastes the clipboard's text as a terminal paste (`agentmux paste`; Codex reads Ctrl+V only
+  as "paste an image", agy not at all), an image on the clipboard still goes to Codex as its image
+  paste; and `Ctrl+Backspace` in agy (which ignores it) is sent as `Ctrl+W`, delete the word.
 
 Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home.py`, `termlist.py`), `local/lib/panels/agentmuxgui.py` (settings), `local/lib/panels/agentpickgui.py` (the two pickers),
 `config/agentmux/{agents,app}.conf`, `local/bin/kitty-pair`. Needs `tmux` (in `setup/packages.txt`).

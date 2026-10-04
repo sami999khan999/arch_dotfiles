@@ -35,6 +35,7 @@
   agentmux clear-notices <thread>
                                dismiss its "needs your input" / error notifications (no longer true)
   agentmux hooks               install those hooks in each agent's own config (idempotent)
+  agentmux paste <pane>        Ctrl+V in a Codex / agy thread: the clipboard's text, as a terminal paste
 
 Layout (tmux -L agentmux):  Projects | Agents | the thread | terminal | terminal list
 Threads are sessions on the agents server (tmux -L agents): the middle pane and the terminals column
@@ -1236,6 +1237,23 @@ def start_standalone_reader(text):
     proc.stdin.close()
 
 
+def paste(pane_id):
+    """Ctrl+V in a Codex or agy thread (agents.conf): an image on the clipboard goes to the agent as its
+    own Ctrl+V (Codex pastes images); text is pasted by tmux, bracketed like a terminal paste, since
+    Codex reads Ctrl+V only as an image and agy not at all."""
+    _, types = lib.run(["wl-paste", "--list-types"])
+    kinds = types.split()
+    if any(k.startswith("image/") for k in kinds) or not kinds:
+        lib.agents("send-keys", "-t", pane_id, "C-v")
+        return
+    try:
+        text = subprocess.run(["wl-paste", "-n"], capture_output=True, timeout=5).stdout
+        subprocess.run(lib.AGENTS + ["load-buffer", "-b", "agentmux-paste", "-"], input=text, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return
+    lib.agents("paste-buffer", "-p", "-d", "-b", "agentmux-paste", "-t", pane_id)
+
+
 def help_line():
     keys = lib.load_settings()["keys"]
     lib.app("display-message", "-d", "10000", " · ".join(
@@ -1327,7 +1345,7 @@ def main(argv):
         "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
-        "speak": lambda: speak(args[0]),
+        "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]),
     }
     if cmd not in actions:
         sys.exit(__doc__)

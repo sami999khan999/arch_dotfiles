@@ -125,13 +125,38 @@ local function setFullscreen(w, internal)
 end
 
 -- Windows of the active workspace, oldest first: the order Alt + N counts and Alt + Tab cycles.
+-- The order set by hand (`wsgroups move`: ↑ ↓ in the Workspaces panel): window address -> place.
+local HAND_ORDER = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/wsgroups/order.json"
+local function handOrder()
+    local placed, f = {}, io.open(HAND_ORDER)
+    if f then
+        local i = 0
+        for address in f:read("a"):gmatch('"(0x%x+)"') do
+            i = i + 1
+            placed[address] = i
+        end
+        f:close()
+    end
+    return placed
+end
+
+-- The current workspace's windows in Alt + N order, as `wsgroups` (its windows()) counts them: oldest
+-- first, except the ones put in order by hand, which come first as placed. Popups don't count.
 function workspaceWindows()
     local ws = hl.get_active_workspace()
     local wins = {}
     for _, w in ipairs(ws and ws:get_windows() or {}) do
-        if w.mapped and w.class ~= "TUI.float" and not isPairTerm(w) then table.insert(wins, w) end
+        if w.mapped and w.class ~= "TUI.float" and not tostring(w.class):find("^panels%.") and not isPairTerm(w) then
+            table.insert(wins, w)
+        end
     end
-    table.sort(wins, function(a, b) return a.stable_id < b.stable_id end)
+    local placed = handOrder()
+    table.sort(wins, function(a, b)
+        local pa, pb = placed[a.address], placed[b.address]
+        if pa and pb then return pa < pb end
+        if pa or pb then return pa ~= nil end
+        return a.stable_id < b.stable_id
+    end)
     return wins
 end
 

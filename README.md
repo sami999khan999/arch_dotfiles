@@ -94,7 +94,7 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
   </tr>
   <tr>
     <td align="center"><b>Tokyo Night</b><br><sub>Deep blue-black with a soft blue accent.</sub></td>
-    <td align="center"><b>Crimson</b><br><sub>Graphite and black, a silver accent; red only for alerts.</sub></td>
+    <td align="center"><b>Crimson</b><br><sub>Oxblood almost black, a silver accent; red only for alerts.</sub></td>
   </tr>
 </table>
 

@@ -22,6 +22,9 @@ dim details on the right and a blue-then-grey underline (gtkkit draws it), blue 
 with a rule (`rule_heading`), amber for keys and window classes, green / amber / red for levels
 (`level()`), solid #292e42 selection, key hints with " · " on the last line. Storage tab: per drive a Space
 bar (partition map) and an Activity bar (I/O busy % from /proc/diskstats), both in level colours.
+Colours are always Tokyo Night's (the colour theme swaps them: AGENTS.md "Colours"): a view's `css` is
+recolored by gtkkit; Pango markup, text-tag colours and ANSI need `recolor("#565f89")`, cairo `rgbf("#6b8fe0")`
+(both from gtkkit). Check a panel in another theme off-screen with `DOTFILES_THEME=crimson`.
 Big live lists (ColumnView): don't replace every row on each refresh (`store.splice` of new
 objects cost ~30 % of a core for ~300 processes); keep the row objects, update their data and emit
 a per-row signal the bound cells listen to (see `Proc` in `sysgui.py`), then

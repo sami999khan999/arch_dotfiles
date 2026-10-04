@@ -69,30 +69,59 @@ packages (`/usr/share/themes`, `/usr/share/icons`), so `setup/packages.txt` matt
 much as the files. The exception is **Bibata-Modern-Ice**, which was hand-placed
 and belongs to no package — it is committed here because nothing else restores it.
 
-## Theme: Tokyo Night, hand-applied
+## Colour themes: Tokyo Night, Crimson
 
-Colors come from Omarchy's `themes/tokyo-night/colors.toml` and are written
-directly into each app. Nothing generates them:
+`Super + Shift + T` (or Settings → Theme & fonts → Colour theme) opens the **theme picker**: every
+theme's preview in a row, the chosen one large with the accent border, its name and colours below.
+`←` `→` choose, `Enter` (or a click on the chosen one) applies it to the whole desktop at once: the
+bar, window borders, terminals (kitty, alacritty, the starship prompt, btop, the greeting), the
+launcher, notifications, the volume OSD, the lock screen, GTK and Qt apps, every panel and agentmux.
+`theme next` from a terminal goes to the next one. The choice is `config/themes/active` (synced like
+any other file: the other PC follows after `dotsync`).
 
-| Role | Color |
+| Theme | |
 |---|---|
-| background / surface | `#1a1b26` / `#24283b` / `#292e42` |
-| text / dim | `#a9b1d6`, bright `#c0caf5` / `#565f89` |
-| accent | `#6b8fe0` blue (a bit darker than stock Tokyo Night), `#bb9af7` magenta |
-| window & popup borders | `#3b4261` at 70%, 1px — same as the waybar bottom line |
+| Tokyo Night | the original: deep blue-black, a soft blue accent (`#6b8fe0`, a bit darker than stock) |
+| Crimson | near-black with a warm red tint, blood red accent (`#d4404f`), olive and amber: after the bloodborne wallpaper |
 
-| App | File |
-|---|---|
-| Hyprland borders | `config/hypr/modules/colors.lua` |
-| waybar, swayosd | `config/waybar/style.css`, `config/swayosd/style.css` |
-| walker | `config/walker/themes/omarchy-default/style.css` |
-| mako | `config/mako/config` |
-| hyprlock | `config/hypr/hyprlock.conf` |
-| panels (GTK) | `local/lib/panels/gtkkit.py` (`CSS`) |
-| kitty, alacritty, btop | `themes/tokyo-night.*` in each |
-| GTK 3/4, Qt | `gtk-*/tokyo-night.css`, `qt6ct/colors/tokyo-night.conf` |
-| KDE apps (Dolphin) | `config/kdeglobals` |
-| terminal greeting (a spinning bagel + the system summary; any key skips it) | `local/bin/greet` (data from fastfetch), `config/fastfetch/config.jsonc` for plain `fastfetch` |
+**How it works.** Every file in this repo is written in Tokyo Night's colours, by hand, as before.
+A theme is `config/themes/<id>/theme.json`: one colour for each of Tokyo Night's 32 roles (base,
+overlay, line, muted, text, accent, alert, green…; the reference is `tokyo-night/theme.json`) and a
+`preview.png` (a screenshot of the Control Center in it). `theme apply <id>` (`local/bin/theme`) makes
+each app's file by swapping every Tokyo Night colour for the theme's colour of the same role, into
+`config/themes/current/` (gitignored), and reloads what's running (Hyprland, waybar, mako, kitty,
+walker, swayosd, agentmux, the Control Center and Docker). Each app reads that file after its own
+colours, with one line:
+
+| App | Its line | Made from |
+|---|---|---|
+| Hyprland borders | `colors.lua`: `dofile …/hypr.lua` | `modules/colors.lua` |
+| waybar, walker, swayosd | `@import` at the end of their `style.css` | the statements that change |
+| mako | `include=` | `mako/config` |
+| hyprlock | `source =` | `hyprlock.conf` |
+| kitty, alacritty | `include` / `import` | `themes/tokyo-night.*` |
+| btop | `color_theme = "current"` (a link in `btop/themes/`) | `themes/tokyo-night.theme` |
+| GTK 3 / 4 apps | `@import` in `gtk.css` | `tokyo-night.css`, `prompt.css` |
+| Qt apps | `qt6ct.conf` → `themes/current/qt6ct.conf` | `qt6ct/colors/tokyo-night.conf` |
+| agentmux (tmux) | `source-file -q` in `app.conf`, `agents.conf` | the same files |
+| starship | `STARSHIP_CONFIG` (`fish/config.fish`) | `starship.toml` |
+
+The GTK panels, agentmux's screens, the clock's tooltip and the greeting swap their colours
+themselves at start (`local/lib/theme/themelib.py`: `recolor(text)`, `rgbf("#6b8fe0")` for cairo).
+With Tokyo Night active none of this changes anything: its files are the originals' bytes or empty,
+and `recolor` returns its text untouched. A missing file (a new PC before its first login) means
+Tokyo Night; `hyprland.lua` runs `theme restore` first thing, which makes the files when they're
+missing or out of date.
+
+**A new theme:** copy `config/themes/crimson/` to `config/themes/<id>/`, change the name and the 32
+colours, `theme apply <id>`, then take its preview: `grim config/themes/<id>/preview.png` on the
+Control Center's workspace. (No preview: the picker draws a sketch from the colours.) **A new colour
+in a file:** use one of the roles (any Tokyo Night colour in `tokyo-night/theme.json`); a colour that
+isn't one stays the same in every theme.
+
+Not themed: Dolphin's own KDE colours (`config/kdeglobals`: KDE has no include, and Settings writes
+that file), the login screen (`system/greeter`, installed as root), the polkit password prompt
+(`hypr/hyprtoolkit.conf`), lazydocker, wiremix, and VS Code (Settings Sync).
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. Helper scripts (power menu, toggles, screenshots) are in

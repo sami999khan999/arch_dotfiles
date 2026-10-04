@@ -47,6 +47,7 @@ bind("SUPER + CTRL + W",             panels .. "netgui.py") -- Network (Manage c
 bind("SUPER + SPACE",                "walker")
 bind("SUPER + K",                    panels .. "keysgui.py") -- shortcut list
 bind("SUPER + I",                    panels .. "settingsgui.py") -- settings
+bind("SUPER + SHIFT + T",            panels .. "themegui.py") -- colour theme (Tokyo Night, Crimson…)
 bind("SUPER + CTRL + G",             "~/.local/bin/wsgroups") -- workspace groups manager
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")

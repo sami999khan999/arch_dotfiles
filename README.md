@@ -8,7 +8,7 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
 
 [![CachyOS](https://img.shields.io/badge/CachyOS-1a1b26?style=for-the-badge&logo=archlinux&logoColor=6b8fe0)](https://cachyos.org) [![Hyprland](https://img.shields.io/badge/Hyprland-1a1b26?style=for-the-badge&logo=hyprland&logoColor=6b8fe0)](https://hyprland.org) [![tmux](https://img.shields.io/badge/tmux-1a1b26?style=for-the-badge&logo=tmux&logoColor=9ece6a)](https://github.com/tmux/tmux) [![GTK 4](https://img.shields.io/badge/GTK_4-1a1b26?style=for-the-badge&logo=gtk&logoColor=e0af68)](https://gtk.org) [![Tokyo Night](https://img.shields.io/badge/theme-Tokyo_Night-6b8fe0?style=for-the-badge&labelColor=1a1b26)](https://github.com/folke/tokyonight.nvim)
 
-[**agentmux**](#agentmux) &nbsp;·&nbsp; [**Panels**](#panels) &nbsp;·&nbsp; [**Also inside**](#also-inside) &nbsp;·&nbsp; [**Install**](#install) &nbsp;·&nbsp; [**Keys**](#keys) &nbsp;·&nbsp; [**Manual**](MANUAL.md)
+[**agentmux**](#agentmux) &nbsp;·&nbsp; [**Panels**](#panels) &nbsp;·&nbsp; [**Themes**](#colour-themes) &nbsp;·&nbsp; [**Also inside**](#also-inside) &nbsp;·&nbsp; [**Install**](#install) &nbsp;·&nbsp; [**Keys**](#keys) &nbsp;·&nbsp; [**Manual**](MANUAL.md)
 
 <br>
 
@@ -80,6 +80,25 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
 </table>
 
 <p align="center"><a href="MANUAL.md#panels">All the panels →</a></p>
+
+<br>
+
+<h2 align="center">Colour themes</h2>
+
+<p align="center"><code>Super + Shift + T</code> · one theme for the whole desktop: bar, borders, terminals, panels, launcher, notifications</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="config/themes/tokyo-night/preview.png" alt="Tokyo Night"></td>
+    <td width="50%"><img src="config/themes/crimson/preview.png" alt="Crimson"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Tokyo Night</b><br><sub>Deep blue-black with a soft blue accent.</sub></td>
+    <td align="center"><b>Crimson</b><br><sub>Near-black with a warm red tint and blood red.</sub></td>
+  </tr>
+</table>
+
+<p align="center"><a href="MANUAL.md#colour-themes-tokyo-night-crimson">How themes work, and making one →</a></p>
 
 <br>
 

@@ -58,7 +58,8 @@ class Settings(View):
             Section("Look & feel", "wallpaper", "", "Wallpaper",
                     "background image picture fill fit", self.page_wallpaper),
             Section("Look & feel", "theme", "", "Theme & fonts",
-                    "dark light mode icons cursor size font monospace gtk qt", self.page_theme),
+                    "colour color theme palette tokyo night crimson dark light mode icons cursor size font monospace gtk qt",
+                    self.page_theme),
             Section("Input & display", "keyboard", "", "Keyboard",
                     "layout language switch repeat rate delay numlock typing", self.page_keyboard),
             Section("Input & display", "mouse", "", "Mouse",
@@ -178,6 +179,13 @@ class Settings(View):
         return False
 
     # ---- helpers -----------------------------------------------------------------------------
+    def pick_theme(self):
+        """The theme picker (themegui.py), in place of this window."""
+        import subprocess
+        subprocess.Popen(["python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "themegui.py")],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.close()
+
     def done(self, where, err=None):
         """Status line after a change: where it was saved, or the error in red."""
         if err:
@@ -331,6 +339,12 @@ class Settings(View):
 
     def page_theme(self, p):
         t = S.theme_get()
+        self.heading(p, "Colours")
+        sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+        import themelib
+        name = themelib.load(themelib.active())["name"]
+        p.append(setting_row("Colour theme", f"{name} · the bar, terminals, panels, notifications, borders (Super + Shift + T)",
+                             button("Choose…", self.pick_theme)))
         self.heading(p, "Style")
         p.append(setting_row("Dark mode", "GTK and libadwaita apps; Qt and KDE apps follow their own theme",
                              switch(t["dark"], lambda v: (S.theme_set_dark(v), self.done("gsettings + gtk-3.0")))))

@@ -41,6 +41,7 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `local/lib/panels/` | the panels: GTK windows `*gui.py` (in use; shared `gtkkit.py`, Control Center `ccgui.py`) and the older terminal versions (`panelkit.py`) |
 | `local/lib/panels/settings*.py` | Settings panel (Super + I): `settingslib.py` reads / writes / applies every setting, `settingsgui.py` is the window. Key mapping (keys / mouse buttons → an action) is `remaps` in `settings.json` → `hl.bind`s in `settings.lua`. `settingslib.py restore` (run at login) puts gsettings back in line with the repo files. Hyprland values: `config/hypr/settings.json` → generated `modules/settings.lua` (required last; don't hand-edit). Per-PC: `settings.local.json` (gitignored) |
 | `config/waybar/` | `config.jsonc` + `style.css`; waybar runs as its packaged systemd user service (restarts itself after a crash) |
+| `config/themes/`, `local/bin/theme`, `local/lib/theme/themelib.py`, `local/lib/panels/themegui.py` | colour themes: a palette per theme, `active`, the generated `current/` (gitignored); `theme apply <id>` makes the files and reloads; the picker is Super + Shift + T |
 | `local/bin/agentmux`, `local/lib/agentmux/`, `config/agentmux/`, `local/lib/panels/agentpickgui.py` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents. The New thread / Open project pickers are GTK popups (`agentpickgui.py`) |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
@@ -59,6 +60,7 @@ Don't report a change as done without seeing it work:
 | agentmux sidebars / home | `agentmux reload` (Ctrl+Alt+R: restarts the views, the agents keep running) | `tmux -L agentmux capture-pane -p -t %0`, `~/.cache/agentmux/errors.log` |
 | a package, a service, state outside `config/` | add it to `setup/` (packages lists, `install.sh`, `setup-dev.sh`) or `system/` | `setup/install.sh --dry-run` |
 | codesync | `systemctl --user restart codesync` | `codesync status`, `journalctl --user -u codesync` |
+| anything with colours | `theme apply tokyo-night` (or `theme restore`) | Tokyo Night must look exactly as before: `theme apply crimson`, screenshot, `theme apply tokyo-night` |
 | a GTK panel | close and reopen it (Control Center / Docker: kill its PID, `wsgroups launch 10 --background`) | off-screen screenshot (see the `tui-panel` skill) — don't pop windows on the user's screen |
 
 Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768), `grim out.png`
@@ -66,10 +68,16 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
 
 ## Conventions
 
-- **Colours** (Tokyo Night, hand-applied — nothing generates them): base `#1a1b26`,
+- **Colours**: write Tokyo Night's, by hand, as always — base `#1a1b26`,
   overlay `#292e42`, line/border `#3b4261`, muted `#565f89`, subtext `#a9b1d6`, text `#c0caf5`,
   accent `#6b8fe0` (darker than stock), alert `#f7768e`, green `#9ece6a`, amber `#e0af68`.
   Square corners, 1px borders in `#3b4261` at 70%.
+  Other colour themes (Crimson…, `Super + Shift + T`) are made from those: `config/themes/<id>/theme.json`
+  maps each Tokyo Night colour (role) to its own, and `theme apply` / `themelib.recolor` swap them (MANUAL.md
+  "Colour themes"). So a new colour must be one of the 32 in `config/themes/tokyo-night/theme.json` (or be
+  added there and to every theme), Python that draws must pass its colours through `recolor` / `rgbf` (gtkkit
+  does it for `css`; markup, cairo and ANSI need it explicitly), and an app's own colours stay ahead of the
+  line that reads `config/themes/current/` (keep those `@import` / `include` / `source` lines last).
 - Font: JetBrainsMono Nerd Font. Icons are Nerd Font glyphs; write them as `\uXXXX` / `\U000fXXXX`
   escapes in Python so they survive editors.
 - Match the surrounding code: short header comment saying what the file is and how it's used,

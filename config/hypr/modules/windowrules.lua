@@ -115,6 +115,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.network)$" }, size = { 680, 590 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.notifications)$" }, size = { 460, 620 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.theme)$" }, size = { 1060, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })

@@ -21,7 +21,7 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 ## Adding a module
 
 1. Add its name to `modules-left/center/right` and its block to `config.jsonc`.
-2. In `style.css`, add its `#id` to the shared chip rule (padding/margin/transition) and the
+2. In `style.css` (above the colour theme's `@import`, which stays last), add its `#id` to the shared chip rule (padding/margin/transition) and the
    shared `:hover` rule near the top, then any specific colours below. Use the `@define-color`
    tokens (`@muted`, `@subtext`, `@text`, `@accent`, `@alert`, `@overlay`, `@line`), not hex.
 3. Section dividers are `border-left/right: 1px solid alpha(@line, 0.7)` on the first/last module

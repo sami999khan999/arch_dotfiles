@@ -1,7 +1,9 @@
-# Omarchy mako — Tokyo Night
+# mako — notifications in the panels' look (gtkkit.py): their #16161e (nearly opaque: blur here is light), a 1px #3b4261 line,
+# JetBrains Mono 10, a bright bold title over the softer body. Every colour stays above the include.
 text-color=#a9b1d6
-border-color=#414868
-background-color=#1a1b26
+border-color=#3b4261
+background-color=#16161ef0
+format=<span foreground="#c0caf5"><b>%s</b></span>\n%b
 # the colour theme (local/bin/theme): its colours after these, which stay when it's missing
 include=~/.config/themes/current/mako
 
@@ -13,10 +15,10 @@ on-notify=exec ~/.config/hypr/scripts/notifications.py log "$id"
 max-history=50
 width=420
 outer-margin=20
-padding=10,15
-border-size=2
+padding=12,16
+border-size=1
 max-icon-size=32
-font=JetBrainsMono Nerd Font 11
+font=JetBrainsMono Nerd Font 10
 
 [app-name=Spotify]
 invisible=1

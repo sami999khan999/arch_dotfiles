@@ -98,6 +98,11 @@ class Themes(View):
         foot.set_margin_bottom(14)
         page = box(True, 10, self.scroller, foot)
         page.set_margin_top(16)
+        # the keys before any widget: the header's Close button has the focus when the window opens,
+        # and would take Enter for itself
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", lambda _c, keyval, _code, state: self.key(keyval, state))
+        self.window.add_controller(keys)
         self.show_chosen()
         return page
 

@@ -291,7 +291,7 @@ change it; keys: `← →` width,
 | Key / command | Does |
 |---|---|
 | `Super + Ctrl + G`, or click it in waybar | open (or close) the manager window: map open apps to workspaces, edit, launch, tidy |
-| `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened) |
+| `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened; reorder them with ↑ ↓ in the Workspaces panel's Open windows list — the bar's `2/4` and Alt + N follow, for as long as the windows stay open) |
 | `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
 | `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…) |

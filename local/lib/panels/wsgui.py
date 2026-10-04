@@ -199,18 +199,39 @@ class Workspaces(View):
         acts.set_margin_top(14)
         self.detail.append(acts)
 
-        self.detail.append(rule_heading("Open windows", str(len(wins)), spaced=True))
+        self.win_box = box(True, 0)
+        self.detail.append(self.win_box)
+        self.paint_windows()
+
+    def paint_windows(self):
+        """The workspace's open windows in their Alt + N order; ↑ ↓ on a row move it (wsgroups move)."""
+        clear(self.win_box)
+        wins = self.windows(self.sel)
+        self.win_box.append(rule_heading("Open windows", str(len(wins)), spaced=True))
         if not wins:
-            self.detail.append(label("none", "dim"))
+            self.win_box.append(label("none", "dim"))
         win_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         win_list.set_activate_on_single_click(True)
         win_list.connect("row-activated", lambda _l, row: self.focus(row.address))
         for i, w in enumerate(wins, 1):
-            line = box(False, 12, label(f"Alt+{i % 10}", "dim"), label(w["title"] or w["class"], ellipsize=True))
+            up = button("\u2191", lambda a=w["address"]: self.move(a, "up"), "flat", tooltip="Move up: one Alt number lower")
+            down = button("\u2193", lambda a=w["address"]: self.move(a, "down"), "flat", tooltip="Move down: one Alt number higher")
+            for btn, can in ((up, i > 1), (down, i < len(wins))):   # the first can't go up, the last down:
+                btn.set_sensitive(can)                               # hidden, their place kept (arrows line up)
+                btn.set_opacity(1 if can else 0)
+            line = box(False, 12, label(f"Alt+{i % 10}", "dim"), label(w["title"] or w["class"], ellipsize=True),
+                       box(False, 0, up, down))
             row = Gtk.ListBoxRow(child=line, tooltip_text="Click to focus this window")
             row.address = w["address"]
             win_list.append(row)
-        self.detail.append(win_list)
+        self.win_box.append(win_list)
+
+    def move(self, address, way):
+        """↑ / ↓ on a window: its place in the Alt + N order (only the list is drawn again: the form
+        above keeps what's being typed)."""
+        self.ws.move(address, -1 if way == "up" else 1)
+        self.clients = self.ws.query("clients") or []
+        self.paint_windows()
 
     def app_menu(self):
         pop = Gtk.Popover()

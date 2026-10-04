@@ -4,6 +4,8 @@
   wsgroups                    open (or close) the manager window (Super + Ctrl + G, or click it in waybar)
   wsgroups tui                the same manager in the terminal
   wsgroups focus N            focus window N (1-10) of the current workspace, in the order opened
+                              (or as reordered: move)
+  wsgroups move ADDR up|down  move a window one place earlier / later in that order (Workspaces panel)
   wsgroups go N               go to workspace N; launch its apps if none are open there yet
   wsgroups new                open another window of the current workspace's app (Super + N)
   wsgroups launch N|all [-f]  launch a group's programs (-f: even if some are already open;
@@ -14,9 +16,12 @@
 
 Groups are stored in ~/.config/hypr/workspaces.conf.
 """
-import json, os, re, shlex, socket, subprocess, sys, time
+import json, os, re, shlex, signal, socket, subprocess, sys, time
 
 CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "wsgroups")
+ORDER = os.path.join(STATE, "order.json")   # [address, …]: windows put in order by hand (move)
+BAR_PID = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "wsgroups-bar.pid")
 ICON = "\U000f0570"  # nf-md-view_carousel
 
 
@@ -44,12 +49,49 @@ POPUPS = ("TUI.float", "panels.")   # popup panels (and the backdrop behind one)
 
 
 def windows(ws, clients=None):
-    """Windows on workspace ws, oldest first — that order is what Alt + N counts."""
+    """Windows on workspace ws, oldest first — that order is what Alt + N counts — except those put in
+    order by hand (move): they come first, as placed, and windows opened since follow them."""
     clients = query("clients") if clients is None else clients
     wins = [c for c in clients or [] if c["workspace"]["id"] == ws and c["mapped"]
             and not c["class"].startswith(POPUPS + ("code-term-",))]
     # popups, panel windows and the kitty beside each VS Code window (codepair.lua) don't count
-    return sorted(wins, key=lambda c: c.get("stableId", 0))
+    placed = {a: i for i, a in enumerate(load_order())}
+    return sorted(wins, key=lambda c: (0, placed[c["address"]]) if c["address"] in placed
+                  else (1, c.get("stableId", 0)))
+
+
+def load_order():
+    try:
+        with open(ORDER) as f:
+            return [a for a in json.load(f) if isinstance(a, str)]
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def move(address, step):
+    """Window address one place earlier (step -1) or later (+1) among its workspace's windows: Alt + N,
+    the bar and the Workspaces panel follow. Kept in ORDER while the window lives (addresses end with
+    the window); the windows of other workspaces keep theirs."""
+    clients = query("clients") or []
+    me = next((c for c in clients if c["address"] == address), None)
+    if not me:
+        return False
+    order = [c["address"] for c in windows(me["workspace"]["id"], clients)]
+    i = order.index(address) if address in order else -1
+    j = i + step
+    if i < 0 or not 0 <= j < len(order):
+        return False
+    order[i], order[j] = order[j], order[i]
+    live = {c["address"] for c in clients}
+    keep = [a for a in load_order() if a in live and a not in order]
+    os.makedirs(STATE, exist_ok=True)
+    with open(ORDER, "w") as f:   # a plain file in ~/.local/state
+        json.dump(keep + order, f)
+    try:   # the bar's "2/4" follows at once
+        os.kill(int(open(BAR_PID).read()), signal.SIGUSR1)
+    except (OSError, ValueError):
+        pass
+    return True
 
 
 def focused(clients=None):
@@ -303,6 +345,10 @@ def bar():
         if out != last:
             print(out, flush=True)
             last = out
+    # move() changes the order without a Hyprland event: it signals the bar (SIGUSR1) instead
+    signal.signal(signal.SIGUSR1, lambda *_: emit())
+    with open(BAR_PID, "w") as f:
+        f.write(str(os.getpid()))
     while True:
         emit()
         try:
@@ -560,6 +606,8 @@ def main(argv):
     rest = [a for a in rest if a not in ("-f", "--force", "--background")]
     if cmd == "focus" and rest:
         focus(int(rest[0]))
+    elif cmd == "move" and len(rest) == 2 and rest[1] in ("up", "down"):
+        move(rest[0], -1 if rest[1] == "up" else 1)
     elif cmd == "new":
         new_window()
     elif cmd == "go" and rest:

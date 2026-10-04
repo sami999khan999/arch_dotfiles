@@ -477,7 +477,7 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
     cmd = HARNESSES.get(harness, ("", harness))[1]
     how = PROMPT_ARGS.get(harness, '"$p"')
     if not session and not resume and harness == "opencode":   # no hooks to tell its id: name it now
-        session = "ses_agentmux" + os.urandom(8).hex()
+        session = opencode_id()
     if session and RESUME_ARGS.get(harness):
         cmd = f"{cmd} {RESUME_ARGS[harness].format(session)}"
     elif resume and CONTINUE_ARGS.get(harness):
@@ -499,6 +499,16 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
         subprocess.Popen(["sh", "-c", 'sleep 3.2; "$@"', "agentmux", *AGENTS, "send-keys", "-t", f"={name}:", "Enter"],
                          start_new_session=True)
     return name
+
+
+def opencode_id():
+    """A new opencode session id made the way opencode makes them (its id.ts, "descending"): "ses_",
+    the inverted millisecond time x 4096 as 6 bytes of hex, 14 random base-62 characters. opencode's
+    free models refuse a session whose id isn't in that form ("only from within OpenCode")."""
+    import secrets, string
+    now = ~(int(time.time() * 1000) * 0x1000 + 1) & 0xFFFFFFFFFFFF
+    letters = string.digits + string.ascii_uppercase + string.ascii_lowercase
+    return "ses_" + f"{now:012x}" + "".join(secrets.choice(letters) for _ in range(14))
 
 
 def wait_started(name, harness, timeout=3.0):

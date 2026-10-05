@@ -36,7 +36,8 @@ What isn't in git follows the repo by itself: at every login `settingslib.py res
 theme, cursor, fonts and clock format in gsettings back in line with `config/gtk-3.0/settings.ini`
 and `config/hypr/settings.json` (also how a theme change made on one PC reaches the other).
 Per-PC on purpose: monitor modes (`settings.local.json`), `config/codesync/machine.json`, time
-zone, power profile, the GPU's own services.
+zone, power profile, the GPU's own services. `install.sh --packages` leaves the NVIDIA driver
+packages out on a PC without an NVIDIA card. The XDG Projects folder (file manager) is `~/code`.
 
 ## Layout
 

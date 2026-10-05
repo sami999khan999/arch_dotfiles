@@ -19,11 +19,17 @@ head_() { printf '\n== %s\n' "$*"; }
 
 if (( PKGS )); then
   head_ "packages"
+  # packages.txt carries the NVIDIA PC's driver; a PC without an NVIDIA card leaves those out
+  pacman_list=$(grep -v '^#' "$REPO/setup/packages.txt")
+  if ! lspci | grep -qi nvidia; then
+    say "no NVIDIA card: skipping $(grep -i nvidia <<< "$pacman_list" | xargs)"
+    pacman_list=$(grep -vi nvidia <<< "$pacman_list")
+  fi
   if (( DRY )); then
-    say "would install $(wc -l < "$REPO/setup/packages.txt") pacman + $(wc -l < "$REPO/setup/packages-aur.txt") AUR packages"
+    say "would install $(wc -l <<< "$pacman_list") pacman + $(wc -l < "$REPO/setup/packages-aur.txt") AUR packages"
     say "would copy system/ files into /etc"
   else
-    sudo pacman -S --needed - < "$REPO/setup/packages.txt"
+    sudo pacman -S --needed - <<< "$pacman_list"
     paru -S --needed - < "$REPO/setup/packages-aur.txt"
     sudo install -Dm644 "$REPO/system/disable_ondevice_ai.json" \
       /etc/opt/chrome/policies/managed/disable_ondevice_ai.json

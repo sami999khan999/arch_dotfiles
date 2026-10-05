@@ -908,5 +908,13 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["restore"]:
         changed = restore_desktop()
         print("restored: " + ", ".join(changed) if changed else "gsettings already match the repo")
+    elif sys.argv[1:2] == ["pin-workspace"] and len(sys.argv) == 3 and sys.argv[2].isdigit():
+        # Super + Shift + Alt + arrow moved the workspace: it keeps the screen it's on now
+        ws = int(sys.argv[2])
+        rc, out = sh("hyprctl", "workspaces", "-j")
+        mon = next((w["monitor"] for w in json.loads(out or "[]") if w["id"] == ws), None) if rc == 0 else None
+        if mon:
+            err = ws_monitor_set(ws, mon)
+            sys.exit(err)
     else:
-        sys.exit("usage: settingslib.py restore")
+        sys.exit("usage: settingslib.py restore | pin-workspace N")

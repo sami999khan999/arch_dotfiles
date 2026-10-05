@@ -326,6 +326,7 @@ change it; keys: `← →` width,
 | `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
 | `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…) |
+| `Super + Shift + Alt + ←/→/↑/↓` | move the current workspace, with its windows, to the screen in that direction (counted from the focused screen); it stays there, also after a restart: its screen in Settings → Workspaces follows (per PC) |
 | `wsgroups launch N\|all [-f]` | launch a group's programs |
 | `wsgroups tidy` | move already-open windows to their workspaces |
 | `wsgroups list` | show groups and numbered windows |

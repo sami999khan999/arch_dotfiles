@@ -37,7 +37,6 @@ DESCRIBE = [
     (r'mode = "maximized"', "Maximize (keeps bar and gaps)"),
     (r"focus\(\{ direction", "Focus window in direction"),
     (r"window\.swap", "Swap window in direction"),
-    (r"workspace\.move\(\{ monitor", "Move workspace to monitor"),
     (r"into_group", "Move window into group"),
     (r'workspace = "special', "Send window to scratchpad"),
     (r"follow = false", "Move window to workspace (stay here)"),

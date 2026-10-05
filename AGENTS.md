@@ -1,7 +1,7 @@
 # AGENTS.md — working on these dotfiles
 
 CachyOS + Hyprland desktop config for one user (sami), shared between PCs through GitHub.
-Riced after Omarchy (waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg), Tokyo Night,
+Riced after Omarchy (waybar, walker, mako, swayosd, hyprlock, hypridle; awww for the wallpaper), Tokyo Night,
 plus custom tools: workspace groups, a Control Center, and `codesync` (code backup SSD → HDD).
 `MANUAL.md` is the user manual (`README.md` is GitHub's front page: screenshots, an overview, links
 into the manual); this file is what an agent needs to change things safely.

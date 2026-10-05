@@ -4,6 +4,7 @@ alsa-firmware
 alsa-plugins
 alsa-utils
 awesome-terminal-fonts
+awww
 base
 base-devel
 bash-completion
@@ -93,6 +94,7 @@ hyprlock
 hyprpicker
 hyprpolkitagent
 hyprsunset
+imagemagick
 imv
 inetutils
 intel-ucode
@@ -192,7 +194,6 @@ snapper
 sof-firmware
 starship
 sudo
-swaybg
 swayosd
 sysfsutils
 texinfo

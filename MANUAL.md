@@ -1,7 +1,7 @@
 # dotfiles: the manual
 
 CachyOS + Hyprland desktop configuration, riced after [Omarchy](https://github.com/basecamp/omarchy)
-(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle, swaybg) in Tokyo Night.
+(its classic v3 stack: waybar, walker, mako, swayosd, hyprlock, hypridle; awww for the wallpaper) in Tokyo Night.
 
 This is the full manual: what everything does and how it's put together. For screenshots and a
 short overview, see the [README](README.md).
@@ -139,8 +139,11 @@ that changes (a longer title, the play button, the clock's long view) and never 
 anything else (`scripts/visualizer.py`).
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
-cycles them. Switching windows on a workspace is instant (no fade for the tiled windows of the
-monocle workspaces, `wsgroups.lua`), so the wallpaper never flashes through. Helper scripts (power menu, toggles, screenshots) are in
+cycles them. awww draws them (`scripts/wallpaper.sh`): a screen whose workspace has windows shows a
+blurred, darker copy of the picture (made once, kept in `~/.cache/wallpaper`), so the gaps around the
+windows are soft; an empty workspace shows the picture itself, with a short fade between the two
+(`modules/wallblur.lua`). Switching windows on a workspace is instant (no fade for the tiled windows
+of the monocle workspaces, `wsgroups.lua`), so the wallpaper never flashes through. Helper scripts (power menu, toggles, screenshots) are in
 `config/hypr/scripts/`.
 
 The bar runs as waybar's own systemd user service (`autostart.lua` starts `waybar.service`): if

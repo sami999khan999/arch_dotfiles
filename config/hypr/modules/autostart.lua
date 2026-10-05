@@ -1,4 +1,4 @@
--- Auto-start config: the classic Omarchy stack (waybar, walker, mako, swayosd, hypridle, swaybg)
+-- Auto-start config: the classic Omarchy stack (waybar, walker, mako, swayosd, hypridle; awww draws the wallpaper)
 -- if you dont use UWSM add your auto start programs here, otherwise use XDG autostart https://wiki.archlinux.org/title/XDG_Autostart
 
 local launch = "uwsm app -- "

@@ -1,21 +1,23 @@
-/* Omarchy swayosd — Tokyo Night */
-@define-color background-color #1a1b26;
-@define-color border-color #414868;
-@define-color label #a9b1d6;
-@define-color image #a9b1d6;
+/* swayosd (volume, brightness, the media key's play / pause) — the panels' and notifications' look:
+   their dark background, a 1px line at 70 %, JetBrains Mono 10, square corners */
+@define-color background-color alpha(#16161e, 0.94);
+@define-color border-color alpha(#3b4261, 0.7);
+@define-color label #c0caf5;
+@define-color image #6b8fe0;
 @define-color progress #6b8fe0;
+@define-color trough #292e42;
 
 window {
   border-radius: 0;
-  opacity: 0.97;
-  border: 2px solid @border-color;
+  border: 1px solid @border-color;
+  padding: 10px 16px;
 
   background-color: @background-color;
 }
 
 label {
   font-family: 'JetBrainsMono Nerd Font';
-  font-size: 11pt;
+  font-size: 10pt;
 
   color: @label;
 }
@@ -24,11 +26,18 @@ image {
   color: @image;
 }
 
-progressbar {
+progressbar, trough {
   border-radius: 0;
+  min-height: 4px;
+}
+
+trough {
+  background-color: @trough;
 }
 
 progress {
+  border-radius: 0;
+  min-height: 4px;
   background-color: @progress;
 }
 

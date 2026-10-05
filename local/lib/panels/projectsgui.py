@@ -366,11 +366,20 @@ class Projects(View):
         self.filter_box.set_visible(name == "graph")
 
     def focus_list(self):
-        row = self.tree.get_selected_row() or self.tree.get_row_at_index(0)
+        row = self.tree.get_selected_row() or self.first_project() or self.tree.get_row_at_index(0)
         if row:
             self.tree.select_row(row)
             row.grab_focus()
         return True
+
+    def first_project(self):
+        """The first project row (the panel opens on it rather than on the first group)."""
+        i = 0
+        while (row := self.tree.get_row_at_index(i)) is not None:
+            if row.kind == "project":
+                return row
+            i += 1
+        return None
 
     def update_counts(self):
         n = {k: sum(p.kind == k for p in self.projects) for k in ("repo", "missing", "local")}

@@ -289,6 +289,12 @@ def groups():
 
 # ---- commands -----------------------------------------------------------------------------------
 def scan(dry=False, quiet=False):
+    if not dry and not os.path.isdir(f"{DIR}/.git"):
+        # no list on this PC yet: writing one here would hide the real one (the panel's setup page and
+        # `projects clone` fetch it), so wait for it
+        if not quiet:
+            print("no list here yet: projects clone (fetch yours) or projects init (start one)")
+        return []
     old = load()
     repos, local = walk()
     found = {}

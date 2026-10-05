@@ -124,6 +124,20 @@ Not themed: Dolphin's own KDE colours (`config/kdeglobals`: KDE has no include, 
 that file), the login screen (`system/greeter`, installed as root), the polkit password prompt
 (`hypr/hyprtoolkit.conf`), lazydocker, wiremix, and VS Code (Settings Sync).
 
+**The audio visualizer** fills the bar's gap (between the workspace buttons and the right side) while
+something plays (cava), and hides when it's silent; click it to play / pause. `Super + Alt + B` (or a
+right click on it) switches its style, and the choice is kept:
+- **bars**: bars with a little space between them
+- **solid**: the same bars side by side, one unbroken strip
+- **mirror**: bars mirrored, the bass in the middle and the treble out at both ends
+- **dots**: braille dots, twice as fine as the bars
+- **wave**: a moving line, three sine waves added up (the bass a slow swell, the mids, the treble
+  quick ripples), each as tall as its part of the sound is loud
+- **off**: nothing
+It's drawn exactly as wide as the gap, which it measures on the bar, so it follows the right side as
+that changes (a longer title, the play button, the clock's long view) and never moves or resizes
+anything else (`scripts/visualizer.py`).
+
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. Helper scripts (power menu, toggles, screenshots) are in
 `config/hypr/scripts/`.

@@ -192,7 +192,8 @@
     "escape": true
   },
   // bars that move with whatever is playing (cava), filling the gap between the workspace buttons
-  // and the right section; hidden while it's silent. Click: play/pause.
+  // and the right section; hidden while it's silent. Styles: bars, solid, mirror, dots, wave, off
+  // (Super + Alt + B or a right click: the next). Click: play/pause.
   // max-length lets it shrink: when the bar runs out of room GTK shrinks it rather than push the
   // right section, so the clock and power button stay put whatever happens (needs "no-center")
   "custom/visualizer": {
@@ -201,7 +202,8 @@
     "restart-interval": 5,
     "tooltip": false,
     "max-length": 400,
-    "on-click": "playerctl play-pause"
+    "on-click": "playerctl play-pause",
+    "on-click-right": "~/.config/hypr/scripts/visualizer.py cycle"
   },
   "mpris": {
     "format": "{status_icon}",
@@ -217,8 +219,8 @@
     "on-scroll-down": "playerctl previous"
   },
   // the stats keep one width (the number takes 3 places, the space after the icon included): at
-  // 100 % a "{usage:>2}" grew the right side by a character, and the visualizer, sized to the pixel
-  // for the gap, got cut off ("…")
+  // 100 % a "{usage:>2}" grew the right side by a character, and the gap's contents, sized to the
+  // pixel, got cut off ("…")
   "memory": {
     "interval": 5,
     "format": "󰘚{percentage:>3}%",

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Omarchy-style toggles.   toggle.sh idle | nightlight [on|off|auto] [quiet] | notifications
-# an indicator came or went: the visualizer (waybar) makes room. By pid: a name match would also
-# signal an editor that has visualizer.py open
+# an indicator came or went: the visualizer (waybar) makes room. By pid, every copy (one per bar:
+# their pids are the file names in waybar-visualizer/); a name match would also signal an editor
+# that has visualizer.py open
 poke_visualizer() {
-  kill -USR1 "$(cat "$XDG_RUNTIME_DIR/waybar-visualizer.pid" 2>/dev/null)" 2>/dev/null
+  for pid in "$XDG_RUNTIME_DIR"/waybar-visualizer/*; do kill -USR1 "${pid##*/}" 2>/dev/null; done
 }
 
 case "$1" in

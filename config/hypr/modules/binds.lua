@@ -326,6 +326,7 @@ bind("XF86AudioPause",               osd .. "--playerctl play-pause",  { locked 
 bind("XF86AudioNext",                osd .. "--playerctl next",        { locked = true })
 bind("XF86AudioPrev",                osd .. "--playerctl previous",    { locked = true })
 bind("SUPER + CTRL + M",             osd .. "--playerctl play-pause",  { locked = true }) -- play / pause the media (the bar's play button), for keyboards without media keys
+bind("SUPER + ALT + B",              scripts .. "visualizer.py cycle") -- bar: the visualizer's next style (bars, solid, mirror, dots, wave, off)
 
 -------------------
 ---- UTILITIES ----

@@ -8,9 +8,9 @@ description: Add, move or restyle a waybar module in this dotfiles repo (config/
 One full-width strip (no outer margins, 1px line along the bottom), square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
 
 ```
-left:   logo │ workspace buttons (custom/ws1…10) │
-centre: audio visualizer (custom/visualizer: cava, only while sound plays), filling the gap
-        between the sides; it may shrink (max-length), so it can never push them
+left:   logo │ workspace buttons (custom/ws1…10) │ audio visualizer (custom/visualizer: cava, only
+        while sound plays; styles bars / solid / mirror / dots / wave / off, Super + Alt + B), filling the gap
+        to the right section; it may shrink (max-length), so it can never push it
 right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
         (custom/window, max 30 chars in wintitle.py, hidden on an empty workspace) │
         codesync, keys, tray, bt, net, volume │ stats (cpu mem temp battery) │
@@ -55,22 +55,26 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 - A live `pkill -SIGUSR2 waybar` can crash waybar, at once (bar geometry: `margin-*`, `height`,
   `layer`, `position`) or minutes later (it segfaulted in glibmm's dispatcher after reloads that
   restarted the custom scripts). Prefer `systemctl --user restart waybar` to apply a change.
-- **The power button never moves.** The visualizer is the centre module with max-length: GTK
-  places a centre module in the space the sides leave (off-centre if needed) and shrinks it rather
-  than push a side. Don't move it into a side section: there a shrinkable label stops at the bar's
-  middle, and an unshrinkable one pushes the right section off when the bar runs out of room.
-- To fill that space exactly (no `…`, no empty strip), `scripts/visualizer.py` measures the gap on
-  the bar while the bars show: a one-pixel-high `grim` of the bar finds the divider after the
-  workspace buttons and the right section's first divider (`#2F354D`, `DIVIDER`), every second and
-  0.3 s after a window event. So the right side may change width freely; keep a divider at both
-  ends of the gap. When it can't measure (silent, grim missing) it falls back to sums over what's
-  on the right (title, group count, play button, indicators, clock view) from `GAP_REF`.
+- **The power button never moves.** The visualizer is the last module of the left section, with
+  max-length: GTK shrinks it rather than push the right section. Don't fill the gap with several
+  modules: a row of them has no such shrinking and pushes the right section off when it runs out of
+  room.
+- To fill the gap exactly (no `…`, no empty strip), `scripts/visualizer.py` measures it on the bar
+  while the bars show: a one-pixel-high `grim` of the bar (`PROBE_Y` 2, above the bars, whose soft
+  top edge at y 4 is near the divider colour) finds the divider after the workspace buttons and the
+  right section's first divider (`#2F354D`, `DIVIDER`), every second and 0.3 s after a window event
+  or a play-button change. So the right side may change width freely; keep a divider at both ends of
+  the gap. When it can't measure (silent, grim missing) it falls back to sums over what's on the
+  right (title, group count, play button, indicators, clock view) from `GAP_REF`.
 - Its recounts run under one lock: Pango isn't thread-safe, and two threads measuring text at once
   aborted the script (`fc_thread_func: code should not be reached`), freezing the bars.
-- Check for a push: the power button's divider must be at x 1335 (`grim` the bar). Calibrate the
-  visualizer's `GAP_REF` only from an un-pushed bar: measured gap minus the push.
-- Signal the visualizer by its pid (`$XDG_RUNTIME_DIR/waybar-visualizer.pid`), never `pkill -f`:
-  a name match also hits an editor that has the file open.
+- Check for a push: the dividers' x must be the same with the bars showing as without (`grim` the
+  bar, find `#2F354D`). Calibrate `GAP_REF` only from an un-pushed bar: measured gap minus the push.
+- waybar runs it once per bar (a screen each); every copy writes its pid as a file name in
+  `$XDG_RUNTIME_DIR/waybar-visualizer/`. Signal them by those pids (SIGUSR1: recount; `visualizer.py
+  set / cycle` sends SIGUSR2 for a new style), never `pkill -f`: a name match also hits an editor that
+  has the file open. What it sees: `$XDG_RUNTIME_DIR/waybar-visualizer.state`; the style:
+  `~/.local/state/visualizer-style`.
 
 ## Apply and verify
 

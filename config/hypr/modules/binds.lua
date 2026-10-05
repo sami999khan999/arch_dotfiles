@@ -64,16 +64,96 @@ bind("SUPER + W",                    hl.dsp.window.close())
 bind("SUPER + Q",                    hl.dsp.window.close())
 bind("SUPER + J",                    hl.dsp.layout("togglesplit"))
 bind("SUPER + P",                    hl.dsp.window.pseudo())
-bind("SUPER + T",                    hl.dsp.window.float({ action = "toggle" }))
+bind("SUPER + T",                    function() toggleDesktopFloat() end) -- float like a desktop window: drag, resize at the edges (again = back in the tiles)
 bind("SUPER + F",                    function() toggleFullscreen("fullscreen") end) -- fullscreen (a VS Code + kitty pair: again = side by side)
 bind("SUPER + ALT + F",              function() toggleFullscreen("maximized") end) -- maximize, bar stays (pairs: again = side by side)
 bind("SUPER + ALT + C",              function() widenPairHalf("code") end) -- VS Code of the pair on screen: full width (again = side by side)
 bind("SUPER + ALT + T",              function() widenPairHalf("term") end) -- kitty of the pair on screen: full width (again = side by side)
 bind("SUPER + ALT + P",              function() openPairPanel() end) -- VS Code + kitty pair: its layout (kitty width, side)
 bind("SUPER + O", function()          -- pop window out: float & pin
-    hl.dispatch(hl.dsp.window.float({ action = "toggle" }))
+    toggleDesktopFloat()
     hl.dispatch(hl.dsp.window.pin())
 end)
+
+-- Super + T: the focused window becomes a desktop-style floating window: out of maximize / fullscreen
+-- and, the first time, 60 % x 70 % of the screen below the bar, centred. Back in the tiles and out
+-- again, it returns where it was (Hyprland keeps the size, persistent_size in windowrules.lua, but
+-- re-centres it). Move it with Super + drag, resize it at its edges (resize_on_border, decorations.lua)
+-- or with Super + right-drag. It stacks like a desktop window too: tagged desktop-float, it goes behind
+-- a tiled window that gets the focus and comes back in front when focused (coverDesktopFloats below).
+-- Global: tests call it by eval.
+local floatPlace = {}   -- window address -> { x, y, monitor } where it floated last
+local DESKTOP_FLOAT = "desktop-float"   -- a window tag: kept by Hyprland across config reloads
+
+local function isDesktopFloat(w)
+    local tags = type(w.tags) == "table" and table.concat(w.tags, " ") or tostring(w.tags or "")
+    return w.floating and tags:find(DESKTOP_FLOAT, 1, true) ~= nil
+end
+
+local function desktopFloatsOn(ws, except)
+    for _, o in ipairs(hl.get_windows()) do
+        if o.workspace and o.workspace.id == ws.id and o.address ~= except and isDesktopFloat(o) then
+            return true
+        end
+    end
+    return false
+end
+
+function toggleDesktopFloat(w)
+    w = w or hl.get_active_window()
+    if not w then return end
+    local target = "address:" .. w.address
+    local m = w.monitor or hl.get_active_monitor()
+    if w.floating then
+        floatPlace[w.address] = { x = w.at.x, y = w.at.y, monitor = m.name }
+        hl.dispatch(hl.dsp.window.tag({ tag = "-" .. DESKTOP_FLOAT, window = target }))
+        hl.dispatch(hl.dsp.window.float({ action = "disable", window = target }))
+        -- the last desktop float gone: the tile maximized to cover them goes back to a plain tile
+        if w.workspace and not desktopFloatsOn(w.workspace, w.address) then
+            for _, o in ipairs(hl.get_windows()) do
+                if o.workspace and o.workspace.id == w.workspace.id and not o.floating and o.fullscreen == 1 then
+                    hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = 0, window = "address:" .. o.address }))
+                end
+            end
+        end
+        return
+    end
+    if w.fullscreen ~= 0 then
+        hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = 0, window = target }))
+    end
+    hl.dispatch(hl.dsp.window.float({ action = "enable", window = target }))
+    hl.dispatch(hl.dsp.window.tag({ tag = "+" .. DESKTOP_FLOAT, window = target }))
+    local last = floatPlace[w.address]
+    if last then   -- floated before: its old place (on another screen now: Hyprland centres it there)
+        if last.monitor == m.name then
+            hl.dispatch(hl.dsp.window.move({ x = last.x, y = last.y, window = target }))
+        end
+        return
+    end
+    local r = m.reserved
+    local aw, ah = m.width / m.scale - r.left - r.right, m.height / m.scale - r.top - r.bottom
+    local fw, fh = math.floor(aw * 0.6), math.floor(ah * 0.7)
+    hl.dispatch(hl.dsp.window.resize({ x = fw, y = fh, window = target }))
+    hl.dispatch(hl.dsp.window.move({ x = math.floor(m.x + r.left + (aw - fw) / 2),
+                                     y = math.floor(m.y + r.top + (ah - fh) / 2), window = target }))
+end
+
+-- A tiled window that gets the focus covers its workspace's desktop floats, as on a desktop. Hyprland
+-- always draws floating windows above tiled ones, except above a maximized window: there a float shows
+-- only once it's focused (Alt + N, Alt + Tab, a click while it's in view). So the focused tile takes the
+-- maximized state (the same size in monocle, nothing moves), and takes it again when it already had it:
+-- that's what sends a float that came to the front back behind. Not on the VS Code + kitty pairs'
+-- workspace (scrolling: a maximized VS Code would cover its kitty), nor over a real fullscreen (video).
+local function coverDesktopFloats(w)
+    if not w or w.floating or w.fullscreen == 2 or not w.workspace then return end
+    if tostring(w.workspace.id) == PAIR_WS or not desktopFloatsOn(w.workspace) then return end
+    local target = "address:" .. w.address
+    if w.fullscreen == 1 then
+        hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 0, client = 0, window = target }))
+    end
+    hl.dispatch(hl.dsp.window.fullscreen_state({ internal = 1, client = 0, window = target }))
+end
+hl.on("window.active", coverDesktopFloats)
 
 -- Focus and swap with arrows
 for key, dir in pairs({ LEFT = "l", RIGHT = "r", UP = "u", DOWN = "d" }) do

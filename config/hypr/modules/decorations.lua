@@ -8,7 +8,11 @@ hl.config({
         gaps_in = 2,
         gaps_out = 4,
         border_size = 1,
-        resize_on_border = false,
+        -- resize a window by dragging its edge, as on a desktop (the floating ones above all: Super + T);
+        -- the grab area reaches a few px past the 1px border, and the cursor shows the resize arrows
+        resize_on_border = true,
+        extend_border_grab_area = 8,
+        hover_icon_on_border = true,
         allow_tearing = false,
         layout = "dwindle",
         col = {

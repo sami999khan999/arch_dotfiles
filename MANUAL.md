@@ -265,6 +265,15 @@ icon is the 6th column of `workspaces.conf`.
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
 A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `Alt + Tab`,
 and is fullscreen again when you come back (a mouse click on another window exits it).
+**Floating windows:** `Super + T` turns the focused window into a desktop-style window: out of
+maximize, 60 % × 70 % of the screen, centred (the first time). Drag it with `Super` + left mouse,
+resize it by grabbing any edge (the cursor shows the arrows; tiled windows' edges resize the split)
+or with `Super` + right mouse. It stacks like a desktop window: focus another window of the workspace
+and that one covers it; it's in front again once you focus it (`Alt + N`, `Alt + Tab`). (The focused
+tiled window takes the maximized state for that, the same size in monocle; not on the VS Code + kitty
+workspace, where floats stay on top.) `Super + T` again puts it back in the tiles; floated again later,
+it comes back where you left it, at the same size. `Super + O` does the same and pins it (it follows
+you to every workspace, always on top).
 The waybar module on the right shows the current group and window, e.g. `Code 2/3`;
 hover for the numbered window list. A popup panel doesn't count: while one is open, the count
 and the title beside it stay on the window it opened over.

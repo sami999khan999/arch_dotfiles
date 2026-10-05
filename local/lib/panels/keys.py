@@ -33,7 +33,6 @@ DESCRIBE = [
     (r"window\.close", "Close window"),
     (r"togglesplit", "Toggle split direction"),
     (r"window\.pseudo", "Pseudo-tile"),
-    (r"float\(\{ action = \"toggle\" \}\)\)$", "Toggle floating"),
     (r'mode = "fullscreen"', "Fullscreen"),
     (r'mode = "maximized"', "Maximize (keeps bar and gaps)"),
     (r"focus\(\{ direction", "Focus window in direction"),

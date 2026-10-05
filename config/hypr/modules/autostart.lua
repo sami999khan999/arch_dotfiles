@@ -19,6 +19,8 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("~/.config/hypr/scripts/toggle.sh nightlight auto quiet") -- on now if inside its schedule (Settings)
     -- gsettings (theme, cursor, fonts, clock) back in line with the repo: a new PC, or a change synced from the other one
     hl.exec_cmd("python3 ~/.local/lib/panels/settingslib.py restore")
+    -- the private project list (~/code/.projects) follows ~/code: record what changed, push it
+    hl.exec_cmd("~/.local/bin/projects scan")
     -- the Control Center, on whichever workspace workspaces.conf gives it (10 by default: Super + Ctrl + 0)
     hl.exec_cmd("~/.local/bin/wsgroups launch " .. (workspaceOfClass("sami.controlcenter") or "10") .. " --background")
 end)

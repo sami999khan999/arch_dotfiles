@@ -29,6 +29,7 @@ pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot t
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
 pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; the data drive, where it's attached
 codesync enable                               # code backup (asks where the code is)
+gh auth login && projects clone               # every project back into ~/code, with its branches
 ```
 
 Then sign in: VS Code (Settings Sync brings its settings), Chrome, and the coding agents.
@@ -242,6 +243,42 @@ gitignored, so every PC keeps its own paths while the ignore list and timing sta
 `codesync restore` first to copy it to the fast drive. Until codesync is enabled on a PC, its waybar icon stays hidden.
 The backup drive must be mounted at boot on that PC: an `/etc/fstab` line (this PC's is `system/fstab-data`).
 The program is `local/bin/codesync`.
+
+## Projects
+
+Every project in `~/code`, with its git remotes, is recorded in a list, so one command brings them all
+back on a new PC or after losing the SSD. **Super + Ctrl + P** opens the Projects panel to browse them.
+
+`~/code` is arranged by status: `active/` (worked on this month), `paused/`, `archive/` (finished or
+dropped; `archive/exercises/` the small practice ones), `templates/`, `forks/`, `notes/`, and `inbox/`
+(scratch: not recorded, not backed up).
+
+**The list** is `~/code/.projects/projects.json`, a git repo of its own, **private** on GitHub
+(`code-projects`): it names private and organisation repos, so it never goes in this public repo. It has
+two copies, GitHub and the HDD (codesync backs up `~/code`, `.projects/` included). It follows `~/code` by
+itself: `projects scan` runs at login and each time the panel opens, and commits + pushes what changed.
+A folder you move is recorded as moved; a project that isn't on this PC stays listed.
+
+| Command | Does |
+|---|---|
+| `projects` | status: one line per project — here / not cloned / local only, changed files, ahead/behind |
+| `projects clone` | **new PC:** fetch the list, then clone every listed project that's missing into its folder, with a local branch for every remote branch. Projects already there are left alone. `projects clone <path>` for one |
+| `projects scan` | record `~/code` now (`-n`: only show what would change) |
+| `projects add <url> [path]` | clone a repo (default `active/<name>`) and record it |
+| `projects forget <path>` | drop a project from the list |
+| `projects init` | once, ever: create the private repo (already done) |
+
+**Local only** projects (a folder with files and no git remote) can't be cloned back: only the SSD and
+the HDD have them. The panel and `projects` mark them in amber; put them in git and push to make them safe.
+
+**The panel** (`panels/projectsgui.py`): the `~/code` tree on the left (groups fold with ←/→ or a click;
+a repo shows its branch, ● when it has uncommitted changes; a cloud for one that isn't cloned; ⚠ local
+only); `/` searches. On the right, the selected project: branch, ahead/behind, changed files, remotes;
+**VS Code** (Enter), **Terminal** (`t`), **Agent** (`a`, an agentmux thread there), **Fetch** (`f`),
+**GitHub** (`g`), or **Clone** for one that isn't here. Below, its branches (newest first, ● the
+checked-out one; click one to see its history) and the last 200 commits.
+
+The program is `local/bin/projects`.
 
 ## App hotkeys (AutoHotkey-style)
 

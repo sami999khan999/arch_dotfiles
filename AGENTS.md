@@ -43,6 +43,7 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `config/waybar/` | `config.jsonc` + `style.css`; waybar runs as its packaged systemd user service (restarts itself after a crash) |
 | `config/themes/`, `local/bin/theme`, `local/lib/theme/themelib.py`, `local/lib/panels/themegui.py` | colour themes: a palette per theme, `active`, the generated `current/` (gitignored); `theme apply <id>` makes the files and reloads; the picker is Super + Shift + T |
 | `local/bin/agentmux`, `local/lib/agentmux/`, `config/agentmux/`, `local/lib/panels/agentpickgui.py` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents. The New thread / Open project pickers are GTK popups (`agentpickgui.py`) |
+| `local/bin/projects`, `local/lib/panels/projectsgui.py` | the project list: every repo in `~/code` and its remotes, in `~/code/.projects/projects.json` (a **private** repo, never in this one); `projects clone` gets them all back; the panel is Super + Ctrl + P |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
 | `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |

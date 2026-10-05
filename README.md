@@ -112,6 +112,9 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
     <td width="33%" align="center" valign="top"><b>codesync</b><br><sub>The code folder backed up from the SSD to the HDD as you work.</sub><br><sub><a href="MANUAL.md#code-backup-codesync">More →</a></sub></td>
     <td width="33%" align="center" valign="top"><b>Every PC the same</b><br><sub>Packages, agents and settings from the repo; <code>dotsync</code> keeps them in step.</sub><br><sub><a href="MANUAL.md#syncing-between-pcs">More →</a></sub></td>
   </tr>
+  <tr>
+    <td width="33%" align="center" valign="top"><b>Projects</b><br><sub>Every repo in the code folder on a private list: one command clones them all back. A panel for branches and history.</sub><br><sub><a href="MANUAL.md#projects">More →</a></sub></td>
+  </tr>
 </table>
 
 <br>

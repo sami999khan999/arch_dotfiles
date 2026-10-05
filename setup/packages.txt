@@ -71,6 +71,7 @@ git
 git-delta
 github-cli
 glances
+gnome-keyring
 go
 grim
 grub

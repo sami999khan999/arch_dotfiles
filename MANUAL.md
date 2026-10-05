@@ -150,6 +150,9 @@ for the toolchains that don't come from pacman.
   The gh login helper stays in `~/.gitconfig`, which is per machine.
 - VS Code: settings and keybindings are not in this repo; they come from VS Code Settings Sync
   (GitHub account). Extensions are listed in `setup/vscode-extensions.txt`.
+- VS Code keeps its secrets (logins, tokens) in gnome-keyring: `"password-store": "gnome-libsecret"` in
+  `~/.vscode/argv.json`, written by `setup/setup-dev.sh`. Without it VS Code doesn't recognise Hyprland
+  as a desktop, finds no keyring and asks to use "weaker encryption" on every start.
 - VS Code terminals don't take the editor down when memory runs out: the built-in terminal starts
   each shell with `systemd-run --user --scope` (VS Code setting `terminal.integrated.profiles.linux`;
   shell integration is then loaded from `~/.zshrc`), so systemd-oomd kills that terminal, not

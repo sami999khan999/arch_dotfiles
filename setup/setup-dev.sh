@@ -70,3 +70,18 @@ if command -v code >/dev/null; then
 else
   say "code missing - install setup/packages-aur.txt first"
 fi
+
+head_ "vs code keyring"
+# VS Code picks its secret store by desktop; Hyprland isn't one it knows, so it found no keyring and
+# asked to use "weaker encryption" on every start. Point it at gnome-keyring (Secret Service) instead.
+argv="$HOME/.vscode/argv.json"
+if grep -q '"password-store"' "$argv" 2>/dev/null; then
+  say "ok       $(grep -o '"password-store"[^,]*' "$argv")"
+elif [[ -s "$argv" ]]; then   # VS Code's own file (JSONC, crash reporter id): add the key after its "{"
+  sed -i '0,/{/s//{\n\t"password-store": "gnome-libsecret",/' "$argv"
+  say "set      password-store gnome-libsecret in $argv"
+else
+  mkdir -p "$HOME/.vscode"
+  printf '{\n\t"password-store": "gnome-libsecret"\n}\n' > "$argv"
+  say "wrote    $argv (password-store gnome-libsecret)"
+fi

@@ -139,7 +139,8 @@ that changes (a longer title, the play button, the clock's long view) and never 
 anything else (`scripts/visualizer.py`).
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
-cycles them. Helper scripts (power menu, toggles, screenshots) are in
+cycles them. Switching windows on a workspace is instant (no fade for the tiled windows of the
+monocle workspaces, `wsgroups.lua`), so the wallpaper never flashes through. Helper scripts (power menu, toggles, screenshots) are in
 `config/hypr/scripts/`.
 
 The bar runs as waybar's own systemd user service (`autostart.lua` starts `waybar.service`): if

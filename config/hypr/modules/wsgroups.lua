@@ -45,10 +45,17 @@ end
 -- only the focused one shows. Nothing is maximized, so switching never resizes a window — a
 -- maximize handed back and forth dropped the old window into a half-width tile and made VS Code
 -- squeeze its sidebar and panel.
+-- Switching windows there is instant: monocle fades the old window out while the new one fades in,
+-- and halfway through both are see-through and the wallpaper flashes. So no animation for a monocle
+-- workspace's tiled windows (a new one appears at once, without the zoom); floating ones keep theirs.
 for ws = 1, 10 do
+    local monocle = tostring(ws) ~= PAIR_WS and grouped[tostring(ws)]
     hl.workspace_rule({ workspace = tostring(ws), monitor = MONITOR1, default = ws == 1, persistent = true,
                         layout = tostring(ws) == PAIR_WS and "scrolling"   -- VS Code + kitty pairs (codepair.lua)
-                            or grouped[tostring(ws)] and "monocle" or nil })
+                            or monocle and "monocle" or nil })
+    if monocle then
+        hl.window_rule({ match = { workspace = tostring(ws), float = false }, no_anim = true })
+    end
 end
 
 -- Alt + N: window N of this workspace, oldest first (same order as `wsgroups focus N`). Done here

@@ -2,12 +2,16 @@
 """projects — the list of every project in ~/code and its git remotes, to get them all back anywhere.
 
   projects             status: one line per project (here / not cloned / no remote, changes, ahead/behind)
-  projects clone [path…]
-                       the one command on a new PC: fetch the list if it isn't here yet, then clone every
-                       listed project that's missing, into its folder, with a local branch for each
-                       remote branch. Projects already on disk are left alone.
+  projects clone [<list url>] [path…]
+                       the one command on a new PC: fetch the list if it isn't here yet (from <list url>,
+                       else <your GitHub user>/code-projects), then clone every listed project that's
+                       missing, into its folder, with a local branch for each remote branch. Projects
+                       already on disk are left alone.
   projects scan [-n]   record what's in ~/code now (commit + push the list if it changed); -n: only show
                        what would change. Runs at login and whenever the Projects panel opens.
+  projects new <folder>/<name> [--template <t>] [--github <owner>] [--public]
+                       a new project: git init + a first commit (from templates/<t> if given), a GitHub
+                       repo under <owner> (private unless --public), and record it
   projects add <url> [path]
                        clone a repo into ~/code/<path> (default active/<repo name>) and record it
   projects forget <path>
@@ -16,7 +20,8 @@
 
 The list is ~/code/.projects/projects.json, a git repo of its own (private on GitHub: it names private
 and organisation repos, so it never goes in the public dotfiles). Two copies: GitHub, and the HDD
-(codesync backs up ~/code, .projects/ included).
+(codesync backs up ~/code, .projects/ included). The Projects panel (Super + Ctrl + P) uses this file's
+functions.
 
 Scan rules: a folder with a .git is a project (its insides aren't searched); a folder with files of its
 own and no git is a "local only" project (no remote: only the SSD and the HDD have it); a folder with
@@ -25,7 +30,7 @@ folder is gone stays listed (maybe just not cloned on this PC), unless its URL t
 else: then it moved. inbox/ is scratch and isn't recorded.
 PROJECTS_ROOT / PROJECTS_DIR point it somewhere else (tests).
 """
-import json, os, re, subprocess, sys
+import json, os, re, shutil, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.expanduser(os.environ.get("PROJECTS_ROOT", "~/code"))
@@ -33,6 +38,9 @@ DIR = os.path.expanduser(os.environ.get("PROJECTS_DIR", f"{ROOT}/.projects"))
 LIST = f"{DIR}/projects.json"
 REPO_NAME = "code-projects"   # <GitHub user>/code-projects, private
 SKIP = {"node_modules", "dist", "build", ".next", "target", ".venv", "venv", "vendor", "__pycache__"}
+# not copied from a template: git, dependencies, build output and caches (the codesync ignore list's kind)
+TEMPLATE_SKIP = SKIP | {".git", ".turbo", ".output", ".svelte-kit", ".expo", ".wrangler", ".vercel",
+                        ".pnpm-store", ".nuxt", ".parcel-cache"}
 NOT_RECORDED = {"inbox"}      # top-level folders that are scratch
 MAX_DEPTH = 4
 JOBS = 4                      # clones / status checks at once
@@ -50,6 +58,11 @@ def git(path, *args, timeout=60):
     except subprocess.TimeoutExpired:
         return False, "timed out"
     return r.returncode == 0, (r.stdout if r.returncode == 0 else r.stderr).strip()
+
+
+def last_line(text, default=""):
+    lines = [l for l in text.splitlines() if l.strip()]
+    return lines[-1].strip() if lines else default
 
 
 # ---- the list -----------------------------------------------------------------------------------
@@ -81,14 +94,53 @@ def commit(message):
     ok, out = git(DIR, "push", "-q", timeout=60)
     if ok:
         return ""
-    return "not pushed (offline?)" + (": " + out.splitlines()[-1] if out else "")
+    return "not pushed (offline?)" + (": " + last_line(out) if out else "")
 
 
-def gh_user():
-    r = subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True)
-    if r.returncode:
-        sys.exit("gh isn't logged in: run  gh auth login")
-    return r.stdout.strip()
+def gh_login():
+    """The GitHub user gh is logged in as ("" if it isn't)."""
+    try:
+        r = subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def gh_owners():
+    """Where a new GitHub repo can go: the user, then their organisations."""
+    user = gh_login()
+    if not user:
+        return []
+    r = subprocess.run(["gh", "api", "user/orgs", "-q", ".[].login"], capture_output=True, text=True, timeout=20)
+    return [user] + (r.stdout.split() if r.returncode == 0 else [])
+
+
+def list_url():
+    """https URL of <user>/code-projects if that repo exists ("" if not, or gh isn't logged in)."""
+    user = gh_login()
+    if not user:
+        return ""
+    r = subprocess.run(["gh", "repo", "view", f"{user}/{REPO_NAME}", "--json", "url", "-q", ".url"],
+                       capture_output=True, text=True, timeout=20)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def get_list(url=""):
+    """Clone the list repo into DIR (url, else <gh user>/code-projects). Returns a problem, or ""."""
+    if os.path.exists(LIST):
+        return ""
+    if os.path.isdir(DIR) and os.listdir(DIR):
+        return f"{DIR} already has files but no projects.json"
+    url = url or list_url()
+    if not url:
+        return "no list repo found: give its URL, or start a new list (projects init)"
+    os.makedirs(ROOT, exist_ok=True)
+    ok, out = git(ROOT, "clone", "-q", url, DIR, timeout=300)
+    if not ok:
+        return last_line(out, "clone failed")
+    if not os.path.exists(LIST):
+        return "that repo has no projects.json"
+    return ""
 
 
 # ---- one project --------------------------------------------------------------------------------
@@ -132,6 +184,58 @@ def entry(rel):
     return e
 
 
+def fetched_ago(path):
+    """Seconds since the repo last fetched (None: never)."""
+    try:
+        return time.time() - os.path.getmtime(os.path.join(path, ".git", "FETCH_HEAD"))
+    except OSError:
+        return None
+
+
+def branch_states(path):
+    """Every branch, local and remote side by side: dicts with name, head, local, upstream, ahead, behind,
+    gone (the upstream was deleted), date; remote-only branches have local False. Newest first."""
+    sep = "\x1f"
+    fmt = sep.join(["%(refname)", "%(refname:short)", "%(upstream:short)", "%(upstream:track)",
+                    "%(committerdate:relative)", "%(HEAD)", "%(committerdate:unix)"])
+    ok, out = git(path, "for-each-ref", f"--format={fmt}", "refs/heads", "refs/remotes")
+    rows = [(l.split(sep) + [""] * 7)[:7] for l in out.splitlines()] if ok else []
+    tracked = {r[2] for r in rows if r[0].startswith("refs/heads/") and r[2]}
+    local_names = {r[1] for r in rows if r[0].startswith("refs/heads/")}
+    out = []
+    for full, short, upstream, track, when, head, unix in rows:
+        if full.startswith("refs/heads/"):
+            ahead = int(m.group(1)) if (m := re.search(r"ahead (\d+)", track)) else 0
+            behind = int(m.group(1)) if (m := re.search(r"behind (\d+)", track)) else 0
+            out.append({"name": short, "head": head == "*", "local": True, "upstream": upstream,
+                        "ahead": ahead, "behind": behind, "gone": "gone" in track, "date": when,
+                        "unix": int(unix or 0)})
+        elif not full.endswith("/HEAD") and short not in tracked and short.partition("/")[2] not in local_names:
+            out.append({"name": short, "head": False, "local": False, "upstream": short, "ahead": 0,
+                        "behind": 0, "gone": False, "date": when, "unix": int(unix or 0)})
+    return sorted(out, key=lambda b: (not b["head"], -b["unix"]))
+
+
+def pull_ff(path, branch):
+    """Fast-forward branch to its upstream (fetching it). (ok, message)."""
+    if branch == current_branch(path):
+        ok, out = git(path, "pull", "-q", "--ff-only", timeout=300)
+        return ok, "pulled" if ok else last_line(out, "pull failed")
+    ok, up = git(path, "rev-parse", "--abbrev-ref", f"{branch}@{{u}}")
+    if not ok:
+        return False, f"{branch} has no upstream"
+    remote, _, rbranch = up.partition("/")
+    ok, out = git(path, "fetch", "-q", remote, f"{rbranch}:{branch}", timeout=300)
+    return ok, f"{branch} fast-forwarded" if ok else last_line(out, "fetch failed")
+
+
+def push(path):
+    """Push the checked-out branch (setting its upstream the first time). (ok, message)."""
+    ok, _ = git(path, "rev-parse", "--abbrev-ref", "@{u}")
+    ok, out = git(path, *(["push", "-q"] if ok else ["push", "-q", "-u", "origin", "HEAD"]), timeout=300)
+    return ok, "pushed" if ok else last_line(out, "push failed")
+
+
 def has_files(path):
     try:
         return any(e.is_file() and not e.name.startswith(".") for e in os.scandir(path))
@@ -162,6 +266,25 @@ def walk():
             elif depth + 1 < MAX_DEPTH:
                 todo.append((sub, depth + 1))
     return repos, local
+
+
+def groups():
+    """Every group folder in ROOT (folders holding only folders), relative paths, sorted."""
+    out, todo = [], [("", 0)]
+    while todo:
+        rel, depth = todo.pop()
+        try:
+            names = [e.name for e in os.scandir(f"{ROOT}/{rel}" if rel else ROOT) if e.is_dir(follow_symlinks=False)]
+        except OSError:
+            continue
+        for name in names:
+            sub = f"{rel}/{name}" if rel else name
+            if name.startswith(".") or name in SKIP or is_repo(f"{ROOT}/{sub}") or has_files(f"{ROOT}/{sub}"):
+                continue
+            out.append(sub)
+            if depth + 1 < MAX_DEPTH:
+                todo.append((sub, depth + 1))
+    return sorted(out)
 
 
 # ---- commands -----------------------------------------------------------------------------------
@@ -228,41 +351,69 @@ def track_all_branches(path):
 
 
 def clone_one(e):
-    """Clone a listed project into its folder. Returns a one-line report."""
+    """Clone a listed project into its folder. (ok, "N branches" or what went wrong)."""
     path = f"{ROOT}/{e['path']}"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     ok, out = git(ROOT, "clone", "-q", "--origin", e.get("remote", "origin"), e["url"], path, timeout=1800)
     if not ok:
-        return False, f"{RED}✗ {e['path']}{RESET}  {out.splitlines()[-1] if out else ''}"
+        return False, last_line(out, "clone failed")
     for name, url in e.get("remotes", {}).items():
         git(path, "remote", "add", name, url)
         git(path, "fetch", "-q", name, timeout=600)
     made = track_all_branches(path)
     if e.get("branch") and current_branch(path) != e["branch"]:
         git(path, "checkout", "-q", e["branch"])
-    return True, f"{GREEN}✓ {e['path']}{RESET}  {DIM}{made + 1} branches{RESET}"
+    return True, f"{made + 1} branches"
 
 
-def clone(paths):
+def missing(paths=()):
+    """Listed projects that aren't on disk (only those in paths, if given)."""
+    return [e for e in load()["projects"]
+            if not os.path.exists(f"{ROOT}/{e['path']}") and (not paths or e["path"] in paths)]
+
+
+def clone_all(todo, report, stop=None):
+    """Clone each entry, JOBS at a time. report(entry, state, detail) with state started / ok / failed /
+    skipped, from the worker threads. stop: a threading.Event; once set, the rest are skipped.
+    Returns the number that failed."""
+    fails = [0]
+    lock = threading.Lock()
+
+    def one(e):
+        if stop is not None and stop.is_set():
+            report(e, "skipped", "")
+            return
+        report(e, "started", "")
+        ok, detail = clone_one(e)
+        with lock:
+            fails[0] += not ok
+        report(e, "ok" if ok else "failed", detail)
+    with ThreadPoolExecutor(JOBS) as pool:
+        list(pool.map(one, todo))
+    return fails[0]
+
+
+def clone(args):
+    url = args.pop(0) if args and re.match(r"^(https?://|git@|ssh://)", args[0]) else ""
     if not os.path.exists(LIST):
-        user = gh_user()
-        print(f"getting the list: {user}/{REPO_NAME} → {DIR}")
-        r = subprocess.run(["gh", "repo", "clone", f"{user}/{REPO_NAME}", DIR, "--", "-q"])
-        if r.returncode:
-            sys.exit(f"couldn't clone {user}/{REPO_NAME} (projects init creates it)")
+        print("getting the list" + (f" from {url}" if url else "") + f" → {DIR}")
+        problem = get_list(url)
+        if problem:
+            sys.exit(problem)
     else:
         git(DIR, "pull", "-q", "--rebase")
-    todo = [e for e in load()["projects"]
-            if not os.path.exists(f"{ROOT}/{e['path']}") and (not paths or e["path"] in paths)]
+    todo = missing([a.strip("/") for a in args])
     if not todo:
         print("every listed project is already here")
         return
     print(f"cloning {len(todo)} project(s) into {ROOT}")
-    fails = 0
-    with ThreadPoolExecutor(JOBS) as pool:
-        for ok, line in pool.map(clone_one, todo):
-            print(line, flush=True)
-            fails += not ok
+
+    def report(e, state, detail):
+        if state == "ok":
+            print(f"{GREEN}✓ {e['path']}{RESET}  {DIM}{detail}{RESET}", flush=True)
+        elif state == "failed":
+            print(f"{RED}✗ {e['path']}{RESET}  {detail}", flush=True)
+    fails = clone_all(todo, report)
     print(f"done: {len(todo) - fails} cloned" + (f", {RED}{fails} failed{RESET}" if fails else ""))
     sys.exit(1 if fails else 0)
 
@@ -310,14 +461,54 @@ def repo_name(url):
     return re.sub(r"\.git$", "", url.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[-1])
 
 
+def kebab(name):
+    """my_App Name -> my-app-name: how folders and new repos are named."""
+    return re.sub(r"[^a-z0-9.]+", "-", name.strip().lower()).strip("-.")
+
+
 def add(url, rel=None):
-    rel = rel or "active/" + repo_name(url).replace("_", "-").lower()
+    rel = rel or "active/" + kebab(repo_name(url))
     if os.path.exists(f"{ROOT}/{rel}"):
         sys.exit(f"{ROOT}/{rel} already exists")
-    ok, line = clone_one({"path": rel, "url": url})
-    print(line)
+    ok, detail = clone_one({"path": rel, "url": url})
+    print(f"{GREEN}✓ {rel}{RESET}  {DIM}{detail}{RESET}" if ok else f"{RED}✗ {rel}{RESET}  {detail}")
     if ok:
         scan(quiet=True)
+
+
+def new_project(rel, template="", owner="", private=True, say=lambda msg: None):
+    """A new project at ROOT/rel: from templates/<template> (copied without git, dependencies and build
+    output) or a README, git init + a first commit, a GitHub repo under owner (if given, pushed), then
+    recorded in the list. say(msg) reports progress. (ok, message)."""
+    rel = rel.strip("/")
+    path, name = f"{ROOT}/{rel}", os.path.basename(rel)
+    if not name or os.path.exists(path):
+        return False, f"{rel} already exists" if name else "no name"
+    say("creating the folder…")
+    if template:
+        src = f"{ROOT}/templates/{template}"
+        if not os.path.isdir(src):
+            return False, f"no template {template}"
+        shutil.copytree(src, path, symlinks=True, ignore=lambda _d, names: [n for n in names if n in TEMPLATE_SKIP])
+    else:
+        os.makedirs(path)
+        with open(f"{path}/README.md", "w") as f:
+            f.write(f"# {name}\n")
+    for step in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["commit", "-q", "-m", "first commit" + (f" (from the {template} template)" if template else "")]):
+        ok, out = git(path, *step)
+        if not ok:
+            return False, f"git {step[0]}: {last_line(out)}"
+    if owner:
+        say(f"creating {owner}/{name} on GitHub…")
+        r = subprocess.run(["gh", "repo", "create", f"{owner}/{name}", "--private" if private else "--public",
+                            "--source", path, "--push"], capture_output=True, text=True, timeout=300)
+        if r.returncode:
+            return False, "GitHub: " + last_line(r.stderr, "gh repo create failed") + " (the folder is made)"
+    say("recording it…")
+    scan(quiet=True)
+    where = f"{owner}/{name} ({'private' if private else 'public'})" if owner else "no remote yet: local only"
+    return True, f"created {rel}, {where}"
 
 
 def forget(rel):
@@ -331,10 +522,13 @@ def forget(rel):
     print(f"forgot {rel}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))
 
 
-def init():
+def init_list():
+    """Create the list: DIR as a git repo, the first scan, the private GitHub repo. (ok, message)."""
     if os.path.isdir(f"{DIR}/.git"):
-        sys.exit(f"{DIR} is already set up")
-    user = gh_user()
+        return False, f"{DIR} is already set up"
+    user = gh_login()
+    if not user:
+        return False, "gh isn't logged in: run  gh auth login"
     os.makedirs(DIR, exist_ok=True)
     with open(f"{DIR}/README.md", "w") as f:
         f.write("# code-projects\n\nEvery project in ~/code and its git remotes, kept by `projects` "
@@ -342,13 +536,15 @@ def init():
                 "New PC: `gh auth login`, then `projects clone`.\n")
     git(DIR, "init", "-q", "-b", "main")
     scan(quiet=True)
+    if not os.path.exists(LIST):
+        save(load())   # an empty ~/code: an empty list
     git(DIR, "add", "-A")
     git(DIR, "commit", "-q", "-m", "first scan")
-    r = subprocess.run(["gh", "repo", "create", f"{user}/{REPO_NAME}", "--private",
-                        "--source", DIR, "--push", "--description", "Every project in ~/code (projects)"])
+    r = subprocess.run(["gh", "repo", "create", f"{user}/{REPO_NAME}", "--private", "--source", DIR, "--push",
+                        "--description", "Every project in ~/code (projects)"], capture_output=True, text=True)
     if r.returncode:
-        sys.exit("couldn't create the GitHub repo; the list is saved locally")
-    print(f"list: {LIST}  (private: github.com/{user}/{REPO_NAME})")
+        return False, "couldn't create the GitHub repo (the list is saved locally): " + last_line(r.stderr)
+    return True, f"list: {LIST}  (private: github.com/{user}/{REPO_NAME})"
 
 
 def main():
@@ -359,13 +555,21 @@ def main():
     elif cmd == "scan":
         scan(dry="-n" in args)
     elif cmd in ("clone", "pull"):
-        clone([a.strip("/") for a in args])
+        clone(args)
+    elif cmd == "new" and args:
+        rel, opts = args[0], args[1:]
+
+        def opt(flag):
+            return opts[opts.index(flag) + 1] if flag in opts and opts.index(flag) + 1 < len(opts) else ""
+        ok, msg = new_project(rel, opt("--template"), opt("--github"), "--public" not in opts, say=print)
+        print(msg) if ok else sys.exit(msg)
     elif cmd == "add" and args:
         add(*args[:2])
     elif cmd == "forget" and args:
         forget(args[0])
     elif cmd == "init":
-        init()
+        ok, msg = init_list()
+        print(msg) if ok else sys.exit(msg)
     else:
         sys.exit(__doc__)
 

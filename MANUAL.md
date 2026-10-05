@@ -262,8 +262,9 @@ A folder you move is recorded as moved; a project that isn't on this PC stays li
 | Command | Does |
 |---|---|
 | `projects` | status: one line per project — here / not cloned / local only, changed files, ahead/behind |
-| `projects clone` | **new PC:** fetch the list, then clone every listed project that's missing into its folder, with a local branch for every remote branch. Projects already there are left alone. `projects clone <path>` for one |
+| `projects clone [<list url>]` | **new PC:** fetch the list (from the URL, else your `code-projects`), then clone every listed project that's missing into its folder, with a local branch for every remote branch. Projects already there are left alone. `projects clone <path>` for one |
 | `projects scan` | record `~/code` now (`-n`: only show what would change) |
+| `projects new <folder>/<name> [--template <t>] [--github <owner>] [--public]` | a new project: git + a first commit (from `templates/<t>`), a GitHub repo (private unless `--public`), recorded |
 | `projects add <url> [path]` | clone a repo (default `active/<name>`) and record it |
 | `projects forget <path>` | drop a project from the list |
 | `projects init` | once, ever: create the private repo (already done) |
@@ -273,10 +274,35 @@ the HDD have them. The panel and `projects` mark them in amber; put them in git 
 
 **The panel** (`panels/projectsgui.py`): the `~/code` tree on the left (groups fold with ←/→ or a click;
 a repo shows its branch, ● when it has uncommitted changes; a cloud for one that isn't cloned; ⚠ local
-only); `/` searches. On the right, the selected project: branch, ahead/behind, changed files, remotes;
-**VS Code** (Enter), **Terminal** (`t`), **Agent** (`a`, an agentmux thread there), **Fetch** (`f`),
-**GitHub** (`g`), or **Clone** for one that isn't here. Below, its branches (newest first, ● the
-checked-out one; click one to see its history) and the last 200 commits.
+only); `/` searches. On the right, the selected project:
+
+- **State**: its branch, then `in sync` / `↑N to push` / `↓N to pull` / `diverged` / `no upstream`, changed
+  files, and when it last fetched. Selecting a project whose last fetch is over 10 minutes old fetches it in
+  the background, so "to pull" is current (offline: the last known state, and the status line says so).
+- **Buttons**: **VS Code** (Enter), **Terminal** (`t`), **Agent** (`a`, an agentmux thread there), **Fetch** (`f`),
+  **Pull** (fast-forward only; off when there's nothing to pull or the branch has diverged), **Push**, **GitHub**
+  (`g`); **Clone** for one that isn't here.
+- **Graph** tab: the last 300 commits of every branch as coloured lanes (merges and forks drawn, ◯ is HEAD),
+  with branch / remote / tag labels on their commits: a remote label is bright when the local branch of the
+  same name is there too. The dropdown shows one branch's history instead.
+- **Branches** tab (Tab switches): each local branch next to its remote, `in sync` (green), `↑ to push`
+  (amber), `↓ to pull` (cyan), `diverged` or `remote deleted` (red), `local only` (never pushed), and the
+  remote's branches you don't have locally (`remote only`). **Check out** (refused while there are
+  uncommitted changes; a remote one becomes a local branch tracking it), **Pull** (fast-forward, even for a
+  branch that isn't checked out). Click a row for its history in the graph.
+
+**+ New** (`n`) makes a project: a name, a folder (an existing group, or *New folder…* to type a path such
+as `clients/acme`), and what it starts from: *Empty* (a README and git), a *template* (`templates/*`, copied
+without git, dependencies and build output, then a fresh git), or *Clone a URL* (every branch). Unless it's
+a clone, it can also create the GitHub repo (owner: you or one of your orgs; private by default) and push.
+It's recorded in the list, which is pushed.
+
+**On a new PC** the panel opens on a setup page when there's no list: if `gh` isn't logged in, a button opens
+`gh auth login`. *Restore your list* fills in your `code-projects` URL (or paste any), clones it, then clones
+every project in it, with a progress list (4 at a time, ✓ / ✗ per project, Stop skips the rest).
+*Start a new list* creates the private repo from what's in `~/code`; then build the structure with + New
+(*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
+header shows **Clone missing (N)**, which uses the same progress list.
 
 The program is `local/bin/projects`.
 

@@ -47,7 +47,7 @@ class Home(App):
 
     def load(self):
         self.project = lib.load_state().get("project", "")
-        self.threads = ([t for t in lib.threads() if t["project"] == self.project and t["kind"] == "agent"]
+        self.threads = ([t for t in lib.threads() if t["project"] == self.project and lib.runs_agent(t)]
                         if self.project else [])
         self.sel = min(self.sel, len(self.rows()) - 1)
 

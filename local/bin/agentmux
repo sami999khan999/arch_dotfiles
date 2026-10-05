@@ -263,7 +263,7 @@ def switch_project(path, build_only=False):
         s.setdefault("projects", []).append(path)
     s["project"] = path
     lib.save_state(s)
-    mine = [t["name"] for t in lib.threads() if t["project"] == path and t["kind"] == "agent"]
+    mine = [t["name"] for t in lib.threads() if t["project"] == path and lib.runs_agent(t)]
     last = s.get("threads", {}).get(path)
     target = last if last in mine else (mine[-1] if mine else None)
     if not build_only and lib.option("resume-on-open"):   # threads that should be running but aren't
@@ -301,7 +301,7 @@ def resume_project(path, quiet=False):
     none remembered: nothing, the home screen asks). Skipped for an agent whose conversation already
     runs straight in the project's VS Code kitty (it would run twice). Returns the thread to show (the one shown last, else the last started) or None."""
     live = {t["name"]: t for t in lib.threads()}
-    mine = [n for n, t in live.items() if t["project"] == path and t["kind"] == "agent"]
+    mine = [n for n, t in live.items() if t["project"] == path and lib.runs_agent(t)]
     saved = sorted(((n, r) for n, r in lib.load_state().get("sessions", {}).items()
                     if r.get("project") == path and n not in live),
                    key=lambda nr: int(nr[0].rsplit(lib.SEP, 1)[-1]) if nr[0].rsplit(lib.SEP, 1)[-1].isdigit() else 0)

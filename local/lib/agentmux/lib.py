@@ -229,6 +229,17 @@ def state_of(t):
 # interactive shells: a thread showing one has no agent running. Not "sh": that's the wrapper an
 # agent runs under (new_thread), which tmux names the pane after while the agent is up.
 SHELLS = {"fish", "bash", "zsh"}
+# the programs agents run as, for one started by hand in a VS Code kitty's thread (no @harness).
+# Not node: a dev server runs as node as often as an npm-installed agent (Codex here is its binary)
+AGENT_PROCESSES = set().union(*PROCESS.values()) - {"node"}
+
+
+def runs_agent(t):
+    """A thread the sidebars, the home screen and the project's resume count as an agent's: one agentmux
+    started for an agent (@harness; it stays listed after the agent quits, to restart or close it), or a
+    VS Code kitty's thread while an agent runs in it. What else runs in a kitty (a dev server, tests,
+    a build) is that kitty's terminal, not a thread."""
+    return t.get("kind") == "agent" and (bool(t.get("harness")) or t.get("command") in AGENT_PROCESSES)
 
 
 def clean_title(title):

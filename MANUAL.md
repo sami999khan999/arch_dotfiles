@@ -420,7 +420,9 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   (`tmux -L agents`). The kitty beside a VS Code window starts in one (kitty-pair), and agentmux's
   middle pane attaches to the same one: one agent, two live views, nothing restarted or copied. A
   new thread made in agentmux also opens as a tab in that project's VS Code kitty. The agent
-  redraws at the size of the view you last typed in.
+  redraws at the size of the view you last typed in. A VS Code kitty's session is listed as a thread
+  only while an agent runs in it (`claude`, `opencode`, `codex`, `agy` typed there): a dev server,
+  tests or a plain shell in it stay that kitty's terminal (`lib.runs_agent`).
 - **`Super + N`** on its workspace (1) starts a new thread (`Ctrl+Alt+N`), opens agentmux if it
   isn't open, or asks for a project first if none is open.
 - **The home screen** (the middle pane with no thread shown) has a prompt box: `↵` starts a thread

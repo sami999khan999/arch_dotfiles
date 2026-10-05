@@ -125,7 +125,7 @@ class Sidebar(App):
         # at. The notifications come from the agents' hooks (agentmux notify) or, for what only the
         # screen shows (a dialog waiting for you, the agent quitting), from here: agentmux notify-screen,
         # sent once per occurrence even though both sidebars see it.
-        now = {t["name"]: lib.state_of(t) for t in rows if t["kind"] == "agent"}
+        now = {t["name"]: lib.state_of(t) for t in rows if lib.runs_agent(t)}
         was = lambda n: self.last_state.get(n)
         finished = [n for n, st in now.items() if st == "idle" and was(n) == "working"]
         if finished:
@@ -171,7 +171,7 @@ class Sidebar(App):
         rows = []
         if self.role == "projects":
             for p in lib.projects(self.threads):   # the subscription's list: no tmux call per redraw
-                ts = [t for t in self.threads if t["project"] == p and t["kind"] == "agent"]
+                ts = [t for t in self.threads if t["project"] == p and lib.runs_agent(t)]
                 busy = sum(look(t) == "working" for t in ts)
                 asks = sum(look(t) == "needs" for t in ts)
                 errs = sum(look(t) == "error" for t in ts)
@@ -226,7 +226,7 @@ class Sidebar(App):
                 rows += [Row("Pick a project", kind="note"), Row("on the left", kind="note")]
             else:
                 shown = state.get("threads", {}).get(project, "")
-                mine = [t for t in self.threads if t["project"] == project and t["kind"] == "agent"]
+                mine = [t for t in self.threads if t["project"] == project and lib.runs_agent(t)]
                 for t in mine:
                     st = look(t)
                     glyph, gfg = STATE_GLYPH[st]
@@ -471,7 +471,7 @@ class Sidebar(App):
         if not sel:
             return
         if sel[0] == "project":
-            ts = [t for t in self.threads if t["project"] == sel[1] and t["kind"] == "agent"]
+            ts = [t for t in self.threads if t["project"] == sel[1] and lib.runs_agent(t)]
             agents = sorted({SHORT.get(t["harness"], t["harness"] or "shell") for t in ts})
             what = (f"Ends {len(ts)} thread{'s' * (len(ts) != 1)} ({', '.join(agents)}) and its terminals"
                     if ts else "Ends its terminals")

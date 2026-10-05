@@ -268,15 +268,17 @@ def next_name(path):
     return f"{base}{SEP}{n}"
 
 
-def new_session(name, path, kind, harness="", command=None):
-    """A detached session on the agents server, tagged with its project. command: argv to run
-    instead of the login shell (run directly, not through it). An agent thread is remembered for
+def new_session(name, path, kind, harness="", command=None, project=None):
+    """A detached session on the agents server, started in path and tagged with its project (path
+    itself unless project says otherwise: a VS Code kitty's new tab in a subfolder). command: argv to
+    run instead of the login shell (run directly, not through it). An agent thread is remembered for
     its project (remember_agent)."""
+    project = project or path
     agents("new-session", "-d", "-s", name, "-c", path, *(command or []))
-    for opt, val in (("@project", path), ("@kind", kind), ("@harness", harness)):
+    for opt, val in (("@project", project), ("@kind", kind), ("@harness", harness)):
         agents("set-option", "-t", f"={name}:", opt, val)
     if kind == "agent" and harness:
-        remember_agent(path, harness)
+        remember_agent(project, harness)
 
 
 # ---- settings (config/agentmux/settings.json, edited in the settings panel: Ctrl+Alt+S) ----------

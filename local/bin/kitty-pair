@@ -3,6 +3,7 @@
 
   kitty-pair <VS Code window address>            open it
   kitty-pair --follow <VS Code window address>   that window opened another project: follow it
+  kitty-pair --new-tab <VS Code window address>  Ctrl+Shift+T in that kitty: a new tab where you are
 
 Open: starts kitty right away (a new VS Code window shows alone until its kitty is there), as its
 own app (uwsm), with the class code-term-<address>: that's how codepair.lua knows which VS Code
@@ -13,6 +14,9 @@ already has its kitty. The VS Code window is focused first: a new column opens b
 
 Follow: if the shell is idle at its prompt it cd's into the new project; if something is running
 there (a dev server, tests) that's left alone and a new kitty tab opens in the new project instead.
+New tab: kitty's own Ctrl+Shift+T opened in the folder kitty started in (~/code, the project root): it
+only sees tmux running in a tab, not the shell's cd. So the kitty maps it here (PAIR_MAPS): the tab
+opens in the directory the shown tab's thread is in, as a thread of the same project.
 Talks to the kitty through its remote-control socket ($XDG_RUNTIME_DIR/kitty-pair-<address>).
 """
 import json, os, shlex, shutil, subprocess, sys, time
@@ -23,6 +27,9 @@ SKIP = {"node_modules", ".git", ".next", "dist", "build", "out", ".venv", "venv"
 SHELLS = {"fish", "zsh", "bash", "sh"}
 STARTUP = 5.0  # seconds --follow waits for a kitty that's still starting
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+SELF = os.path.expanduser("~/.local/bin/kitty-pair")
+# the VS Code kitty's own keys ({addr}: its VS Code window), given to it as -o options when it opens
+PAIR_MAPS = ["map=ctrl+shift+t launch --type=background " + SELF + " --new-tab {addr}"]
 
 
 def clients():
@@ -92,6 +99,8 @@ def open_pair(addr):
                    capture_output=True)
     cmd = ["uwsm", "app", "--", "kitty", "--class", term_class, "--directory", folder,
            "--listen-on", f"unix:{socket_of(addr)}", "-o", "allow_remote_control=socket-only"]
+    for m in PAIR_MAPS:
+        cmd += ["-o", m.format(addr=addr)]
     thread = agentmux_thread(folder)
     os.execvp("uwsm", cmd + (["--", *thread] if thread else []))
 
@@ -177,10 +186,38 @@ def follow(addr):
     remember(addr, folder)
 
 
+def new_tab(addr):
+    """Ctrl+Shift+T: a new tab in the directory the shown tab is in (its thread's shell's), a thread of
+    the same project, so an agent started there shows in agentmux too. Without tmux: kitty's own cwd."""
+    folder = remembered(addr) or ROOT
+    cwd, project = folder, folder
+    r = kitty(addr, "ls")
+    lib = agentmux()
+    if r.returncode == 0:
+        tabs = json.loads(r.stdout)[0]["tabs"]
+        tab = next((t for t in tabs if t["is_active"]), tabs[0])
+        active = next((w for w in tab["windows"] if w["is_active"]), tab["windows"][0])
+        thread = tmux_thread(lib, active) if lib else None
+        if thread:
+            _, out = lib.agents("display-message", "-p", "-t", f"={thread}:", "#{pane_current_path}\t#{@project}")
+            here, _, proj = out.strip().partition("\t")
+            cwd, project = here or cwd, proj or project
+        elif active.get("cwd"):
+            cwd = active["cwd"]
+    if lib:
+        name = lib.next_name(project)
+        lib.new_session(name, cwd, "agent", project=project)
+        kitty(addr, "launch", "--type=tab", "--cwd", cwd, *lib.AGENTS, "attach", "-t", f"={name}")
+    else:
+        kitty(addr, "launch", "--type=tab", "--cwd", cwd)
+
+
 def main():
     args = sys.argv[1:]
     if len(args) == 2 and args[0] == "--follow":
         follow(args[1])
+    elif len(args) == 2 and args[0] == "--new-tab":
+        new_tab(args[1])
     elif len(args) == 1:
         open_pair(args[0])
     else:

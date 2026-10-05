@@ -423,6 +423,9 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   redraws at the size of the view you last typed in. A VS Code kitty's session is listed as a thread
   only while an agent runs in it (`claude`, `opencode`, `codex`, `agy` typed there): a dev server,
   tests or a plain shell in it stay that kitty's terminal (`lib.runs_agent`).
+  `Ctrl+Shift+T` in a VS Code kitty opens the new tab where the shown tab is (its shell's directory,
+  not the folder kitty started in), as a thread of the same project (`kitty-pair --new-tab`). Each
+  tab is titled after its thread: the agent's own title, or the shell's directory.
 - **`Super + N`** on its workspace (1) starts a new thread (`Ctrl+Alt+N`), opens agentmux if it
   isn't open, or asks for a project first if none is open.
 - **The home screen** (the middle pane with no thread shown) has a prompt box: `↵` starts a thread

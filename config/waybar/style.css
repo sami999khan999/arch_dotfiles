@@ -56,16 +56,20 @@ window#waybar {
 }
 
 /* dividers between sections: 1px, full height, same colour as the bottom line */
-/* #custom-codesync: closes the group count + title block; on the next module, so the divider
-   stays when the title is hidden (empty workspace) */
+/* #custom-divider: closes the group count + title block; a zero-width module of its own, so the
+   divider stays when the title is hidden (empty workspace) and when the codesync icon is (no sync) */
 /* #custom-notifications: the bell is its own block after the clock */
-#stats, #custom-clock, #custom-notifications, #custom-power, #custom-codesync {
+#stats, #custom-clock, #custom-notifications, #custom-power, #custom-divider {
   border-left: 1px solid alpha(@line, 0.7);
 }
 /* the right section starts with a divider (the play button's, or the group count's when nothing
    plays), like the left section ends with one */
 #mpris.playing, #mpris.paused, #custom-wsgroups {
   border-left: 1px solid alpha(@line, 0.7);
+}
+#custom-divider {
+  padding: 0;
+  margin: 0;
 }
 /* the workspace buttons always end with a divider, title or not */
 #wsbuttons {

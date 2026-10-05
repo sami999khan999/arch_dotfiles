@@ -21,6 +21,7 @@
     "mpris",
     "custom/wsgroups",
     "custom/window",
+    "custom/divider",
     "custom/codesync",
     "custom/keys",
     "custom/settings",
@@ -52,6 +53,12 @@
   // (click: goOrCycle in binds.lua). No tooltip: GTK hides it on every click, so it blinked while
   // clicking to cycle windows. exec-on-event off: wsbar.py's signal updates them on real changes
   // code backup (~/code -> HDD): status icon, details on hover, panel on click
+  // the divider after the group count + title block: a module of its own, so it stays when the
+  // codesync icon after it is hidden (codesync off, or not set up on this PC)
+  "custom/divider": {
+    "format": "\u200b",
+    "tooltip": false
+  },
   "custom/codesync": {
     "exec": "~/.local/bin/codesync bar",
     "return-type": "json",

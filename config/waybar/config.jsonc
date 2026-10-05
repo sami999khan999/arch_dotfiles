@@ -310,7 +310,7 @@
     "format-connected": "󰂱",
     "format-no-controller": "",
     "tooltip-format": "Devices connected: {num_connections}",
-    "on-click": "~/.config/hypr/scripts/tui.sh bluetui"
+    "on-click": "~/.local/lib/panels/btgui.py"
   },
   "pulseaudio": {
     "format": "{icon}  {volume:>3}%",

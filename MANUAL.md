@@ -329,6 +329,7 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | System (`sysgui.py`) | `Super + Ctrl + T`, waybar CPU / memory | tabs (`1`–`3`): **Overview** (CPU, memory, GPU — a 90 s graph and the details: temperature, clocks, swap, video memory, power…), **Processes** (every process; sort by a column, `/` search, End process / Kill on a second click), **Storage** (each drive: SSD / HDD, read / write now, each partition's usage) |
 | Audio (`audiogui.py`) | `Super + Ctrl + A`, waybar volume | outputs, inputs, what's playing: volume, mute, make default; the Wiremix button opens wiremix |
 | Network (`netgui.py`) | `Super + Ctrl + W`, waybar network | connection, traffic graph, addresses; "Manage connections" opens nmtui |
+| Bluetooth (`btgui.py`) | `Super + Ctrl + B`, waybar Bluetooth | your paired devices (Connect / Disconnect, battery, Forget on a second click) and the ones nearby: it scans while open, and Pair pairs, trusts and connects in one go. A device that shows a code (phone, keyboard) has it on the status line. The switch (`p`) turns Bluetooth on / off, unblocking rfkill if needed; `s` stops / starts the scan |
 | Shortcuts (`keysgui.py`) | `Super + K`, waybar keyboard icon | every shortcut, live from the config; type to fuzzy-search |
 | Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |

@@ -346,9 +346,9 @@ class View:
         return False
 
     # -- provided by the host --
-    def say(self, msg, kind="ok"):
-        """A message on the status line; kind "bad" shows it in red. It clears itself."""
-        self.host.say(msg, kind)
+    def say(self, msg, kind="ok", seconds=4):
+        """A message on the status line; kind "bad" shows it in red. It clears itself after seconds."""
+        self.host.say(msg, kind, seconds)
 
     def typing(self):
         """True while a text field has the keyboard (so letter shortcuts stay off)."""

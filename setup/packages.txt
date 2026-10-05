@@ -161,6 +161,7 @@ paru
 pavucontrol
 perl
 pipewire-alsa
+pipewire-audio
 pipewire-pulse
 pkgconf
 pkgfile

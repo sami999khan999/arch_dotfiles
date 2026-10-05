@@ -114,6 +114,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.workspac
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$" }, size = { 980, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.network)$" }, size = { 680, 590 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.bluetooth)$" }, size = { 760, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.notifications)$" }, size = { 460, 620 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.theme)$" }, size = { 1060, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })

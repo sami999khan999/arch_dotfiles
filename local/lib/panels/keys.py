@@ -24,7 +24,7 @@ DESCRIBE = [
     (r"keys\.py", "This shortcut list"),
     (r'tui\("btop"\)', "btop"),
     (r'tui\("wiremix"\)', "Audio mixer"),
-    (r'tui\("bluetui"\)', "Bluetooth"),
+    (r"btgui\.py", "Bluetooth"),
     (r'tui\("nmtui"\)', "Wi-Fi / network"),
     (r'"walker -m symbols"', "Emoji & symbols"),
     (r'"walker -m clipboard"', "Clipboard history"),

@@ -37,7 +37,7 @@ bind("XF86Calculator",               launch .. CALCULATOR)
 bind("SUPER + CTRL + T",             panels .. "sysgui.py") -- System monitor
 bind("CTRL + SHIFT + Escape",        tui("btop"))
 bind("SUPER + CTRL + A",             panels .. "audiogui.py") -- Audio (Wiremix button for streams)
-bind("SUPER + CTRL + B",             tui("bluetui"))
+bind("SUPER + CTRL + B",             panels .. "btgui.py") -- Bluetooth (pair, connect, battery)
 bind("SUPER + CTRL + W",             panels .. "netgui.py") -- Network (Manage connections opens nmtui)
 
 ---------------

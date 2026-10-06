@@ -6,12 +6,16 @@
 #   Overview    CPU, memory and the NVIDIA GPU: a summary, a graph of the last 90 s, the details
 #   Processes   every running process: sort by a column, search, End process / Kill (click twice)
 #   Storage     each drive: model, SSD / HDD, read / write now, how busy it is, each partition's usage
+#   Ports       what's listening: port, this PC only / the network, the program, its project in
+#               ~/code, how long it's been up; open it, copy its URL, close it (Stop / Kill, click
+#               twice; a Docker container is stopped). "Show all" adds UDP, the system's and the
+#               random high ports apps (VS Code, Chrome, the agents) open for themselves
 #
-#   1 2 3  tabs     /  search processes     Delete  end the selected process
+#   1-4  tabs     /  search processes     Delete  end the selected process / close the selected port
 #
 # Everything is read in a background thread (nvidia-smi alone takes a moment), so the window
 # never stutters; the CPU / temperature / memory helpers are sysmon.py's (the terminal version).
-import json, os, pwd, signal, subprocess, sys, threading, time
+import json, os, pwd, re, signal, subprocess, sys, threading, time
 from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -23,7 +27,8 @@ import sysmon
 
 HISTORY = 60          # samples kept for the graphs (× INTERVAL = 90 s)
 HOT = 85              # percent: from here a number turns red
-TABS = ["Overview", "Processes", "Storage"]
+TABS = ["Overview", "Processes", "Storage", "Ports"]
+CODE = os.path.expanduser("~/code")
 ACCENT, TRACK = rgbf("#6b8fe0"), rgbf("#292e42")
 RED = rgbf("#f7768e")
 LEVEL_RGB = {"green": rgbf("#9ece6a"), "yellow": rgbf("#e0af68"),
@@ -148,12 +153,120 @@ def diskstats():
     return out
 
 
+# ---- listening ports ------------------------------------------------------------------------------
+# the range the kernel hands out random ports from: apps (VS Code, agents, Chrome) listen on a few
+# of those for themselves, which isn't what this tab is for, so they're under "Show all"
+try:
+    EPHEMERAL = int(open("/proc/sys/net/ipv4/ip_local_port_range").read().split()[0])
+except (OSError, ValueError, IndexError):
+    EPHEMERAL = 32768
+BOOT = next((int(l.split()[1]) for l in open("/proc/stat") if l.startswith("btime")), 0)
+TICK = os.sysconf("SC_CLK_TCK")
+
+
+def loopback(addr):
+    """True for an address only this PC can reach (127.x, ::1, a v4-mapped 127.x)."""
+    a = addr.strip("[]").split("%")[0]
+    return a.startswith("127.") or a == "::1" or a.startswith("::ffff:127.")
+
+
+def docker_ports():
+    """{host port: container name} for running containers ({} without docker)."""
+    try:
+        out = subprocess.run(["docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"],
+                             capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    found = {}
+    for line in out.splitlines():
+        name, _, ports = line.partition("\t")
+        for m in re.finditer(r":(\d+)(?:-(\d+))?->", ports):   # 0.0.0.0:9000-9001->9000-9001/tcp
+            for port in range(int(m[1]), int(m[2] or m[1]) + 1):
+                found[port] = name
+    return found
+
+
+def project_of(pid):
+    """The project folder (relative to ~/code: the repo the process runs in) of pid, or ""."""
+    try:
+        d = os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return ""
+    if not (d + "/").startswith(CODE + "/"):
+        return ""
+    cwd = d
+    while d.startswith(CODE + "/"):   # a dev server runs in apps/web: its repo is further up
+        if os.path.exists(f"{d}/.git"):
+            return os.path.relpath(d, CODE)
+        d = os.path.dirname(d)
+    return os.path.relpath(cwd, CODE)
+
+
+def started(pid):
+    """When pid started (epoch seconds), or 0."""
+    try:
+        raw = open(f"/proc/{pid}/stat").read()
+        return BOOT + int(raw[raw.rindex(")") + 2:].split()[19]) / TICK
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def listening(docker):
+    """Every listening socket, one entry per (protocol, port): its addresses, the processes holding it
+    (pids: only this user's show; root's and the system's come without), the program, project and start
+    time, and the Docker container publishing it."""
+    try:
+        out = subprocess.run(["ss", "-Htulnp"], capture_output=True, text=True, timeout=3).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    rows = {}
+    for line in out.splitlines():
+        f = line.split(None, 6)
+        if len(f) < 6:
+            continue
+        proto, local = f[0], f[4]
+        addr, _, port = local.rpartition(":")
+        if not port.isdigit():
+            continue
+        r = rows.setdefault((proto, int(port)), {"proto": proto, "port": int(port), "addrs": set(), "pids": set()})
+        r["addrs"].add(addr)
+        r["pids"].update(int(p) for p in re.findall(r"pid=(\d+)", f[6] if len(f) > 6 else ""))
+    for r in rows.values():
+        pids = sorted(r["pids"])
+        r["pid"] = pids[0] if pids else None
+        r["local"] = all(loopback(a) for a in r["addrs"])
+        r["container"] = docker.get(r["port"]) if r["proto"] == "tcp" else None
+        r["name"], r["cmd"], r["project"], r["since"] = "", "", "", 0
+        if r["pid"]:
+            try:
+                raw = open(f"/proc/{r['pid']}/stat").read()
+                r["name"] = sysmon.app_name(r["pid"], raw[raw.index("(") + 1:raw.rindex(")")])
+                r["cmd"] = open(f"/proc/{r['pid']}/cmdline", "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
+            except OSError:
+                pass
+            r["project"], r["since"] = project_of(r["pid"]), started(r["pid"])
+        elif r["container"]:
+            r["name"], r["cmd"] = f"docker · {r['container']}", f"docker container {r['container']}"
+        r["system"] = not r["pid"] and not r["container"]
+    return sorted(rows.values(), key=lambda r: (r["proto"] != "tcp", r["port"]))
+
+
+def ago(t):
+    s = max(time.time() - t, 0)
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if s >= size:
+            return f"{int(s // size)}{unit}"
+    return f"{int(s)}s"
+
+
 class Sampler:
     """Takes one reading of everything every INTERVAL seconds, in its own thread."""
 
     def __init__(self):
         self.cpu, self.mem, self.gpu = (deque(maxlen=HISTORY) for _ in range(3))
         self.want_procs = False   # only read every process while the Processes tab is shown
+        self.want_ports = False   # the same for the listening sockets (Ports, and Processes' port tags)
+        self.docker, self.docker_at = {}, 0
         self.t0, self.i0 = sysmon.cpu_ticks()
         self.c0 = core_ticks()
         self.p0, self.d0, self.at = {}, diskstats(), time.time()
@@ -184,6 +297,19 @@ class Sampler:
         busy = {k: min((v[2] - self.d0.get(k, v)[2]) / (span * 1000) * 100, 100) for k, v in d1.items()}
         if now - self.drives_at > 5:
             self.drives, self.drives_at = drives(), now
+        ports = []
+        if self.want_ports or self.want_procs:
+            if now - self.docker_at > 5:   # docker ps is slow-ish: its containers every 5 s
+                self.docker, self.docker_at = docker_ports(), now
+            ports = listening(self.docker)
+            by_pid = {}
+            for r in ports:   # the tags show what Ports shows by default (TCP below the random range)
+                if r["proto"] != "tcp" or r["port"] >= EPHEMERAL:
+                    continue
+                for pid in r["pids"]:
+                    by_pid.setdefault(pid, []).append(r["port"])
+            for p in procs:
+                p["ports"] = sorted(set(by_pid.get(p["pid"], [])))
         self.t0, self.i0, self.d0, self.at = t1, i1, d1, now
         self.cpu.append(cpu)
         c1 = core_ticks()
@@ -195,7 +321,8 @@ class Sampler:
         one, five, threads = sysmon.load()
         nprocs = sum(1 for p in os.listdir("/proc") if p.isdigit())
         snap = dict(cpu=cpu, cores=cores, temp=sysmon.cpu_temp(), mhz=cpu_mhz(), mem=mi, used=used, gpu=g, procs=procs,
-                    drives=self.drives, rates=rates, busy=busy, load=(one, five), nprocs=nprocs, threads=threads)
+                    drives=self.drives, rates=rates, busy=busy, load=(one, five), nprocs=nprocs, threads=threads,
+                    ports=ports)
         with self.lock:
             self.snap = snap
 
@@ -259,13 +386,27 @@ class Proc(GObject.Object):
 
 
 # (title, key, text of a row, sort key, width in chars or 0 = expand, right-aligned, dim)
-COLUMNS = [("Name", "name", lambda d: d["name"], lambda d: d["name"].lower(), 0, False, False),
+COLUMNS = [("Name", "name", lambda d: d["name"] + (" · " + " ".join(f":{p}" for p in d["ports"]) if d.get("ports") else ""),
+            lambda d: d["name"].lower(), 0, False, False),
            ("PID", "pid", lambda d: str(d["pid"]), lambda d: d["pid"], 7, True, True),
            ("User", "user", lambda d: d["user"], lambda d: d["user"], 9, False, True),
            ("CPU", "cpu", lambda d: f"{d['cpu']:.1f}%", lambda d: d["cpu"], 7, True, False),
            ("Memory", "rss", lambda d: sysmon.size(d["rss"]), lambda d: d["rss"], 9, True, False),
            ("Threads", "threads", lambda d: str(d["threads"]), lambda d: d["threads"], 7, True, True),
            ("Command", "cmd", lambda d: d["cmd"], lambda d: d["cmd"], 0, False, True)]
+
+
+# the Ports table: (title, text of a row, css class of a row or None, sort key, width in chars or 0, right-aligned)
+PORT_COLUMNS = [
+    ("Port", lambda d: str(d["port"]) + ("/udp" if d["proto"] == "udp" else ""), lambda d: "bold", lambda d: d["port"], 8, True),
+    ("Reachable", lambda d: "this PC" if d["local"] else "network", lambda d: "dim" if d["local"] else "amber",
+     lambda d: d["local"], 9, False),
+    ("Program", lambda d: d["name"] or "system", lambda d: None if d["name"] else "dim", lambda d: (d["name"] or "~").lower(), 18, False),
+    ("PID", lambda d: str(d["pid"] or ""), lambda d: "dim", lambda d: d["pid"] or 0, 7, True),
+    ("Project", lambda d: os.path.basename(d["project"]) or "—", lambda d: "accent" if d["project"] else "dim",
+     lambda d: d["project"] or "~", 18, False),
+    ("Up", lambda d: ago(d["since"]) if d["since"] else "", lambda d: "dim", lambda d: -(d["since"] or 0), 5, True),
+    ("Command", lambda d: d["cmd"], lambda d: "dim", lambda d: d["cmd"], 0, False)]
 
 
 class System(View):
@@ -293,9 +434,11 @@ class System(View):
     def hints(self):
         if self.compact:
             return []
-        h = [("1-3", "tabs")]
+        h = [("1-4", "tabs")]
         if self.tab == "Processes":
-            h += [("/", "search"), ("click a column", "sort"), ("Delete", "end process")]
+            h += [("/", "search"), ("click a column", "sort"), ("Delete", "end process"), ("Enter", "its ports")]
+        elif self.tab == "Ports":
+            h += [("Enter", "open"), ("Delete", "close the port")]
         return h + [("Esc", "close")]
 
     def sample_loop(self):
@@ -328,6 +471,7 @@ class System(View):
         self.pages.add_named(self.build_overview(), "Overview")
         self.pages.add_named(self.build_processes(), "Processes")
         self.pages.add_named(scrolled(self.build_storage()), "Storage")
+        self.pages.add_named(self.build_ports(), "Ports")
         self.tab_buttons = {}
         bar = box(False, 0, classes=("tabs",))
         for i, t in enumerate(TABS, 1):
@@ -340,11 +484,14 @@ class System(View):
     def switch(self, tab):
         self.tab = tab
         self.sampler.want_procs = tab == "Processes"
+        self.sampler.want_ports = tab == "Ports"
         self.pages.set_visible_child_name(tab)
         for t, b in self.tab_buttons.items():
             (b.add_css_class if t == tab else b.remove_css_class)("on")
-        if tab == "Processes":   # the list has the keyboard, so 1-3 and Esc keep working; / searches
+        if tab == "Processes":   # the list has the keyboard, so 1-4 and Esc keep working; / searches
             GLib.idle_add(lambda: self.table.grab_focus() and False)
+        elif tab == "Ports":
+            GLib.idle_add(lambda: self.port_table.grab_focus() and False)
         if self.host:
             self.host.show_hints()
 
@@ -499,6 +646,7 @@ class System(View):
         self.selection = Gtk.SingleSelection(model=self.sorted, autoselect=False, can_unselect=True)
         self.table.set_model(self.selection)
         self.table.sort_by_column(self.columns["cpu"], Gtk.SortType.DESCENDING)
+        self.table.connect("activate", lambda *_: self.show_ports_of(self.selected_pid()))   # Enter / double click
 
         self.search = Gtk.Entry(placeholder_text="Search name, user, command…", hexpand=True)
         self.search.connect("changed", lambda *_: self.filter.changed(Gtk.FilterChange.DIFFERENT))
@@ -514,6 +662,58 @@ class System(View):
         top.set_margin_end(20)
         top.set_margin_bottom(8)
         return box(True, 0, top, scrolled(self.table))
+
+    def build_ports(self):
+        """The listening ports: a table (rows kept from one refresh to the next, as Processes), the
+        "UDP and system" switch and the actions on the selected port."""
+        self.port_store = Gio.ListStore(item_type=Proc)
+        self.port_filter = Gtk.CustomFilter.new(lambda item: self.port_all.get_active() or (
+            item.d["proto"] == "tcp" and not item.d["system"] and (item.d["port"] < EPHEMERAL or item.d["container"])))
+        filtered = Gtk.FilterListModel(model=self.port_store, filter=self.port_filter)
+        self.port_table = Gtk.ColumnView(reorderable=False, show_row_separators=False)
+        first = None
+        for title, text, cls, sort_key, width, right in PORT_COLUMNS:
+            factory = Gtk.SignalListItemFactory()
+            factory.connect("setup", lambda _f, item, right=right:
+                            item.set_child(label("", xalign=1.0 if right else 0.0, ellipsize=not right)))
+            factory.connect("bind", self.bind_port_cell, text, cls)
+            factory.connect("unbind", self.unbind_cell)
+            col = Gtk.ColumnViewColumn(title=title, factory=factory, expand=not width)
+            if width:
+                col.set_fixed_width(width * 9 + 16)
+            col.set_sorter(Gtk.CustomSorter.new(lambda a, b, _u, k=sort_key: (k(a.d) > k(b.d)) - (k(a.d) < k(b.d))))
+            self.port_table.append_column(col)
+            first = first or col
+        self.port_sorted = Gtk.SortListModel(model=filtered, sorter=self.port_table.get_sorter())
+        self.port_sel = Gtk.SingleSelection(model=self.port_sorted, autoselect=True, can_unselect=False)
+        self.port_table.set_model(self.port_sel)
+        self.port_table.sort_by_column(first, Gtk.SortType.ASCENDING)
+        self.port_table.connect("activate", lambda *_: self.open_port())
+        self.port_sel.connect("notify::selected", lambda *_: self.port_count_text())   # the buttons follow the row
+
+        self.port_all = Gtk.CheckButton(label="Show all", tooltip_text=f"also UDP, the system's, and the random ports "
+                                        f"({EPHEMERAL} and up) apps open for themselves")
+        self.port_all.connect("toggled", lambda *_: (self.port_filter.changed(Gtk.FilterChange.DIFFERENT),
+                                                     self.port_count_text()))
+        self.port_count = label("", "dim")
+        self.port_count.set_hexpand(True)
+        self.open_btn = button("Open", self.open_port, tooltip="http://localhost:<port> in the browser (Enter)")
+        self.copy_btn = button("Copy URL", self.copy_port, "flat")
+        self.goto_btn = button("Process", self.port_process, "flat", tooltip="the process in Processes")
+        self.stop_btn = button("Close port", lambda: self.close_port("end"),
+                               tooltip="stop what holds it (Delete; a Docker container: docker stop); click twice")
+        self.pkill_btn = button("Kill", lambda: self.close_port("kill"), tooltip="force it to stop; click twice")
+        top = box(False, 10, self.port_count, self.port_all, self.open_btn, self.copy_btn, self.goto_btn,
+                  self.stop_btn, self.pkill_btn)
+        for edge in ("top", "start", "end"):
+            getattr(top, f"set_margin_{edge}")(16 if edge == "top" else 20)
+        top.set_margin_bottom(8)
+        self.port_empty = label("Nothing is listening", "dim", xalign=0.5)
+        self.port_empty.set_vexpand(True)
+        self.port_pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, vexpand=True)
+        self.port_pages.add_named(scrolled(self.port_table), "table")
+        self.port_pages.add_named(self.port_empty, "empty")
+        return box(True, 0, top, self.port_pages)
 
     def build_storage(self):
         self.storage = box(True, 0, classes=("sys-page",))
@@ -533,6 +733,8 @@ class System(View):
         if not self.compact:
             if self.tab == "Processes":
                 self.paint_processes(s)
+            elif self.tab == "Ports":
+                self.paint_ports(s)
             elif self.tab == "Storage":
                 self.paint_storage(s)
         return False
@@ -643,6 +845,51 @@ class System(View):
             self.table.scroll_to(0, None, Gtk.ListScrollFlags.NONE, None)
         shown = self.sorted.get_n_items()
         self.count.set_text(f"{shown} of {len(s['procs'])}" if shown != len(s["procs"]) else f"{shown} processes")
+
+    def bind_port_cell(self, _factory, item, text, cls):
+        cell, row = item.get_child(), item.get_item()
+
+        def paint(r):
+            cell.set_text(text(r.d))
+            for c in ("bold", "dim", "amber", "accent"):
+                cell.remove_css_class(c)
+            if cls(r.d):
+                cell.add_css_class(cls(r.d))
+            cell.set_tooltip_text(r.d["project"] or None if text is PORT_COLUMNS[4][1] else None)
+        paint(row)
+        cell._proc = row
+        cell._changed = row.connect("changed", paint)
+
+    def paint_ports(self, s):
+        fresh = {(r["proto"], r["port"]): r for r in s["ports"]}
+        key = lambda d: (d["proto"], d["port"])
+        for i in range(self.port_store.get_n_items() - 1, -1, -1):
+            if key(self.port_store.get_item(i).d) not in fresh:
+                self.port_store.remove(i)
+        known = set()
+        for i in range(self.port_store.get_n_items()):
+            row = self.port_store.get_item(i)
+            row.d = fresh[key(row.d)]
+            known.add(key(row.d))
+            row.emit("changed")
+        new = [Proc(r) for k, r in fresh.items() if k not in known]
+        if new:
+            self.port_store.splice(self.port_store.get_n_items(), 0, new)
+            self.port_table.get_sorter().changed(Gtk.SorterChange.DIFFERENT)
+        self.port_count_text()
+
+    def port_count_text(self):
+        shown = self.port_sorted.get_n_items()
+        self.port_count.set_text(f"{shown} port{'s' * (shown != 1)} listening")
+        self.port_pages.set_visible_child_name("table" if shown else "empty")
+        d = self.selected_port()
+        web = bool(d) and d["proto"] == "tcp"
+        for b in (self.open_btn, self.copy_btn):
+            b.set_sensitive(web)
+        self.goto_btn.set_sensitive(bool(d and d["pid"]))
+        for b in (self.stop_btn, self.pkill_btn):
+            b.set_sensitive(bool(d and not d["system"]))
+        self.pkill_btn.set_visible(not (d and d["container"] and not d["pid"]))
 
     def paint_storage(self, s):
         """Each drive as a block: its name and type, read / write now, a map of its partitions
@@ -788,11 +1035,82 @@ class System(View):
     def disarm(self):
         self.armed = None
         if not self.compact:
-            self.end_btn.set_label("End process")
-            self.kill_btn.set_label("Kill")
-            for b in (self.end_btn, self.kill_btn):
+            for b, text in ((self.end_btn, "End process"), (self.kill_btn, "Kill"),
+                            (self.stop_btn, "Close port"), (self.pkill_btn, "Kill")):
+                b.set_label(text)
                 b.remove_css_class("armed")
         return False
+
+    # ---- the Ports tab's actions -----------------------------------------------------------------
+    def selected_port(self):
+        item = self.port_sel.get_selected_item() if hasattr(self, "port_sel") else None
+        return item.d if item else None
+
+    def open_port(self):
+        d = self.selected_port()
+        if d and d["proto"] == "tcp":
+            subprocess.Popen(["xdg-open", f"http://localhost:{d['port']}"], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def copy_port(self):
+        d = self.selected_port()
+        if d:
+            Gdk.Display.get_default().get_clipboard().set(f"http://localhost:{d['port']}")
+            self.say(f"Copied http://localhost:{d['port']}")
+
+    def port_process(self):
+        """The process holding the port, in Processes (searched by its PID)."""
+        d = self.selected_port()
+        if d and d["pid"]:
+            self.switch("Processes")
+            self.search.set_text(str(d["pid"]))
+
+    def show_ports_of(self, pid):
+        """Enter on a process: its ports, if it has any."""
+        item = self.selection.get_selected_item()
+        if pid is None or not item or not item.d.get("ports"):
+            return
+        self.switch("Ports")
+        for i in range(self.port_sorted.get_n_items()):
+            if self.port_sorted.get_item(i).d["pid"] == pid:
+                self.port_sel.set_selected(i)
+                self.port_table.scroll_to(i, None, Gtk.ListScrollFlags.FOCUS, None)
+                break
+
+    def close_port(self, how):
+        """Close the selected port: stop what holds it (every process listed on it; a Docker
+        container with docker stop). Click twice, as End process."""
+        d = self.selected_port()
+        if not d or d["system"]:
+            self.say("That port belongs to the system: not closed here", "bad")
+            return
+        btn = self.stop_btn if how == "end" else self.pkill_btn
+        what = ("port", how, d["proto"], d["port"])
+        if not (self.armed and self.armed[:4] == what and time.time() - self.armed[4] < 3):
+            self.disarm()
+            self.armed = (*what, time.time())
+            btn.add_css_class("armed")
+            btn.set_label("Click again")
+            GLib.timeout_add(3000, self.disarm)
+            return
+        self.disarm()
+        if d["container"] and not d["pid"]:
+            subprocess.Popen(["docker", "stop", d["container"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.say(f"Stopping the {d['container']} container (port {d['port']})")
+            return
+        done, denied = 0, 0
+        for pid in d["pids"]:
+            try:
+                os.kill(pid, signal.SIGTERM if how == "end" else signal.SIGKILL)
+                done += 1
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                denied += 1
+        if denied and not done:
+            self.say(f"{d['name']} isn't yours: not allowed", "bad")
+        else:
+            self.say(f"{'Asked' if how == 'end' else 'Forced'} {d['name']} to stop: port {d['port']} closes with it")
 
     def search_key(self, _ctrl, keyval, _code, _state):
         if keyval != Gdk.KEY_Escape:
@@ -807,7 +1125,7 @@ class System(View):
         if self.compact or self.typing():
             return False
         name = Gdk.keyval_name(keyval) or ""
-        if name in ("1", "2", "3"):
+        if name in ("1", "2", "3", "4"):
             self.switch(TABS[int(name) - 1])
             return True
         if name == "slash":
@@ -816,6 +1134,9 @@ class System(View):
             return True
         if name == "Delete" and self.tab == "Processes":
             self.signal("end")
+            return True
+        if name == "Delete" and self.tab == "Ports":
+            self.close_port("end")
             return True
         return False
 

@@ -7,6 +7,10 @@
   codesync resume
   codesync setup      choose this PC's code folder and backup folder (asked by enable the first time;
                       the Code Sync panel can change them too)
+  codesync move <from> <to>
+                      move a folder inside the code folder (paths relative to it), and its backup copy
+                      with it, so the next sync finds it in place: no copying it all again, no old copy
+                      in the trash. `projects move` (the Projects panel's Move) uses it
   codesync restore    copy the backup into the code folder (never deletes; skips the ignore list).
                       Needed when the code folder is empty: syncing is held until then. Alias: pull
   codesync enable     install and start the background service (systemd --user), also at login
@@ -690,6 +694,35 @@ def bar():
                      ensure_ascii=False))
 
 
+def move_cmd(a, b):
+    """codesync move: the folder and its backup copy, both under LOCK (no sync in between, which would
+    trash the old copy and copy the new one in full). Without a usable backup (not set up, drive not
+    mounted, no copy yet) only the folder moves; the next sync copies it as usual. Exits 1 on an error."""
+    rel = lambda p: os.path.relpath(os.path.abspath(os.path.join(SRC, os.path.expanduser(p))), SRC)
+    a, b = rel(a), rel(b)
+    if a.startswith("..") or b.startswith("..") or a == "." or b == ".":
+        sys.exit(f"both must be inside {SRC}")
+    if not os.path.isdir(os.path.join(SRC, a)):
+        sys.exit(f"no folder {a} in {SRC}")
+    if os.path.exists(os.path.join(SRC, b)) or (b + os.sep).startswith(a + os.sep):
+        sys.exit(f"{b} already exists, or is inside {a}")
+    os.makedirs(STATE_DIR, exist_ok=True)
+    lock = open(LOCK, "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        old, new = os.path.join(DST, a), os.path.join(DST, b)
+        backup = (os.path.exists(MACHINE) and os.path.ismount(MOUNT) and os.path.isdir(old)
+                  and not os.path.exists(new))
+        if backup:   # the same drive: a rename, instant
+            os.makedirs(os.path.dirname(new), exist_ok=True)
+            os.rename(old, new)
+        os.makedirs(os.path.dirname(os.path.join(SRC, b)), exist_ok=True)
+        shutil.move(os.path.join(SRC, a), os.path.join(SRC, b))
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+    log(f"moved {a} → {b}" + (" (and its backup copy)" if backup else ""))
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "status"
     if cmd == "watch":
@@ -708,6 +741,8 @@ def main(argv):
         setup()
     elif cmd in ("restore", "pull"):
         restore()
+    elif cmd == "move" and len(argv) == 4:
+        move_cmd(argv[2], argv[3])
     elif cmd == "enable":
         enable()
     elif cmd == "disable":

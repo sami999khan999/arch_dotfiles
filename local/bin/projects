@@ -19,8 +19,16 @@
                        repo under <owner> (private unless --public), and record it
   projects add <url> [path]
                        clone a repo into ~/code/<path> (default active/<repo name>) and record it
-  projects forget <path>
-                       drop a project from the list
+  projects forget <path>…
+                       drop projects from the list
+  projects move <path> <new path>
+                       move a project inside ~/code (its HDD backup copy with it: codesync move) and
+                       record it; refused while something runs in it
+  projects delete-git <path> [-y]
+                       remove its .git (it stays, as a local-only project)
+  projects delete <path> [-y]
+                       delete its folder and drop it from the list (codesync's trash keeps the backup
+                       copy for a while). Both say what only this copy has and ask first, unless -y
   projects init        once: create the private repo that holds the list, and record ~/code into it
 
 The list is ~/code/.projects/projects.json, a git repo of its own (private on GitHub: it names private
@@ -474,16 +482,104 @@ def free_path(rel):
 
 
 def move_project(src, dst):
-    """ROOT/src to ROOT/dst; the groups src leaves empty go too."""
-    os.makedirs(os.path.dirname(f"{ROOT}/{dst}"), exist_ok=True)
-    shutil.move(f"{ROOT}/{src}", f"{ROOT}/{dst}")
-    parent = os.path.dirname(f"{ROOT}/{src}")
+    """ROOT/src to ROOT/dst; the groups src leaves empty go too. Through codesync when ROOT is what it
+    backs up: the backup copy moves with it (else the next sync would copy it all again and trash the
+    old copy)."""
+    a, b = f"{ROOT}/{src}", f"{ROOT}/{dst}"
+    r = subprocess.run(["codesync", "move", a, b], capture_output=True, text=True) if shutil.which("codesync") else None
+    if r is None or r.returncode != 0 or os.path.exists(a):   # not codesync's folder (or no codesync)
+        os.makedirs(os.path.dirname(b), exist_ok=True)
+        shutil.move(a, b)
+    drop_empty_parents(src)
+
+
+def drop_empty_parents(rel):
+    """The group folders above ROOT/rel that are empty now."""
+    parent = os.path.dirname(f"{ROOT}/{rel}")
     while parent != ROOT and parent.startswith(ROOT + "/"):
         try:
             os.rmdir(parent)   # only if empty
         except OSError:
             break
         parent = os.path.dirname(parent)
+
+
+# ---- moving and deleting a project (the panel's Move…, Delete git, Delete folder) ----------------------
+def busy_in(rel):
+    """Programs running inside ROOT/rel (their working folder is in it): a shell, a dev server, an agent.
+    Moving or deleting the folder under them would break them."""
+    path, found = os.path.realpath(f"{ROOT}/{rel}"), set()
+    for pid in os.listdir("/proc"):
+        if pid.isdigit():
+            try:
+                cwd = os.readlink(f"/proc/{pid}/cwd")
+                if cwd == path or cwd.startswith(path + "/"):
+                    found.add(open(f"/proc/{pid}/comm").read().strip())
+            except OSError:
+                pass
+    return sorted(found)
+
+
+def at_risk(rel):
+    """What only this copy of the repo has, as phrases ([] if nothing): uncommitted changes, commits on
+    no remote, stashes. Deleting the folder or its .git loses them."""
+    path, out = f"{ROOT}/{rel}", []
+    if not is_repo(path):
+        return out
+    ok, st = git(path, "status", "--porcelain")
+    if ok and st:
+        out.append(f"{len(st.splitlines())} uncommitted change{'s' * (len(st.splitlines()) > 1)}")
+    ok, n = git(path, "rev-list", "--count", "--branches", "--not", "--remotes")
+    if ok and n.strip() not in ("", "0"):
+        out.append(f"{n.strip()} commit{'s' * (n.strip() != '1')} on no remote")
+    ok, st = git(path, "stash", "list")
+    if ok and st:
+        out.append(f"{len(st.splitlines())} stash{'es' * (len(st.splitlines()) > 1)}")
+    return out
+
+
+def move(rel, new):
+    """Move a project inside ROOT and record it (the scan sees it moved). (ok, message)."""
+    rel, new = rel.strip("/"), new.strip("/")
+    if not new or new.startswith("..") or os.path.isabs(new):
+        return False, f"give a folder inside {ROOT}"
+    if new == rel:
+        return False, "that's where it is"
+    if os.path.exists(f"{ROOT}/{new}") or (new + "/").startswith(rel + "/"):
+        return False, f"{new} already exists, or is inside the project"
+    busy = busy_in(rel)
+    if busy:
+        return False, f"{', '.join(busy)} running in it: close {'them' if len(busy) > 1 else 'it'} first"
+    move_project(rel, new)
+    scan(quiet=True)
+    return True, f"moved to {new}"
+
+
+def delete_git(rel):
+    """Remove the project's .git: its files stay, as a local-only project. (ok, message)."""
+    path = f"{ROOT}/{rel.strip('/')}"
+    if not is_repo(path):
+        return False, "not a git repo"
+    shutil.rmtree(f"{path}/.git")
+    scan(quiet=True)
+    return True, "git removed: it's a local-only project now"
+
+
+def delete(rel):
+    """Delete the project's folder and drop it from the list. (ok, message). The HDD backup keeps it
+    in its trash for a while (codesync)."""
+    rel = rel.strip("/")
+    busy = busy_in(rel)
+    if busy:
+        return False, f"{', '.join(busy)} running in it: close {'them' if len(busy) > 1 else 'it'} first"
+    shutil.rmtree(f"{ROOT}/{rel}")
+    drop_empty_parents(rel)
+    data = load()
+    data["projects"] = [e for e in data["projects"] if e["path"] != rel]
+    data["local_only"] = [e for e in data["local_only"] if e["path"] != rel]
+    save(data)
+    problem = commit(f"delete {rel}")
+    return True, f"deleted {rel}" + (f" ({problem})" if problem else "")
 
 
 def arrange(dry=False, report=print):
@@ -653,15 +749,17 @@ def new_project(rel, template="", owner="", private=True, say=lambda msg: None):
     return True, f"created {rel}, {where}"
 
 
-def forget(rel):
+def forget(*rels):
+    """Drop projects from the list, one commit for all of them."""
     data = load()
-    n = len(data["projects"])
-    data["projects"] = [e for e in data["projects"] if e["path"] != rel.strip("/")]
-    if len(data["projects"]) == n:
-        sys.exit(f"not listed: {rel}")
+    rels = [r.strip("/") for r in rels]
+    gone = [e["path"] for e in data["projects"] if e["path"] in rels]
+    if not gone:
+        sys.exit(f"not listed: {' '.join(rels)}")
+    data["projects"] = [e for e in data["projects"] if e["path"] not in gone]
     save(data)
-    problem = commit(f"forget {rel}")
-    print(f"forgot {rel}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))
+    problem = commit("forget " + ", ".join(gone))
+    print("forgot " + ", ".join(gone) + (f"  {AMBER}{problem}{RESET}" if problem else ""))
 
 
 def init_list():
@@ -715,7 +813,22 @@ def main():
     elif cmd == "add" and args:
         add(*args[:2])
     elif cmd == "forget" and args:
-        forget(args[0])
+        forget(*args)
+    elif cmd == "move" and len(args) == 2:
+        ok, msg = move(*args)
+        print(msg) if ok else sys.exit(msg)
+    elif cmd in ("delete", "delete-git") and args:
+        rel = args[0].strip("/")
+        if not os.path.exists(f"{ROOT}/{rel}"):
+            sys.exit(f"no folder {rel} in {ROOT}")
+        if "-y" not in args:
+            risk = at_risk(rel)
+            what = "its .git (history, branches)" if cmd == "delete-git" else "the whole folder"
+            print(f"deletes {what} of {rel}" + (f"; only here: {', '.join(risk)}" if risk else ""))
+            if input("sure? [y/N] ").strip().lower() != "y":
+                return
+        ok, msg = (delete_git if cmd == "delete-git" else delete)(rel)
+        print(msg) if ok else sys.exit(msg)
     elif cmd == "init":
         ok, msg = init_list()
         print(msg) if ok else sys.exit(msg)

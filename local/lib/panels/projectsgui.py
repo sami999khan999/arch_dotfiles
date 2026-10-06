@@ -16,7 +16,7 @@
 # Opening runs `projects scan` in the background (the list follows ~/code); selecting a project fetches
 # it if its last fetch is over 10 minutes old, so "to pull" is current. Every git call runs in a thread.
 # The data, clone, new and pull are the `projects` command's.
-import importlib.machinery, importlib.util, os, subprocess, sys, threading
+import importlib.machinery, importlib.util, os, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -329,6 +329,16 @@ class Projects(View):
         self.urls.set_margin_top(8)
         self.actions = box(False, 8)
         self.actions.set_margin_top(14)
+        # managing the folder: Move… (the row under it asks where), Delete git, Delete folder / Forget
+        self.manage = box(False, 8)
+        self.manage.set_margin_top(8)
+        self.move_to = Gtk.Entry(hexpand=True, placeholder_text="new folder, inside ~/code (active/name, archive/…)")
+        self.move_to.connect("activate", lambda *_: self.do_move())
+        self.move_row = box(False, 8, self.move_to, button("Move", self.do_move, "primary"),
+                            button("Cancel", lambda: self.move_row.set_visible(False), "flat"))
+        self.move_row.set_margin_top(8)
+        self.move_row.set_visible(False)
+        self.armed = None   # (what, rel, time) while a delete waits for its second click
         self.note = label("", "amber", wrap=True)
         self.note.set_margin_top(12)
 
@@ -355,8 +365,8 @@ class Projects(View):
         self.tab_pages.add_named(scrolled(self.branch_list), "branches")
         self.tab_pages.set_margin_top(6)
         self.switch_tab("graph")
-        return box(True, 0, self.heading, self.where, self.chips, self.urls, self.actions, self.note,
-                   self.tabs_bar, self.tab_pages)
+        return box(True, 0, self.heading, self.where, self.chips, self.urls, self.actions, self.manage,
+                   self.move_row, self.note, self.tabs_bar, self.tab_pages)
 
     def switch_tab(self, name):
         self.tab = name
@@ -608,6 +618,24 @@ class Projects(View):
                     self.actions.append(b)
         if p.kind != "local" and web_url(p.entry["url"]):
             self.actions.append(button("GitHub", self.open_web, "flat", tooltip="g"))
+        clear(self.manage)
+        self.move_row.set_visible(False)
+        self.armed = None
+        if p.kind == "missing":   # nothing on disk: only the list entry (a repo that's gone, say)
+            self.forget_btn = button("Forget", lambda: self.arm("forget", self.forget_btn), "flat", "danger",
+                                     tooltip="drop it from the list (click twice)")
+            self.manage.append(self.forget_btn)
+            return
+        self.manage.append(button("Move…", self.ask_move, "flat", tooltip="to another folder in ~/code; "
+                                  "the HDD backup copy moves with it"))
+        if p.kind == "repo" or p.entry.get("git"):
+            self.ungit_btn = button("Delete git", lambda: self.arm("git", self.ungit_btn), "flat", "danger",
+                                    tooltip="remove .git (history, branches): the files stay, local-only (click twice)")
+            self.manage.append(self.ungit_btn)
+        self.delete_btn = button("Delete folder", lambda: self.arm("folder", self.delete_btn), "flat", "danger",
+                                 tooltip="delete it from ~/code and the list; codesync's trash on the HDD "
+                                         "keeps the backup copy for a while (click twice)")
+        self.manage.append(self.delete_btn)
 
     def load_git(self, p, gen):
         """What the detail page shows from git (in this thread), then the graph."""
@@ -768,6 +796,62 @@ class Projects(View):
         p = self.current()
         if p and p.kind != "local" and web_url(p.entry["url"]):
             subprocess.Popen(["xdg-open", web_url(p.entry["url"])], start_new_session=True)
+
+    # ---- managing the folder: move, delete git, delete, forget ----------------------------------------
+    def ask_move(self):
+        p = self.current()
+        if p:
+            self.move_to.set_text(p.rel)
+            self.move_row.set_visible(True)
+            self.move_to.grab_focus()
+            self.move_to.select_region(len(os.path.dirname(p.rel)) + 1 if "/" in p.rel else 0, -1)
+
+    def do_move(self):
+        p = self.current()
+        new = self.move_to.get_text().strip().strip("/")
+        if not p or not new:
+            return
+        self.say(f"moving {p.name}…", seconds=300)
+
+        def work():
+            ok, msg = pj.move(p.rel, new)
+            GLib.idle_add(lambda: (self.say(f"{p.name}: {msg}", "ok" if ok else "bad"),
+                                   ok and self.reload(select=new)) and False)
+        threading.Thread(target=work, daemon=True).start()
+
+    def arm(self, what, btn):
+        """A delete / forget: the first click says what it costs, the second (within 4 s) does it."""
+        p = self.current()
+        if not p:
+            return
+        if self.armed and self.armed[:2] == (what, p.rel) and time.time() - self.armed[2] < 4:
+            self.armed = None
+            return self.do_delete(what, p)
+        self.armed = (what, p.rel, time.time())
+        risk = pj.at_risk(p.rel) if what in ("git", "folder") else []
+        btn.set_label("Click again" + (f": {', '.join(risk)} lost" if risk else ""))
+        busy = pj.busy_in(p.rel) if what == "folder" else []
+        if busy:
+            self.say(f"{', '.join(busy)} running in it: close {'them' if len(busy) > 1 else 'it'} first", "bad")
+        GLib.timeout_add(4000, lambda: btn.set_label({"forget": "Forget", "git": "Delete git",
+                                                      "folder": "Delete folder"}[what]) or False)
+
+    def do_delete(self, what, p):
+        self.say(f"{p.name}: deleting…", seconds=300)
+
+        def work():
+            if what == "forget":
+                data = pj.load()
+                data["projects"] = [e for e in data["projects"] if e["path"] != p.rel]
+                pj.save(data)
+                problem = pj.commit(f"forget {p.rel}")
+                ok, msg = True, "dropped from the list" + (f" ({problem})" if problem else "")
+            else:
+                ok, msg = (pj.delete_git if what == "git" else pj.delete)(p.rel)
+            GLib.idle_add(lambda: (self.say(f"{p.name}: {msg}", "ok" if ok else "bad"),
+                                   self.reload(select=p.rel if what == "git" else None),
+                                   what != "git" and self.pages.set_visible_child_name("empty")) and False)
+        threading.Thread(target=work, daemon=True).start()
 
     def git_job(self, start, work):
         """say(start), run work(p) -> (ok, message) in a thread, report it and redraw the project."""

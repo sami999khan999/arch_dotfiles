@@ -308,6 +308,15 @@ button above opens `gh auth login`. *Start a new list instead* creates the priva
 (*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
 header shows **Clone missing (N)**, which uses the same progress list.
 
+**Move, delete, forget** (under a project's buttons): *Move…* takes it to another folder in `~/code` (type
+the new path; its HDD backup copy moves with it through `codesync move`, so nothing is copied again) and
+records it; it's refused while something runs inside the project (a shell, a dev server, an agent).
+*Delete git* removes `.git` (the files stay, as a local-only project); *Delete folder* deletes it and drops
+it from the list. Both take a second click, which first says what only this copy has (uncommitted
+changes, commits on no remote, stashes); the HDD backup keeps a deleted copy in codesync's trash for a
+while. A listed project that isn't here (its repo gone) has *Forget* instead. The same from a shell:
+`projects move`, `projects delete-git`, `projects delete`, `projects forget`.
+
 The list syncs by itself: every change is committed and pushed, after pulling what the other PC pushed
 (a scan, at login and whenever the panel opens, pulls first, and pushes a commit a failed push left
 behind). If both PCs changed it at once and the two can't be put together, it says so and leaves the

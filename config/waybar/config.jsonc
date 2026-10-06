@@ -325,8 +325,6 @@
   // icon: "{volume:>3}" put it between the icon and the number
   "pulseaudio": {
     "format": "{icon}  {volume}%",
-    "min-length": 7,
-    "align": 1,
     "on-click": "~/.local/lib/panels/audiogui.py",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",

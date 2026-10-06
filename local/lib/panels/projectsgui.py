@@ -345,6 +345,9 @@ class Projects(View):
         self.fetched = set()          # projects fetched since the panel opened
         self.fetching = set()
         self.fetched_all = False      # the stale repos were fetched (once, when the panel opened)
+        self.shown_rel = None         # the project on the page: the same one again isn't blanked first
+        self.tree_seen = None         # what the tree shows (paint_tree skips a repaint that changes nothing)
+        self.branch_names = []        # for the graph's branch filter
         self.syncing = False          # Sync all is running
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
@@ -597,6 +600,12 @@ class Projects(View):
         return out
 
     def paint_tree(self, keep_scroll=False):
+        # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
+        seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned),
+                tuple((p.rel, p.kind, p.branch, p.dirty, p.unpushed, p.out_of_date, p.conflicts) for p in self.projects))
+        if keep_scroll and seen == self.tree_seen:
+            return False
+        self.tree_seen = seen
         adj = self.tree.get_parent().get_vadjustment() if keep_scroll and self.tree.get_parent() else None
         top = adj.get_value() if adj else 0
         clear(self.tree)
@@ -640,8 +649,12 @@ class Projects(View):
                 picked = True
         if self.search.get_text().strip() and first:
             self.tree.select_row(first)
-        if adj:
-            GLib.idle_add(lambda: adj.set_value(top) and False)
+        if adj:   # put the view back where it was as the new rows are laid out, in that same frame
+            def back(a):
+                a.set_value(min(top, max(a.get_upper() - a.get_page_size(), 0)))
+            hid = adj.connect("changed", back)
+            GLib.timeout_add(300, lambda: adj.handler_is_connected(hid) and adj.disconnect(hid) and False)
+            back(adj)
         return False
 
     def project_line(self, p, match):
@@ -733,11 +746,18 @@ class Projects(View):
         self.gen += 1
         gen = self.gen
         self.live = None
+        # the same project again (a sync, a commit, a live change): what's on the page stays until each part
+        # is replaced by its new content, so nothing blanks in between; another project starts empty
+        same = p.rel == self.shown_rel
+        self.shown_rel = p.rel
         self.heading.set_text(p.name)
         self.where.set_text(tilde(p.path))
-        clear(self.chips)
-        clear(self.others)
-        self.others.set_visible(False)
+        if not same:
+            clear(self.chips)
+            clear(self.others)
+            self.others.set_visible(False)
+            clear(self.change_list)
+            clear(self.conflict_list)
         clear(self.urls)
         e = p.entry
         if p.kind != "local":
@@ -754,9 +774,10 @@ class Projects(View):
         has_git = p.kind == "repo" or (p.kind == "local" and e.get("git"))
         self.tabs_bar.set_visible(has_git)
         self.tab_pages.set_visible(has_git)
-        clear(self.graph)
-        clear(self.branch_list)
-        clear(self.filter_box)
+        if not same or not has_git:
+            clear(self.graph)
+            clear(self.branch_list)
+            clear(self.filter_box)
         if not has_git:
             return
         stale = pj.fetched_ago(p.path)
@@ -1075,9 +1096,8 @@ class Projects(View):
         if self.push_btn:
             self.push_btn.set_sensitive(bool(ahead) or (ahead is None and has_origin))
         self.paint_branches(branches)
-        clear(self.filter_box)
-        self.filter_box.append(dropdown([("", "All branches")] + [(b["name"], b["name"]) for b in branches],
-                                        self.ref, self.show_graph_of))
+        self.branch_names = [b["name"] for b in branches]
+        self.paint_filter()
         return False
 
     def paint_branches(self, branches):
@@ -1138,14 +1158,19 @@ class Projects(View):
         p = self.current()
         if not p:
             return
-        if tab:   # from the Branches tab: the graph tab, its filter set to ref
-            self.ref = ref
+        if tab:   # a branch's name (the table, the Branches tab): the Graph tab on it; only the graph reloads
             self.switch_tab("graph")
-            self.show_detail(fetch=False)
-            return
-        if ref != self.ref:
+        if ref != self.ref or tab:
             self.ref = ref
+            if tab:
+                self.paint_filter()   # the filter shows that branch (from the dropdown itself it already does)
             threading.Thread(target=self.load_graph, args=(p, self.gen, ref), daemon=True).start()
+
+    def paint_filter(self):
+        """The graph's branch filter, showing self.ref."""
+        clear(self.filter_box)
+        self.filter_box.append(dropdown([("", "All branches")] + [(n, n) for n in self.branch_names],
+                                        self.ref, self.show_graph_of))
 
     # ---- actions ---------------------------------------------------------------------------------
     def launch(self, *argv):

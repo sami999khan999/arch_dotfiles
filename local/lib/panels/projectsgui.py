@@ -60,6 +60,9 @@ CSS = """
 .chip { padding: 0 5px; font-size: 9pt; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
+.pending { background: alpha(#e0af68, .08); border-left: 2px solid #e0af68; padding: 6px 12px; }
+.commit-files { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
+.commit-files > row { padding: 2px 8px; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .chip-local { background: alpha(#6b8fe0, .2); color: #7aa2f7; }
 .chip-remote { background: alpha(#565f89, .2); color: #565f89; }
@@ -296,7 +299,7 @@ class Projects(View):
     icon = "\uea62"
     interval = 2   # refresh(): the shown project's git status, live
     css = CSS
-    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("f", "fetch"), ("p", "pin"), ("m", "move"), ("n", "new"),
+    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("c", "commit"), ("f", "fetch"), ("p", "pin"), ("m", "move"), ("n", "new"),
              ("Tab", "changes / graph / branches"), ("←→", "fold"), ("/", "search")]
 
     def __init__(self):
@@ -386,6 +389,10 @@ class Projects(View):
         # the other branches, a chip each with its state; a click shows its history (Graph)
         self.others = box(False, 6)
         self.others.set_margin_top(10)
+        # a merge made here and not pushed yet: say so, with Push and Undo
+        self.pending = box(False, 10, classes=("pending",))
+        self.pending.set_margin_top(10)
+        self.pending.set_visible(False)
         self.urls = box(True, 2)
         self.urls.set_margin_top(8)
         self.actions = box(False, 8)
@@ -421,7 +428,7 @@ class Projects(View):
         self.live = None   # the shown project's (status, HEAD, refs) at the last look: refresh() redraws on a change
         self.live_busy = False
         self.switch_tab("changes")
-        return box(True, 0, self.heading, self.where, self.chips, self.others, self.urls, self.actions, self.note,
+        return box(True, 0, self.heading, self.where, self.chips, self.others, self.pending, self.urls, self.actions, self.note,
                    self.tabs_bar, self.tab_pages)
 
     def switch_tab(self, name):
@@ -718,13 +725,16 @@ class Projects(View):
     def paint_actions(self, p):
         """The project's buttons: what you do with it on the left; Move… and the deletes at the right."""
         clear(self.actions)
-        self.pull_btn = self.push_btn = None
+        self.pull_btn = self.push_btn = self.commit_btn = None
         if p.kind == "missing":
             self.actions.append(button("Clone", self.clone, "primary", tooltip="every branch, into its folder"))
         else:
             self.actions.append(button("VS Code", self.open_code, "primary", tooltip="Enter"))
             self.actions.append(button("Terminal", self.open_term, tooltip="t"))
             self.actions.append(button("Agent", self.open_agent, tooltip="a: an agentmux thread here"))
+            self.commit_btn = button("Commit…", self.ask_commit, tooltip="c: your changes, with a message")
+            self.commit_btn.set_visible(p.kind == "repo" and p.dirty > 0)
+            self.actions.append(self.commit_btn)
             if p.kind == "repo":
                 self.actions.append(button("Fetch", self.fetch, tooltip="f: every remote, prune"))
                 self.pull_btn = button("Pull", self.pull, tooltip="fast-forward the checked-out branch")
@@ -773,6 +783,8 @@ class Projects(View):
                 out = git_lines(p.path, "rev-list", "--left-right", "--count", f"{base}...refs/heads/{b['name']}")
                 if out and len(out[0].split()) == 2:
                     behind, ahead = (int(x) for x in out[0].split())
+                    if behind and not ahead and pj.git(p.path, "diff", "--quiet", base, f"refs/heads/{b['name']}")[0]:
+                        behind = 0   # main is ahead only by merge commits of this branch: the same files
                     b["vs_main"] = (ahead, behind)
         dirty, ahead, behind = pj.state(p.rel)
         has_origin = "origin" in pj.remotes(p.path)
@@ -785,6 +797,8 @@ class Projects(View):
         GLib.idle_add(lambda: gen == self.gen and setattr(self, "live", seen) and False)
         GLib.idle_add(self.paint_git, p, gen, branches, dirty, ahead, behind, has_origin)
         GLib.idle_add(self.paint_changes, p, gen, changes)
+        pending = pj.pending_merge(p.rel)
+        GLib.idle_add(lambda: gen == self.gen and self.paint_pending(p, pending) and False)
         self.load_graph(p, gen, self.ref)
 
     # ---- live: the shown project's git status, every `interval` s while the panel shows --------------
@@ -848,6 +862,8 @@ class Projects(View):
                                                    activatable=False))
         n = sum(len(l) >= 4 for l in lines)
         self.tab_btns["changes"].set_label(f"Changes {n}" if n else "Changes")
+        if getattr(self, "commit_btn", None) is not None:
+            self.commit_btn.set_visible(n > 0)
         return False
 
     def load_graph(self, p, gen, ref):
@@ -865,6 +881,22 @@ class Projects(View):
         local = set(git_lines(p.path, "for-each-ref", "--format=%(refname:short)", "refs/heads"))
         GLib.idle_add(self.paint_graph, gen, ref, commits, graph_rows(commits), head[0] if head else "",
                       remotes, local)
+
+    def paint_pending(self, p, rec):
+        clear(self.pending)
+        self.pending.set_visible(bool(rec))
+        if not rec:
+            return
+        text = label(f"Merged {rec['src']} into {rec['dst']}, not pushed yet: check it (Graph), then push it, or undo.",
+                     "amber", wrap=True)
+        text.set_hexpand(True)
+        self.pending.append(text)
+        self.pending.append(button(f"Push {rec['dst']}", lambda: self.run_job(
+            f"pushing {rec['dst']}…", lambda: pj.push_branch(p.rel, rec["dst"]), lambda ok: self.show_detail(fetch=False)),
+            "primary"))
+        self.pending.append(button("Undo", lambda: self.run_job(
+            "undoing the merge…", lambda: pj.undo_merge(p.rel), lambda ok: self.show_detail(fetch=False)),
+            "flat", tooltip=f"{rec['dst']} back where it was before the merge"))
 
     def paint_others(self, branches):
         """The local branches as a small table, two separate questions a column each: is it on GitHub
@@ -1221,8 +1253,11 @@ class Projects(View):
             lines.append(para(f"Conflicts in {', '.join(plan['conflicts'][:6])}: the two branches change the same "
                               "lines. Merge it in VS Code (resolving them there), or open a pull request.", "red"))
         has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", f"{dst}@{{u}}")[0]
-        push = Gtk.CheckButton(label=f"Push {dst} to GitHub after", active=True)
+        push = Gtk.CheckButton(label=f"Push {dst} to GitHub after (until then, Undo puts it back)", active=True)
         push.set_visible(bool(has_up))
+        shared = para("", "amber")   # filled in once GitHub says whether the repo is yours, main protected
+        shared.set_visible(False)
+        lines.append(shared)
         go = button("Merge", lambda: self.run_job(f"merging {src} into {dst}…",
                                                   lambda: pj.merge(p.rel, src, dst, push.get_active() and bool(has_up)),
                                                   lambda ok: self.show_detail(fetch=False)), "primary")
@@ -1231,10 +1266,85 @@ class Projects(View):
         repo = pj.github_repo(p.entry.get("url", ""))
         if repo:
             url = f"https://github.com/{repo}/compare/{dst}...{src}?expand=1"
-            extra.append(button("Open pull request", lambda: (subprocess.Popen(["xdg-open", url], start_new_session=True),
-                                                              self.close_dialog()), "flat",
-                                tooltip=f"GitHub: review {src} → {dst} there (for a shared repo); push {src} first"))
+            pr = button("Open pull request", lambda: (subprocess.Popen(["xdg-open", url], start_new_session=True),
+                                                      self.close_dialog()), "flat",
+                        tooltip=f"GitHub: review {src} → {dst} there; push {src} first")
+            extra.append(pr)
+
+            def check():   # a shared repo (not yours) or a protected main: a pull request is the way
+                admin = self.gh_admin.get(repo)
+                if admin is None:
+                    admin = self.gh_admin[repo] = pj.can_delete_on_github(p.entry["url"])
+                protected = pj.github_protected(p.entry["url"], dst)
+                GLib.idle_add(lambda: self.dim.get_visible() and self.shared_repo(admin, protected, dst, shared, go, pr, push)
+                              and False)
+            threading.Thread(target=check, daemon=True).start()
         self.open_dialog(f"Merge {src} into {dst}", *lines, push, self.dialog_buttons(*extra, go), focus=go)
+
+    def shared_repo(self, admin, protected, dst, note, go, pr, push):
+        """Turn the Merge popup towards a pull request: main protected (a direct push is refused, so
+        Merge is off) or a repo that isn't yours (others expect to review it: Merge stays, as the
+        secondary choice, and doesn't push by itself)."""
+        if not protected and admin:
+            return
+        if protected:
+            note.set_text(f"{dst} is protected on GitHub: changes go in through a pull request.")
+            go.set_sensitive(False)
+        else:
+            note.set_text("A shared repo (you're not its admin): a pull request lets the others review it. "
+                          "Merge here only if that's how your team works.")
+            push.set_active(False)
+        note.set_visible(True)
+        for b, primary in ((pr, True), (go, False)):
+            (b.add_css_class if primary else b.remove_css_class)("primary")
+            (b.remove_css_class if primary else b.add_css_class)("flat")
+        pr.grab_focus()
+
+    def ask_commit(self):
+        """Commit: a message, the changed files (all ticked; untick what stays out), Push after. A normal
+        git commit, so the project's hooks run."""
+        p = self.current()
+        if not p or p.kind != "repo":
+            return
+        changed = status_lines(p.path)
+        if not changed:
+            self.say("nothing to commit")
+            return
+        message = Gtk.Entry(placeholder_text=f"what changed (on {p.branch or 'this branch'})", hexpand=True)
+        files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        files.add_css_class("commit-files")
+        ticks = []
+        for l in changed:
+            path = l[3:].split(" -> ")[-1]
+            tick = Gtk.CheckButton(active=True)
+            code = l[:2].strip() or "?"
+            files.append(Gtk.ListBoxRow(child=box(False, 8, tick, label(code.replace("??", "+"), "st", "amber"),
+                                                  label(l[3:].replace(" -> ", "  →  "), ellipsize=True)), activatable=False))
+            ticks.append((tick, path))
+        scroll = scrolled(files)
+        scroll.set_size_request(-1, min(32 + 26 * len(changed), 240))
+        has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", "@{u}")[0]
+        push = Gtk.CheckButton(label="Push it to GitHub after" + ("" if has_up else " (publishes the branch)"),
+                               active=bool(has_up))
+        go = button("Commit", lambda: commit(), "primary")
+        go.set_sensitive(False)
+
+        def update(*_):
+            go.set_sensitive(bool(message.get_text().strip()) and any(t.get_active() for t, _ in ticks))
+
+        def commit():
+            if not go.get_sensitive():
+                return
+            chosen = [path for t, path in ticks if t.get_active()]
+            every = len(chosen) == len(ticks)
+            self.run_job("committing…", lambda: pj.commit_changes(p.rel, message.get_text().strip(),
+                                                                  None if every else chosen, push.get_active()),
+                         lambda ok: self.show_detail(fetch=False))
+        handlers = [(message, message.connect("changed", update)), (message, message.connect("activate", lambda *_: commit()))]
+        handlers += [(t, t.connect("toggled", update)) for t, _ in ticks]
+        self.open_dialog(f"Commit to {p.branch or 'HEAD'}", message,
+                         label(f"{len(changed)} changed file{'s' * (len(changed) > 1)} (untick what stays out)", "dim"),
+                         scroll, push, self.dialog_buttons(go), focus=message, handlers=handlers)
 
     def ask_delete(self):
         p = self.current()
@@ -1758,6 +1868,8 @@ class Projects(View):
             self.fetch()
         elif keyval == Gdk.KEY_g:
             self.open_web()
+        elif keyval == Gdk.KEY_c and page == "detail":
+            self.ask_commit()
         elif keyval == Gdk.KEY_p and page == "detail":
             self.toggle_pin()
         elif keyval == Gdk.KEY_m and page == "detail":

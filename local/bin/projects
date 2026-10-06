@@ -293,10 +293,15 @@ def pull_ff(path, branch):
 
 
 # ---- merging one branch into another (the Projects panel's Merge) ---------------------------------
-# Without touching the project's files: a fast-forward only moves the branch, and a real merge is made
-# by git merge-tree (the merged tree, conflicts found, nothing checked out) + commit-tree, then the
-# branch is moved to it. Only when the target is the branch checked out does the folder change (a
-# normal git merge there, which also updates its files).
+# Without touching the project's files: a fast-forward only moves the branch; a real merge is made in a
+# temporary checkout of the target (a hidden worktree, removed after), so the project's commit hooks
+# and signing apply as to any merge, and the folder you work in stays as it is. Only when the target is
+# the branch checked out does the folder change (a normal git merge there). Until it's pushed, a merge
+# can be undone (UNDO remembers where the target was).
+UNDO = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "projects-undo.json")
+WORKTREES = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "projects-merge")
+
+
 def merge_plan(path, src, dst):
     """What merging src into dst does, read-only: {commits: [(short hash, subject)], files: [(added,
     removed, path)], ff: dst just moves forward, conflicts: [paths], up_to_date: nothing to merge}."""
@@ -315,9 +320,80 @@ def merge_plan(path, src, dst):
     return {"commits": commits, "files": files, "ff": ff, "conflicts": conflicts, "up_to_date": not commits}
 
 
+def github_protected(url, branch):
+    """True if the branch is protected on GitHub (pushing to it directly is refused: a pull request then)."""
+    repo = github_repo(url)
+    if not repo or not shutil.which("gh"):
+        return False
+    try:
+        r = subprocess.run(["gh", "api", f"repos/{repo}/branches/{branch}", "--jq", ".protected"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.stdout.strip() == "true"
+
+
+def _undo_load():
+    try:
+        return json.load(open(UNDO))
+    except (OSError, ValueError):
+        return {}
+
+
+def _undo_save(data):
+    os.makedirs(os.path.dirname(UNDO), exist_ok=True)
+    with open(UNDO, "w") as f:
+        json.dump(data, f, indent=1)
+
+
+def pending_merge(rel):
+    """The project's last merge if it can still be undone: {src, dst, old, new} (dst is still where the
+    merge put it, and it isn't on GitHub yet), else None."""
+    rec = _undo_load().get(rel.strip("/"))
+    if not rec:
+        return None
+    path = f"{ROOT}/{rel.strip('/')}"
+    ok, now = git(path, "rev-parse", f"refs/heads/{rec['dst']}")
+    pushed = git(path, "merge-base", "--is-ancestor", rec["new"], f"refs/remotes/origin/{rec['dst']}")[0]
+    return rec if ok and now == rec["new"] and not pushed else None
+
+
+def _forget_merge(rel):
+    data = _undo_load()
+    if data.pop(rel.strip("/"), None) is not None:
+        _undo_save(data)
+
+
+def undo_merge(rel):
+    """Put the target of the last merge back where it was (only before it's pushed). (ok, message)."""
+    rec = pending_merge(rel)
+    if not rec:
+        return False, "nothing to undo (already pushed, or the branch moved on since)"
+    path = f"{ROOT}/{rel.strip('/')}"
+    if current_branch(path) == rec["dst"]:   # its files too; --keep refuses rather than lose your edits
+        ok, out = git(path, "reset", "-q", "--keep", rec["old"])
+    else:
+        ok, out = git(path, "update-ref", f"refs/heads/{rec['dst']}", rec["old"], rec["new"])
+    if not ok:
+        return False, last_line(out, "couldn't undo")
+    _forget_merge(rel)
+    return True, f"undone: {rec['dst']} is back where it was"
+
+
+def push_branch(rel, branch):
+    """Push one branch to origin (never forced). (ok, message)."""
+    path = f"{ROOT}/{rel.strip('/')}"
+    ok, out = git(path, "push", "-q", "origin", f"refs/heads/{branch}:refs/heads/{branch}", timeout=300)
+    if ok:
+        rec = _undo_load().get(rel.strip("/"))
+        if rec and rec["dst"] == branch:
+            _forget_merge(rel)   # on GitHub now: undoing it would need a revert
+    return ok, f"{branch} pushed" if ok else last_line(out, "push failed")
+
+
 def merge(rel, src, dst, push_after=True):
-    """Merge src into dst (both local branches of the repo at ROOT/rel): dst is first brought up to date
-    from GitHub, then fast-forwarded or given a merge commit, then pushed. (ok, message)."""
+    """Merge src into dst (both branches of the repo at ROOT/rel): dst is first brought up to date
+    from GitHub, then fast-forwarded or merged, then pushed. (ok, message)."""
     path = f"{ROOT}/{rel.strip('/')}"
     head = current_branch(path)
     if not git(path, "show-ref", "--verify", "-q", f"refs/heads/{dst}")[0]:   # only on the remote: make it
@@ -340,36 +416,66 @@ def merge(rel, src, dst, push_after=True):
     if plan["conflicts"]:
         return False, f"conflicts in {', '.join(plan['conflicts'][:4])}: merge it in VS Code, or open a pull request"
     message = f"Merge branch '{src}' into {dst}"
+    ok, old = git(path, "rev-parse", f"refs/heads/{dst}")
     if head == dst:   # the folder shows dst: a normal merge, which updates its files too
         ok, out = git(path, "merge", "-q", "--no-edit", "--ff" if plan["ff"] else "--no-ff", "-m", message, src)
         if not ok:
             git(path, "merge", "--abort")
             return False, last_line(out, "merge failed")
-    elif plan["ff"]:   # dst just moves forward to src; nothing checked out changes
-        ok, out = git(path, "update-ref", f"refs/heads/{dst}", f"refs/heads/{src}", f"refs/heads/{dst}")
+    elif plan["ff"]:   # dst just moves forward to src (if it's still where it was); no new commit
+        ok, new = git(path, "rev-parse", f"refs/heads/{src}")
+        ok, out = git(path, "update-ref", f"refs/heads/{dst}", new, old)
         if not ok:
             return False, last_line(out, "couldn't move the branch")
-    else:   # the merge commit, made without a checkout
-        r = subprocess.run(["git", "-C", path, "merge-tree", "--write-tree", f"refs/heads/{dst}", f"refs/heads/{src}"],
-                           capture_output=True, text=True)
-        tree = r.stdout.split()[0] if r.returncode == 0 and r.stdout.split() else ""
-        if not tree:
-            return False, "the merge failed"
-        ok, old = git(path, "rev-parse", f"refs/heads/{dst}")
-        ok2, commit = git(path, "commit-tree", tree, "-p", f"refs/heads/{dst}", "-p", f"refs/heads/{src}", "-m", message)
-        if not (ok and ok2):
-            return False, last_line(commit, "couldn't make the merge commit")
-        ok, out = git(path, "update-ref", f"refs/heads/{dst}", commit, old)
+    else:   # a merge commit, made in a hidden checkout of dst: hooks and signing apply, your folder doesn't change
+        os.makedirs(WORKTREES, exist_ok=True)
+        wt = os.path.join(WORKTREES, f"{os.path.basename(path)}-{os.getpid()}")
+        git(path, "worktree", "prune")   # one left behind by a crash would block dst
+        ok, out = git(path, "worktree", "add", "-q", wt, dst, timeout=300)
         if not ok:
-            return False, last_line(out, "couldn't move the branch")
+            return False, last_line(out, f"couldn't check out {dst} to merge into it")
+        try:
+            ok, out = git(wt, "merge", "-q", "--no-ff", "--no-edit", "-m", message, src, timeout=600)
+            if not ok:
+                git(wt, "merge", "--abort")
+        finally:
+            git(path, "worktree", "remove", "--force", wt)
+        if not ok:
+            return False, last_line(out, "the merge failed (a commit hook may have stopped it)")
+    ok, new = git(path, "rev-parse", f"refs/heads/{dst}")
+    data = _undo_load()
+    data[rel.strip("/")] = {"src": src, "dst": dst, "old": old, "new": new, "at": int(time.time())}
+    _undo_save(data)
     how = "fast-forwarded" if plan["ff"] else "merged"
     n = len(plan["commits"])
     msg = f"{src} {how} into {dst} ({n} commit{'s' * (n > 1)})"
     if push_after and upstream:
-        ok, out = git(path, "push", "-q", "origin", f"refs/heads/{dst}:refs/heads/{dst}", timeout=300)
-        msg += ", pushed" if ok else f"; push failed: {last_line(out)}"
-        return ok, msg
-    return True, msg
+        ok, out = push_branch(rel, dst)
+        return ok, msg + (", pushed" if ok else f"; push failed ({out}): it can still be undone")
+    return True, msg + ("; not pushed yet: Undo puts it back" if upstream else "")
+
+
+def commit_changes(rel, message, paths=None, push_after=False):
+    """Commit the project's changes (paths: only those; default everything, new files too), as git
+    commit does it: the project's hooks run. Then push the branch if asked. (ok, message)."""
+    path = f"{ROOT}/{rel.strip('/')}"
+    if not message.strip():
+        return False, "write a message first"
+    ok, out = git(path, "add", "-A", "--", *(paths or ["."]))
+    if not ok:
+        return False, last_line(out, "git add failed")
+    args = ["commit", "-q", "-m", message]
+    if paths:
+        args += ["--", *paths]
+    ok, out = git(path, *args, timeout=600)
+    if not ok:
+        return False, last_line(out, "commit failed (a hook may have stopped it)")
+    ok, short = git(path, "rev-parse", "--short", "HEAD")
+    msg = f"committed {short}"
+    if push_after:
+        ok, out = push(path)
+        msg += ", pushed" if ok else f"; push failed: {out}"
+    return ok, msg
 
 
 def push(path):

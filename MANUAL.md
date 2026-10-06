@@ -325,16 +325,27 @@ merged`: 3 of its commits main doesn't have yet). So a `dev` that's pushed but n
 `✓ pushed · 3 not merged`. Hovering says more (how far main has moved on); a click on a branch shows its
 history (Graph). Up to 6 branches; the *Branches* tab has them all, with Check out, Pull and Push.
 
-**Merging.** A branch with commits main doesn't have gets *Merge into main* in that table (one only behind
-main gets *Update from main*, the other way round). The popup shows what goes in (its commits, the files
-they change, `+added −removed`), whether main just moves forward (a fast-forward) or gets a merge commit,
-and *Push main to GitHub after* (on). Main is first brought up to date from GitHub (a merge into a stale
-main would make a push GitHub refuses; one that has diverged from GitHub is refused). **Your files don't
-change**: the merge is made inside git (`git merge-tree`, `commit-tree`) and main is moved to it, unless
-main is the branch checked out (then it's a normal merge, and its files update). Conflicts are found
-before anything happens: the popup names the files and Merge is off; merge it in VS Code, or *Open pull
-request* (GitHub's compare page, for a shared repo where it should be reviewed). From a shell:
-`projects merge <path> <branch> [<into>] [--no-push]`.
+**The whole flow, from the panel.** `dev` → commit → push → merge into main → push:
+
+- **Commit…** (`c`, shown when there are changes): a message, the changed files (all ticked; untick what
+  stays out), *Push it to GitHub after*. A normal `git commit`: the project's hooks run.
+- **Merge into main** in the branch table (a branch only behind main gets *Update from main*, the other
+  way round). The popup shows the commits that go in, the files, whether main just moves forward (a
+  fast-forward) or gets a merge commit, and *Push main to GitHub after*. Before anything happens:
+  conflicts are found (Merge is off, the files named: merge it in VS Code, or a pull request); main is
+  brought up to date from GitHub (one that diverged from GitHub is refused).
+  **Your files don't change**: a merge commit is made in a hidden temporary checkout of main
+  (`~/.cache/projects-merge`, removed after), so the project's hooks and signing apply as to any merge;
+  only when main is the branch checked out is it a normal merge in your folder.
+- **Shared repos.** When you're not the repo's admin, *Open pull request* (GitHub's compare page)
+  becomes the main button and Merge doesn't push by itself; when main is protected on GitHub, Merge is
+  off (a direct push would be refused anyway).
+- **Undo.** A merge not pushed yet shows a bar: *Push main* or *Undo* (main goes back exactly where it
+  was; with main checked out, your edits are kept, or it refuses). Once pushed, it can't be undone here
+  (on GitHub, a revert commit is the clean way). The push is never forced: if GitHub's main moved
+  meanwhile, it's refused, nothing lost.
+
+From a shell: `projects merge <path> <branch> [<into>] [--no-push]`.
 
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While

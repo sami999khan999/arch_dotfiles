@@ -115,16 +115,19 @@ class Line:
 CLOSE = "×"
 
 
-def header(icon, title, detail, total, closable=False):
-    """Two rows: icon + bold title with dim detail at the right (and a × that closes the panel), then
-    the underline that's blue under the icon and title and grey after (as on every GTK panel and
-    Control Center card). Click the × = column total - PAD - 1 on row 0."""
+def header(icon, title, detail, total, closable=False, fold=""):
+    """Two rows: icon + bold title with dim detail at the right (and a × that closes the panel, with
+    fold before it: a ‹ that collapses it), then the underline that's blue under the icon and title and
+    grey after (as on every GTK panel and Control Center card). Click the × = column total - PAD - 1 on
+    row 0, fold two columns left of it (is_fold)."""
     lead = (f"{icon}  " if icon else "") + title
     top = Line().pad(PAD).add(f"{icon}  " if icon else "", "accent").add(title, "text", bold=True)
-    tail = (detail + "  " if detail else "") + (CLOSE if closable else "")
-    if tail:
-        top.right(detail + ("  " if detail and closable else ""), "muted", total,
-                  margin=PAD + (1 if closable else 0)) if detail else top.pad(total - top.w - PAD - 1)
+    end = (fold + " " if fold else "") + (CLOSE if closable else "")
+    if detail or end:
+        top.right(detail + ("  " if detail and end else ""), "muted", total,
+                  margin=PAD + width(end)) if detail else top.pad(total - top.w - PAD - width(end))
+        if fold:
+            top.add(fold + " ", "muted")
         if closable:
             top.add(CLOSE, "muted")
     rest = total - 2 * PAD - width(lead)
@@ -135,6 +138,11 @@ def header(icon, title, detail, total, closable=False):
 def is_close(click, total):
     """True if a ("click", x, y) hit the header's ×."""
     return click[2] == 0 and click[1] >= total - PAD - 2
+
+
+def is_fold(click, total):
+    """True if a ("click", x, y) hit the header's fold button (left of its ×)."""
+    return click[2] == 0 and total - PAD - 4 <= click[1] <= total - PAD - 3
 
 
 def rule(title, total, fg="accent"):

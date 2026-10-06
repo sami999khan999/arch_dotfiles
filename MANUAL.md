@@ -548,6 +548,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - **Panels close and reopen:** `Ctrl+Alt+1` / `Ctrl+Alt+2` / `Ctrl+Alt+3` (Projects / Threads / Terminals), or the `×` in a
   panel's header (`─` in the terminal list's); a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
   until reopened. Closing Terminals only hides the column: its shells keep running.
+- **Collapse Projects / Threads:** `‹` beside a sidebar's `×` (or `c` in it) folds it to a narrow strip:
+  a row per project (its state dot and initial) or thread (its state and number), `+` at the bottom;
+  click one to open it, `›` at the top (or `c`) opens the sidebar back to its width. It stays
+  collapsed until opened (`collapsed` in `state.json`); dragging its border wide opens it too.
 - **States and notifications, for every agent.** Each thread shows *needs you* (a permission prompt,
   a question, a plan to approve), *error*, *working*, *done* (finished, not looked at yet), *waiting*
   or *agent exited*; a desktop notification comes when it needs you (stays until you act, and goes away by itself once

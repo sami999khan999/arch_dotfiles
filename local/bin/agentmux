@@ -14,6 +14,8 @@
   agentmux next-term [1|-1]    show the next / previous terminal
   agentmux collapse-list collapse|expand
                                the terminal list down to its icons, or back to its width
+  agentmux collapse projects|agents collapse|expand|toggle
+                               a sidebar down to a strip of its rows' icons, or back to its width
   agentmux close-term [pane]   close a terminal of the column (the focused one; a split half, else the terminal)
   agentmux close-thread        close the selected row of the focused sidebar, else the shown thread (asks)
   agentmux close-project <dir> close a project: ends its threads and terminals, drops it from the list
@@ -59,7 +61,7 @@ SESSION = "main"
 WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
 MIN = {"projects": 16, "agents": 20, "termlist": 4}                       # a sidebar is never narrower than this
 ICONS_ONLY = 9   # the terminal list narrower than this shows only icons (termlist.py)
-COLLAPSED = 5    # the collapsed list: its icons in the middle column
+COLLAPSED = 5    # the collapsed list: its icons in the middle column; a collapsed sidebar is as wide
 
 
 def opt(name):
@@ -124,13 +126,13 @@ def build():
     except OSError:
         cols, lines = 200, 50
     s = lib.load_state()
-    w = widths()
     py = f"exec python3 {HERE}/sidebar.py"   # exec: the shell tmux starts it with doesn't stay around
     rc, p0 = lib.app("new-session", "-d", "-s", SESSION, "-x", str(cols), "-y", str(lines - 1),
                      "-P", "-F", "#{pane_id}", f"{py} projects")
-    _, p1 = lib.app("split-window", "-h", "-t", p0, "-l", str(max(cols - int(w["projects"]) - 1, 20)),
+    sw = {role: side_width(role) for role in ("projects", "agents")}
+    _, p1 = lib.app("split-window", "-h", "-t", p0, "-l", str(max(cols - sw["projects"] - 1, 20)),
                     "-P", "-F", "#{pane_id}", f"{py} agents")
-    _, p2 = lib.app("split-window", "-h", "-t", p1, "-l", str(max(cols - int(w["projects"]) - int(w["agents"]) - 2, 20)),
+    _, p2 = lib.app("split-window", "-h", "-t", p1, "-l", str(max(cols - sw["projects"] - sw["agents"] - 2, 20)),
                     "-P", "-F", "#{pane_id}", idle_cmd())
     for role, pid, label in (("projects", p0, "Projects"), ("agents", p1, "Agents"), ("main", p2, "Thread")):
         set_opt(f"@p_{role}", pid)
@@ -152,6 +154,30 @@ def widths():
         w[role] = max(int(w.get(role) or 0), low)
     w["terms"] = min(max(float(w.get("terms") or WIDTHS["terms"]), 0.15), 0.6)
     return w
+
+
+def collapsed():
+    """The sidebars folded to a strip of icons with their ‹ (sidebar.py): they stay folded until opened."""
+    return set(lib.load_state().get("collapsed", []))
+
+
+def side_width(role):
+    """A sidebar's width: the strip while it's collapsed, else its remembered width."""
+    return COLLAPSED if role in collapsed() else widths()[role]
+
+
+def collapse_side(role, how):
+    """A sidebar's ‹ / › (or c): fold it to the strip of its icons, or open it to its remembered width.
+    The other sidebar keeps its width: the columns freed or taken are the thread's."""
+    s = lib.load_state()
+    c = set(s.get("collapsed", []))
+    fold = role not in c if how == "toggle" else how == "collapse"
+    (c.add if fold else c.discard)(role)
+    s["collapsed"] = sorted(c)
+    lib.save_state(s)   # first: save-widths (the resize hook) reads it
+    for r in (role, "agents" if role == "projects" else "projects"):
+        if pane(r):
+            lib.app("resize-pane", "-t", pane(r), "-x", str(side_width(r)))
 
 
 def hidden():
@@ -200,13 +226,12 @@ def ensure_layout():
     if main is None:
         return
     py = f"exec python3 {HERE}/sidebar.py"
-    w = widths()
     made = False
     closed = hidden()
     for role, label, left_of in (("agents", "Agents", "main"), ("projects", "Projects", "agents")):
         if role not in closed and pane(role) is None:
             target = pane(left_of) or main
-            rc, pid = lib.app("split-window", "-h", "-b", "-d", "-t", target, "-l", str(w[role]),
+            rc, pid = lib.app("split-window", "-h", "-b", "-d", "-t", target, "-l", str(side_width(role)),
                               "-P", "-F", "#{pane_id}", f"{py} {role}")
             if rc == 0:
                 set_opt(f"@p_{role}", pid)
@@ -215,7 +240,7 @@ def ensure_layout():
     if made:   # a new pane takes its room from its neighbour: set both widths again
         for role in ("projects", "agents"):
             if pane(role):
-                lib.app("resize-pane", "-t", pane(role), "-x", str(w[role]))
+                lib.app("resize-pane", "-t", pane(role), "-x", str(side_width(role)))
 
 
 def attach():
@@ -524,10 +549,9 @@ def toggle(role):
             set_hidden(role, True)
             lib.app("kill-pane", "-t", p)
         mark_closed()
-        w = widths()   # the freed columns go to the thread, not to the other sidebar
-        for other in ("projects", "agents"):
+        for other in ("projects", "agents"):   # the freed columns go to the thread, not to the other sidebar
             if pane(other):
-                lib.app("resize-pane", "-t", pane(other), "-x", str(w[other]))
+                lib.app("resize-pane", "-t", pane(other), "-x", str(side_width(other)))
         focus("main")
         return
     if role == "terms":
@@ -1297,6 +1321,8 @@ def save_widths():
     # expanded again
     if s.get("termlist_collapsed") and size(pane("termlist")) >= ICONS_ONLY:
         s["termlist_collapsed"] = False
+    # the same for a collapsed sidebar dragged open (its strip is narrower than MIN: never remembered)
+    s["collapsed"] = [r for r in s.get("collapsed", []) if size(pane(r)) < MIN[r]]
     for role in ("projects", "agents", "terms", "termlist"):
         width = size(pane(role))
         if width >= MIN.get(role, 8):   # a pane that's gone (or squeezed to nothing) keeps its last width
@@ -1338,6 +1364,7 @@ def main(argv):
         "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
         "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),
         "close-thread": close_thread, "collapse-list": lambda: collapse_list(args[0] if args else "collapse"),
+        "collapse": lambda: collapse_side(args[0], args[1] if len(args) > 1 else "toggle"),
         "close-project": lambda: close_project(args[0]),
         "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,

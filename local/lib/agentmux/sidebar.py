@@ -12,11 +12,12 @@
 # keys   ↑↓ / j k  move     ↵ / click  open     x or the selected row's ×: close it (asks under the
 #        row: y / ↵ / the red button closes, n / Esc / a click elsewhere cancels)
 #        projects: o open project     threads: n new · ↵ on a ⚠ row adopts it · r rescan the VS Code kittys
+#        c or the header's ‹: collapse to a strip of the rows' icons (› or c again: back to its width)
 import os, subprocess, sys, textwrap, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
-from term import CLOSE, PAD, App, Line, fit, header, is_close, rule, width
+from term import CLOSE, PAD, App, Line, fit, header, is_close, is_fold, rule, width
 
 AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
 FS, RS = "\x1f", "\x1e"   # field / record separators inside the subscription value
@@ -30,6 +31,8 @@ STATE_GLYPH = {"needs": ("!", "red"), "error": ("✗", "red"), "working": ("◐"
 STATE_WORD = {"needs": "needs you", "error": "error", "working": "working", "done": "done", "idle": "waiting",
               "shell": "agent exited"}
 RANK = {"needs": 0, "error": 1, "working": 2, "done": 3, "idle": 4, "shell": 5}   # a badge: its most urgent thread
+FOLD, UNFOLD = "\ueab5", "\ueab6"   # chevrons: ‹ collapses the sidebar to its strip, › opens it
+STRIP = 9   # narrower than this (collapsed: agentmux COLLAPSED), only the rows' icons are drawn
 SHORT = {"claude": "claude", "opencode": "opencode", "codex": "codex", "agy": "agy", "shell": "shell"}
 
 
@@ -294,12 +297,14 @@ class Sidebar(App):
         self.width = w
         self.close_ys = {}
         self.build()
+        if w < STRIP:
+            return self.render_strip(w, h)
         if self.role == "projects":
             n = sum(1 for r in self.rows if r.action and r.action[0] == "project")
-            lines = header("", "Projects", str(n) if n else "", w, closable=True)
+            lines = header("", "Projects", str(n) if n else "", w, closable=True, fold=FOLD)
         else:
-            lines = header("\U000f06a9", "Threads", fit(lib.project_name(self.project), w - 18) if self.project else "", w,
-                           closable=True)
+            lines = header("\U000f06a9", "Threads", fit(lib.project_name(self.project), w - 20) if self.project else "", w,
+                           closable=True, fold=FOLD)
         lines.append(Line())
         # every row laid out first (owner: the row each line belongs to), then the part that fits is
         # shown, scrolled so the selected row is always in view; "↑ more" / "↓ more" where it's cut
@@ -389,6 +394,43 @@ class Sidebar(App):
             lines.append(l)
         return lines
 
+    def render_strip(self, w, h):
+        """Collapsed: › (opens it again) over a strip with a row per project / thread, its state glyph
+        and its initial / number (the selected one with the blue edge, a row of air between them), and
+        + Open project / + New thread on the last line. A click opens one, as in the full sidebar."""
+        self.ys, self.confirm = {}, None
+        lines = [Line().pad((w - 1) // 2).add(UNFOLD, "accent"), Line(), Line()]
+        items = [i for i, r in enumerate(self.rows) if r.action and r.action[0] in ("project", "show")]
+        room = max((h - len(lines) - 1) // 2, 1)
+        at = items.index(self.sel) if self.sel in items else 0
+        if len(items) <= room:
+            self.scroll = 0
+        elif not self.free:
+            self.scroll = min(max(self.scroll, at - room + 1), at)
+        self.scroll = max(0, min(self.scroll, max(len(items) - room, 0)))
+        for i in items[self.scroll:self.scroll + room]:
+            r = self.rows[i]
+            sel = i == self.sel
+            tag = lib.project_name(r.action[1])[:1].upper() if r.action[0] == "project" else r.right.lstrip("#")
+            l = Line("overlay" if sel else ("hover" if i == self.hover else None))
+            l.add("▎" if sel else " ", "accent").add(r.glyph or " ", r.gfg).add(" ").add(fit(tag, w - 3), "text" if sel else r.fg, bold=r.bold)
+            self.ys[len(lines)] = i
+            lines += [l, Line()]
+        if self.scroll > 0:
+            lines[3] = Line().pad((w - 1) // 2).add("↑", "muted")
+            self.ys.pop(3, None)
+        if self.scroll + room < len(items):
+            lines[-2] = Line().pad((w - 1) // 2).add("↓", "muted")
+            self.ys.pop(len(lines) - 2, None)
+        lines = lines[:h - 1]
+        while len(lines) < h - 1:
+            lines.append(Line())
+        plus = next((i for i, r in enumerate(self.rows) if r.action in (("open",), ("new",))), None)
+        if plus is not None:
+            self.ys[len(lines)] = plus
+            lines.append(Line("hover" if plus == self.hover else None).pad((w - 1) // 2).add("+", "accent"))
+        return lines
+
     # ---- acting ----
     def act(self, action):
         if not action:
@@ -437,6 +479,12 @@ class Sidebar(App):
             self.move(-1)
         elif k in ("enter", "l", "right"):
             self.act(sel)
+        elif isinstance(k, tuple) and k[0] == "click" and k[2] == 0 and self.width < STRIP:
+            subprocess.Popen([AGENTMUX, "collapse", self.role, "expand"])
+        elif isinstance(k, tuple) and k[0] == "click" and is_fold(k, self.width):
+            subprocess.Popen([AGENTMUX, "collapse", self.role, "collapse"])
+        elif k == "c":
+            subprocess.Popen([AGENTMUX, "collapse", self.role, "toggle"])
         elif isinstance(k, tuple) and k[0] == "click" and is_close(k, self.width):
             subprocess.Popen([AGENTMUX, "toggle", self.role])
         elif isinstance(k, tuple) and k[0] == "click" and k[2] in self.close_ys and k[1] >= self.width - PAD - 2:
@@ -457,7 +505,7 @@ class Sidebar(App):
             self.free = True
         elif self.role == "projects" and k == "o":
             self.act(("open",))
-        elif k in ("x", "delete"):
+        elif k in ("x", "delete") and self.width >= STRIP:   # the strip has no room for the question
             self.ask_close(sel)
         elif self.role == "agents" and k == "n":
             self.act(("new",))

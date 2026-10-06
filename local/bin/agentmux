@@ -44,7 +44,7 @@ Threads are sessions on the agents server (tmux -L agents): the middle pane and 
 are nested clients of them, as is the kitty beside a VS Code window, so the same agent shows live in
 both places. See local/lib/agentmux/lib.py.
 """
-import json, os, re, shlex, shutil, socket, subprocess, sys
+import hashlib, json, os, re, shlex, shutil, socket, subprocess, sys
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
 import lib
@@ -1172,6 +1172,18 @@ def speak(pane_id):
         if rc == 0 and text.strip():
             request = {"action": "read", "text": text, "label": "agentmux"}
         lib.agents("set-option", "-g", "@spoken_buffer", newest[0])
+    # opencode selects with the mouse itself and copies to the clipboard past tmux (no buffer): what it
+    # copied since the last read is the selection. Only there, so a copy elsewhere doesn't turn a
+    # Claude thread's play / pause into reading it.
+    if request["action"] == "toggle" and lib.agents("display-message", "-p", "-t", pane_id, "#{@harness}")[1] == "opencode":
+        try:
+            clip = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            clip = ""
+        mark = hashlib.sha1(clip.encode()).hexdigest()   # hash() differs per process
+        if clip.strip() and mark != lib.agents("show-option", "-gqv", "@spoken_clip")[1]:
+            request = {"action": "read", "text": clip, "label": "agentmux"}
+        lib.agents("set-option", "-g", "@spoken_clip", mark)
     project = lib.agents("display-message", "-p", "-t", pane_id, "#{@project}")[1] or \
         lib.agents("display-message", "-p", "-t", pane_id, "#{pane_current_path}")[1]
     window = audio_cursor_window(project)

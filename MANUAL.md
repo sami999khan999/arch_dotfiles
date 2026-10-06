@@ -348,7 +348,7 @@ each workspace lives on (saved per PC in `settings.local.json`, since screens di
 icon is the 6th column of `workspaces.conf`.
 
 With two screens, the focused screen (the one the keys act on) changes only with a click or a
-shortcut, not when the cursor crosses over: point at one screen and `Super + N` still switches the
+shortcut, not when the cursor crosses over: point at one screen and `Super + 1…0` still switches the
 other.
 
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
@@ -393,7 +393,7 @@ change it; keys: `← →` width,
 | `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened; reorder them with ↑ ↓ in the Workspaces panel's Open windows list — the bar's `2/4` and Alt + N follow, for as long as the windows stay open) |
 | `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
-| `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…) |
+| `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…), or the app itself when none is open there (the Control Center after it was closed) |
 | `Super + Shift + Alt + ←/→/↑/↓` | move the current workspace, with its windows, to the screen in that direction (counted from the focused screen); it stays there, also after a restart: its screen in Settings → Workspaces follows (per PC) |
 | `wsgroups launch N\|all [-f]` | launch a group's programs |
 | `wsgroups tidy` | move already-open windows to their workspaces |

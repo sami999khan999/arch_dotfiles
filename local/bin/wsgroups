@@ -196,11 +196,14 @@ def spawn(cmd):
 
 
 def new_window():
-    """Another window of this workspace's app. Its class rule keeps it on this workspace."""
+    """Another window of this workspace's app (its class rule keeps it on this workspace); none open
+    yet (the Control Center closed, say): the app itself, as Super + Ctrl + N would."""
     ws = (query("activeworkspace") or {}).get("id", 0)
     g = groups().get(ws)
     if not g:
         notify(f"Workspace {ws % 10} has no app yet (Super + Ctrl + G to add one)")
+        return
+    if launch(ws):
         return
     cmd = g.get("new") or (g["launch"][0] if g["launch"] else "")
     if cmd in ("", "-"):

@@ -76,5 +76,6 @@ for n = 1, 10 do
     hl.bind("SUPER + CTRL + " .. key, hl.dsp.exec_cmd(wsgroups .. " go " .. n))
 end
 
--- another window of the current workspace's app (a new Chrome window on Web, kitty on Terminal…)
+-- another window of the current workspace's app (a new Chrome window on Web, kitty on Terminal…), or the app
+-- itself when none is open there
 hl.bind("SUPER + N", hl.dsp.exec_cmd(wsgroups .. " new"))

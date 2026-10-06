@@ -343,7 +343,7 @@ commits each side has, and the files that would clash (or "would merge cleanly")
 do, in VS Code; the panel only shows where things stand. The branch table's **main** column says
 whether each branch is in main (`merged` / `N not merged`).
 
-**Commit…** (`c`, when there are changes): a message (subject line, then a body if it needs one;
+**Commit…** (`c`, when there are changes) opens a popup like every other panel (`commitgui.py`: the screen blurred behind it, `Esc` or a click outside closes it): a message (subject line, then a body if it needs one;
 `Ctrl+Enter` commits), the changed files (untick what stays out), *Push it to GitHub after*. A normal
 `git commit`: the project's hooks run. **Write it for me** has a free model write the message from the
 ticked files' changes, in the style of the repo's recent commits (`opencode/mimo-v2.6-flash-free`, through

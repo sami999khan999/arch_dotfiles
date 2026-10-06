@@ -65,10 +65,6 @@ button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
 .chip { padding: 0 5px; font-size: 9pt; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
-.commit-files { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
-textview.commit-message, textview.commit-message text { background: #16161e; color: #c0caf5; }
-textview.commit-message { border: 1px solid alpha(#3b4261, .7); padding: 6px 8px; min-height: 64px; }
-.commit-files > row { padding: 2px 8px; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .chip-local { background: alpha(#6b8fe0, .2); color: #7aa2f7; }
 .chip-remote { background: alpha(#565f89, .2); color: #565f89; }
@@ -1288,92 +1284,10 @@ class Projects(View):
                          self.dialog_buttons(move_btn), focus=tree, handlers=handlers)
 
     def ask_commit(self):
-        """Commit: a message, the changed files (all ticked; untick what stays out), Push after. A normal
-        git commit, so the project's hooks run."""
+        """Commit: its own popup (commitgui.py), like every other panel; the live look sees the result."""
         p = self.current()
-        if not p or p.kind != "repo":
-            return
-        changed = status_lines(p.path)
-        if not changed:
-            self.say("nothing to commit")
-            return
-        # the message: a subject line, then a body if it needs one (Ctrl+Enter commits)
-        message = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, hexpand=True)
-        message.add_css_class("commit-message")
-        buf = message.get_buffer()
-        text = lambda: buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
-        write = button("Write it for me", lambda: ai(), "flat",
-                       tooltip=f"a free model writes it from the ticked files' changes ({pj.AI_MODEL.split('/')[-1]}, "
-                               "through opencode: the diff is sent to it)")
-        top = box(False, 8, label(f"Message (on {p.branch or 'this branch'})", "dim"), label(""), write)
-        top.get_first_child().get_next_sibling().set_hexpand(True)
-        files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        files.add_css_class("commit-files")
-        ticks = []
-        for l in changed:
-            path = l[3:].split(" -> ")[-1]
-            tick = Gtk.CheckButton(active=True)
-            code = l[:2].strip() or "?"
-            name = label(l[3:].replace(" -> ", "  →  "), ellipsize=True)
-            name.set_ellipsize(Pango.EllipsizeMode.MIDDLE)   # a long path keeps its file name in view
-            name.set_tooltip_text(l[3:])
-            files.append(Gtk.ListBoxRow(child=box(False, 8, tick, label(code.replace("??", "+"), "st", "amber"), name),
-                                        activatable=False))
-            ticks.append((tick, path))
-        # the list is as tall as its files, up to what the window leaves for it: the popup fits any screen
-        scroll = scrolled(files, vexpand=False)
-        win_h = self.window.get_height() if self.host and self.window else 680
-        scroll.set_propagate_natural_height(True)
-        scroll.set_max_content_height(max(win_h - 400, 120))
-        has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", "@{u}")[0]
-        push = Gtk.CheckButton(label="Push it to GitHub after" + ("" if has_up else " (publishes the branch)"),
-                               active=bool(has_up))
-        go = button("Commit", lambda: commit(), "primary")
-        go.set_sensitive(False)
-
-        def update(*_):
-            go.set_sensitive(bool(text()) and any(t.get_active() for t, _ in ticks))
-
-        def chosen():
-            picked = [path for t, path in ticks if t.get_active()]
-            return None if len(picked) == len(ticks) else picked
-
-        def commit():
-            if not go.get_sensitive():
-                return
-            files_ = chosen()
-            self.run_job("committing…", lambda: pj.commit_changes(p.rel, text(), files_, push.get_active()),
-                         lambda ok: self.show_detail(fetch=False))
-
-        def ai():
-            files_ = chosen()
-            write.set_sensitive(False)
-            write.set_label("Writing…")
-
-            def go_ai():
-                ok, msg = pj.ai_message(p.rel, files_)
-                GLib.idle_add(lambda: done(ok, msg) and False)
-            threading.Thread(target=go_ai, daemon=True).start()
-
-        def done(ok, msg):
-            write.set_sensitive(True)
-            write.set_label("Write it again" if ok else "Write it for me")
-            if not self.dim.get_visible():
-                return
-            if ok:
-                buf.set_text(msg)
-            else:
-                self.say(f"no message: {msg}", "bad")
-
-        keys = Gtk.EventControllerKey()   # Ctrl+Enter in the message: commit
-        keys.connect("key-pressed", lambda _c, k, _code, st: (k in (Gdk.KEY_Return, Gdk.KEY_KP_Enter)
-                                                               and st & Gdk.ModifierType.CONTROL_MASK and (commit() or True)))
-        message.add_controller(keys)
-        handlers = [(buf, buf.connect("changed", update))]
-        handlers += [(t, t.connect("toggled", update)) for t, _ in ticks]
-        self.open_dialog(f"Commit to {p.branch or 'HEAD'}", top, message,
-                         label(f"{len(changed)} changed file{'s' * (len(changed) > 1)} (untick what stays out)", "dim"),
-                         scroll, push, self.dialog_buttons(go), focus=message, handlers=handlers, width=900)
+        if p and p.kind == "repo":
+            self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "commitgui.py"), p.rel)
 
     def ask_delete(self):
         p = self.current()

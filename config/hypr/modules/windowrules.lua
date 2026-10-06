@@ -126,6 +126,8 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthread)$" }, size = { 620, 440 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproject)$" }, size = { 820, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.quitagentmux)$" }, size = { 560, 300 } })
+-- Commit, from the Projects panel (commitgui.py): the message and the changed files
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$" }, size = { 900, 640 } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
 hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 

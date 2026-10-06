@@ -490,15 +490,18 @@ def arrange(dry=False, report=print):
     records it there). A listed path that's taken by a listed project stays as it is and is reported.
     Returns [(from, to)] of the moves."""
     data = load()
-    by_url = {}
+    # a project's own URL first: another one's extra remote (a fork's upstream) can be that URL too
+    by_url = {norm_url(e["url"]): e["path"] for e in data["projects"]}
     for e in data["projects"]:
-        for url in [e["url"], *e.get("remotes", {}).values()]:
+        for url in e.get("remotes", {}).values():
             by_url.setdefault(norm_url(url), e["path"])
     listed = {e["path"] for e in data["projects"]} | {e["path"] for e in data["local_only"]}
     repos, local = walk()
     want = {}   # rel -> where it belongs
     for rel in repos:
-        home = next((by_url[norm_url(u)] for u in remotes(f"{ROOT}/{rel}").values() if norm_url(u) in by_url), None)
+        rs = remotes(f"{ROOT}/{rel}")
+        urls = [rs.pop("origin")] + list(rs.values()) if "origin" in rs else list(rs.values())   # its origin first
+        home = next((by_url[norm_url(u)] for u in urls if norm_url(u) in by_url), None)
         if home:
             want[rel] = home
         elif not rel.startswith(UNSORTED + "/"):

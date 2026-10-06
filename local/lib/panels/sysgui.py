@@ -369,6 +369,29 @@ def usage_bar(pct):
     return b
 
 
+def align_titles(table, rights):
+    """Column titles over right-aligned numbers sit at the right too (GTK puts every title at the
+    left): the title button's box goes to its end. Its widgets are GTK's own (header > title > box)."""
+    title = table.get_first_child().get_first_child()
+    for right in rights:
+        if title is None:
+            break
+        inner = title.get_first_child()
+        if inner.get_last_child() is not inner.get_first_child():
+            inner.get_last_child().set_visible(False)   # the sort icon: hidden by the CSS, it still kept its slot
+        if right:
+            inner.set_halign(Gtk.Align.END)
+        title = title.get_next_sibling()
+
+
+def inset(table):
+    """The table's first and last columns line up with the toolbar above it (20px in: 12 + the cells'
+    8px padding)."""
+    table.set_margin_start(12)
+    table.set_margin_end(12)
+    return table
+
+
 def rate(bps):
     return f"{sysmon.size(bps)}/s" if bps >= 1024 else "0"
 
@@ -646,6 +669,7 @@ class System(View):
         self.selection = Gtk.SingleSelection(model=self.sorted, autoselect=False, can_unselect=True)
         self.table.set_model(self.selection)
         self.table.sort_by_column(self.columns["cpu"], Gtk.SortType.DESCENDING)
+        align_titles(self.table, [c[5] for c in COLUMNS])
         self.table.connect("activate", lambda *_: self.show_ports_of(self.selected_pid()))   # Enter / double click
 
         self.search = Gtk.Entry(placeholder_text="Search name, user, command…", hexpand=True)
@@ -661,7 +685,7 @@ class System(View):
         top.set_margin_start(20)
         top.set_margin_end(20)
         top.set_margin_bottom(8)
-        return box(True, 0, top, scrolled(self.table))
+        return box(True, 0, top, scrolled(inset(self.table)))
 
     def build_ports(self):
         """The listening ports: a table (rows kept from one refresh to the next, as Processes), the
@@ -688,6 +712,7 @@ class System(View):
         self.port_sel = Gtk.SingleSelection(model=self.port_sorted, autoselect=True, can_unselect=False)
         self.port_table.set_model(self.port_sel)
         self.port_table.sort_by_column(first, Gtk.SortType.ASCENDING)
+        align_titles(self.port_table, [c[5] for c in PORT_COLUMNS])
         self.port_table.connect("activate", lambda *_: self.open_port())
         self.port_sel.connect("notify::selected", lambda *_: self.port_count_text())   # the buttons follow the row
 
@@ -711,7 +736,7 @@ class System(View):
         self.port_empty = label("Nothing is listening", "dim", xalign=0.5)
         self.port_empty.set_vexpand(True)
         self.port_pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, vexpand=True)
-        self.port_pages.add_named(scrolled(self.port_table), "table")
+        self.port_pages.add_named(scrolled(inset(self.port_table)), "table")
         self.port_pages.add_named(self.port_empty, "empty")
         return box(True, 0, top, self.port_pages)
 
@@ -795,10 +820,11 @@ class System(View):
         """The sort column's title gets ↓ / ↑ (the theme's arrow icon is hidden)."""
         sorter = self.table.get_sorter()
         primary, order = sorter.get_primary_sort_column(), sorter.get_primary_sort_order()
-        for title, key, *_ in COLUMNS:
+        for title, key, _t, _k, _w, right, _d in COLUMNS:
             col = self.columns[key]
-            arrow = (" ↓" if order == Gtk.SortType.DESCENDING else " ↑") if col is primary else ""
-            col.set_title(title + arrow)
+            arrow = ("↓" if order == Gtk.SortType.DESCENDING else "↑") if col is primary else ""
+            # before a right-aligned title, so its last letter stays over the numbers' last digit
+            col.set_title((f"{arrow} {title}" if right else f"{title} {arrow}") if arrow else title)
 
     def selected_pid(self):
         item = self.selection.get_selected_item()

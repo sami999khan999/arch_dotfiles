@@ -114,6 +114,11 @@ switch:checked { background: #6b8fe0; }
 switch slider { background: #c0caf5; min-width: 14px; min-height: 14px; margin: 2px; border: none; box-shadow: none; }
 switch:checked slider { background: #16161e; }
 switch image { -gtk-icon-source: none; }
+/* a check box (System's "Show all", Docker's "as root"): square, the theme's colours, not Adwaita's white */
+checkbutton check { background: #1a1b26; border: 1px solid alpha(#3b4261, .7); border-radius: 0; min-width: 14px;
+                    min-height: 14px; margin-right: 6px; box-shadow: none; -gtk-icon-source: none; }
+checkbutton check:checked { background: #6b8fe0; border-color: #6b8fe0; color: #16161e;
+                            -gtk-icon-source: -gtk-icontheme("object-select-symbolic"); }
 dropdown > button { padding: 4px 10px; min-width: 120px; }
 dropdown arrow, spinbutton button { color: #565f89; }
 dropdown popover listview { background: transparent; }

@@ -41,7 +41,7 @@ folder instead of mirroring a half-restored one as deletions.
 
 ## Commands
 
-`codesync` (status) · `now` · `pause` / `resume` / `toggle` · `setup` · `restore` (alias `pull`) · `enable` /
+`codesync` (status) · `now` · `pause` / `resume` / `toggle` · `setup` · `restore` (alias `pull`) · `move <from> <to>` (a folder and its backup copy together, under LOCK: `projects move` uses it) · `enable` /
 `disable` · `log` · `ignore` · `bar` · `watch` (the service).
 
 ## Rules

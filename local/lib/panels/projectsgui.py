@@ -1169,12 +1169,13 @@ class Projects(View):
         threading.Thread(target=save, daemon=True).start()
 
     # ---- the popups: move, delete, delete on GitHub, forget ------------------------------------------
-    def open_dialog(self, title, *widgets, focus=None, handlers=()):
+    def open_dialog(self, title, *widgets, focus=None, handlers=(), width=560):
         """handlers: (widget, handler id) pairs, disconnected when the popup goes: a list being
         destroyed emits row-selected for its rows, and a handler still connected then reached into the
         half-destroyed list (SIGSEGV in gtk_list_box_remove_all)."""
         self.drop_handlers()
         self.handlers = list(handlers)
+        self.card.set_size_request(width, -1)
         clear(self.card)
         self.card.append(para(title, "dialog-title"))
         for w in widgets:
@@ -1299,11 +1300,15 @@ class Projects(View):
             path = l[3:].split(" -> ")[-1]
             tick = Gtk.CheckButton(active=True)
             code = l[:2].strip() or "?"
-            files.append(Gtk.ListBoxRow(child=box(False, 8, tick, label(code.replace("??", "+"), "st", "amber"),
-                                                  label(l[3:].replace(" -> ", "  →  "), ellipsize=True)), activatable=False))
+            name = label(l[3:].replace(" -> ", "  →  "), ellipsize=True)
+            name.set_ellipsize(Pango.EllipsizeMode.MIDDLE)   # a long path keeps its file name in view
+            name.set_tooltip_text(l[3:])
+            files.append(Gtk.ListBoxRow(child=box(False, 8, tick, label(code.replace("??", "+"), "st", "amber"), name),
+                                        activatable=False))
             ticks.append((tick, path))
         scroll = scrolled(files)
-        scroll.set_size_request(-1, min(32 + 26 * len(changed), 240))
+        room = (self.window.get_height() if self.host and self.window else 680) - 380   # the rest of the popup
+        scroll.set_size_request(-1, min(32 + 26 * len(changed), max(room, 160)))
         has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", "@{u}")[0]
         push = Gtk.CheckButton(label="Push it to GitHub after" + ("" if has_up else " (publishes the branch)"),
                                active=bool(has_up))
@@ -1352,7 +1357,7 @@ class Projects(View):
         handlers += [(t, t.connect("toggled", update)) for t, _ in ticks]
         self.open_dialog(f"Commit to {p.branch or 'HEAD'}", top, message,
                          label(f"{len(changed)} changed file{'s' * (len(changed) > 1)} (untick what stays out)", "dim"),
-                         scroll, push, self.dialog_buttons(go), focus=message, handlers=handlers)
+                         scroll, push, self.dialog_buttons(go), focus=message, handlers=handlers, width=900)
 
     def ask_delete(self):
         p = self.current()

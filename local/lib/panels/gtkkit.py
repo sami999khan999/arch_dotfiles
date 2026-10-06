@@ -50,7 +50,7 @@ window.backdrop { background: transparent; }   /* behind a popup: Backdrop draws
 .head-icon { color: #6b8fe0; }
 .head-line-lead { min-height: 2px; background: #6b8fe0; }
 .head-line { min-height: 2px; background: #292e42; }
-.foot { padding: 8px 20px 10px 20px; color: #565f89; min-height: 16px; }
+.foot { padding: 8px 20px 10px 20px; color: #565f89; min-height: 16px; border-top: 1px solid alpha(#3b4261, .7); }
 .foot.bad { color: #f7768e; }
 
 .dim { color: #565f89; }

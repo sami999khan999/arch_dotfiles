@@ -23,8 +23,8 @@
   agentmux maximize [role]     the focused panel (or role's) takes the whole width; again: back
   agentmux click <range>       a status-bar button
   agentmux reload              refresh everything without closing it (Ctrl+Alt+R)
-  agentmux quit [--yes]        really close it (Ctrl+Alt+Q; closing the window only detaches): asks
-                               first, listing what's still running; ends the workspace, its threads
+  agentmux quit [--yes]        really close it (Ctrl+Alt+Q; closing the window only detaches): a popup
+                               asks first, listing what's still running; ends the workspace, its threads
                                and terminals. Threads also open in a VS Code kitty keep running there;
                                the others are remembered and come back the next time it opens
   agentmux speak <pane>        the read-aloud key (Ctrl+Alt+L) in a thread: Audio Cursor reads the
@@ -761,22 +761,14 @@ def still_running():
 
 
 def quit_agentmux(args):
-    """Ctrl+Alt+Q: asks (y / n on the status line, saying what's still running), then quit_now in its
-    own session: it ends the server this key runs in."""
+    """Ctrl+Alt+Q: asks (a popup saying what's still running), then quit_now in its own session: it
+    ends the server this key runs in."""
     if "--now" in args:
         return quit_now()
-    if "--yes" not in args:
-        running = still_running()
-        client = lib.app("list-clients", "-F", "#{client_name}")[1].splitlines()
-        if client:   # a y / n question on the status line
-            what = (", ".join(running) + ". ") if running else ""
-            prompt = f"Quit agentmux? {what}Threads come back next time; VS Code's keep running. (y/n) "
-            lib.app("confirm-before", "-b", "-t", client[0], "-p", prompt.replace("#", "##"),   # -b: don't wait for it
-                    f"run-shell -b '{SELF} quit --yes'")
-            return
-        print("\n".join(running) or "nothing is running")
-        if input("Quit agentmux? [y/N] ").strip().lower() != "y":
-            return
+    if "--yes" not in args:   # the popup (agentpickgui.py quit) runs `agentmux quit --yes` on Quit
+        subprocess.Popen(["python3", os.path.expanduser("~/.local/lib/panels/agentpickgui.py"), "quit",
+                          *still_running()], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
     subprocess.Popen([SELF, "quit", "--now"], start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-# agentpickgui.py — agentmux's two pickers as GTK popups (Tokyo Night, the blurred backdrop of every
-# panel). agentmux runs them (`agentmux open`, Ctrl+Alt+N with more than one agent); running one
-# again closes it. The choice goes back to agentmux: `agentmux project <folder>` / `new-thread <agent>`.
+# agentpickgui.py — agentmux's popups as GTK windows (Tokyo Night, the blurred backdrop of every
+# panel). agentmux runs them (`agentmux open`, Ctrl+Alt+N with more than one agent, Ctrl+Alt+Q);
+# running one again closes it. The choice goes back to agentmux: `agentmux project <folder>` /
+# `new-thread <agent>` / `quit --yes`.
 #   agentpickgui.py harness   New thread: which agent (the installed ones; the others shown greyed)
 #   agentpickgui.py project   Open project: a folder browser. The first time it asks for the projects
 #                             folder (the root, remembered in agentmux's state.json); after that it opens there.
+#   agentpickgui.py quit [what's running…]
+#                             Quit agentmux? What's still running (one line each), what comes back;
+#                             Quit (↵) or Cancel (Esc).
 # Type to filter (the shortcut list's fuzzy matching; matched letters in blue), ↑↓ to move, ↵ or a
 # click to choose, Esc to clear the search, then close.
 # Browser: a click or → goes into a folder, ← / Backspace goes up (above the root too, to open a
@@ -374,10 +378,58 @@ class Project(Picker):
         return super().key(keyval, state)
 
 
+# ---- Quit agentmux: are you sure? ---------------------------------------------------------------
+class Quit(View):
+    """Ctrl+Alt+Q: what quitting cuts short (agentmux passes it, a line each), what survives it, and
+    the two buttons. Enter quits, Esc cancels."""
+    title, subtitle = "Quit agentmux", ""
+    icon = "\U000f06a9"
+    interval = 0
+    hints = [("Enter", "quit"), ("Esc", "cancel")]
+
+    def __init__(self, running):
+        super().__init__()
+        self.running = running
+
+    def build(self):
+        rows = [label("Still running: it stops." if self.running else "Nothing is running.",
+                      "bold" if self.running else "dim")]
+        for line in self.running:
+            rows.append(box(False, 10, label("\u25cf", "amber", "pick-glyph"), label(line, ellipsize=True)))
+        notes = box(True, 4,
+                    label("Threads come back the next time it opens.", "dim"),
+                    label("Threads open in VS Code keep running. Terminals don't come back.", "dim"))
+        notes.set_margin_top(14)
+        quit_btn = button("Quit agentmux", self.confirm, "danger")
+        buttons = box(False, 8, label(""), button("Cancel", self.close, "flat"), quit_btn)
+        buttons.get_first_child().set_hexpand(True)
+        buttons.set_margin_top(18)
+        page = box(True, 6, *rows, notes, buttons)
+        for edge in ("start", "end", "top", "bottom"):
+            getattr(page, f"set_margin_{edge}")(18)
+        GLib.idle_add(lambda: quit_btn.grab_focus() and False)
+        return page
+
+    def confirm(self):
+        subprocess.Popen([AGENTMUX, "quit", "--yes"], start_new_session=True)
+        self.close()
+
+    def key(self, keyval, state):
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.confirm()
+        elif keyval == Gdk.KEY_Escape:
+            self.close()
+        else:
+            return False
+        return True
+
+
 def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else "project"
     if kind == "harness":
         run(Harness(), "panels.newthread", (620, 440))
+    elif kind == "quit":
+        run(Quit(sys.argv[2:]), "panels.quitagentmux", (560, 300))
     else:
         run(Project(), "panels.openproject", (820, 600))
 

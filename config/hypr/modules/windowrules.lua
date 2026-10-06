@@ -125,6 +125,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux
 -- agentmux's pickers (agentpickgui.py): New thread (which agent), Open project (folder browser)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthread)$" }, size = { 620, 440 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproject)$" }, size = { 820, 600 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.quitagentmux)$" }, size = { 560, 300 } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
 hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 

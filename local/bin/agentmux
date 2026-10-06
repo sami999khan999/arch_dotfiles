@@ -61,6 +61,7 @@ SESSION = "main"
 WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
 MIN = {"projects": 16, "agents": 20, "termlist": 4}                       # a sidebar is never narrower than this
 ICONS_ONLY = 9   # the terminal list narrower than this shows only icons (termlist.py)
+MIN_TERM = 20    # the terminal itself (left of its list) is never dragged narrower
 COLLAPSED = 5    # the collapsed list: its icons in the middle column; a collapsed sidebar is as wide
 
 
@@ -1328,6 +1329,26 @@ def save_widths():
     # drag went too far): back to its last width. That resize runs this again, with the right widths.
     if pane("termlist") and size(pane("termlist")) < MIN["termlist"]:
         lib.app("resize-pane", "-t", pane("termlist"), "-x", str(list_width()))
+        return
+    # A drag stops at a panel's minimum: each one is either its collapsed strip or at least MIN wide.
+    # Below MIN a sidebar goes back to MIN (to its strip if it's collapsed: dragged MIN wide it opens,
+    # below), the list dragged narrower than its names collapses, and the terminal keeps MIN_TERM.
+    want = {}
+    for role in ("projects", "agents"):
+        width = size(pane(role))
+        if pane(role) and width < MIN[role]:
+            want[role] = COLLAPSED if role in s.get("collapsed", []) else MIN[role]
+    width = size(pane("termlist"))
+    if pane("termlist") and width < ICONS_ONLY and width != COLLAPSED:
+        s["termlist_collapsed"] = True
+        lib.save_state(s)
+        want["termlist"] = COLLAPSED
+    if pane("terms") and size(pane("terms")) < MIN_TERM:
+        want["terms"] = MIN_TERM
+    want = {role: x for role, x in want.items() if size(pane(role)) != x}
+    if want:
+        for role, x in want.items():   # each resize runs this again, with the right widths
+            lib.app("resize-pane", "-t", pane(role), "-x", str(x))
         return
     # collapsed, the list's width isn't one to remember; dragged open far enough for the names, it's
     # expanded again

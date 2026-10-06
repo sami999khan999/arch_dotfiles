@@ -161,6 +161,7 @@ class TermList(App):
                 l = Line("overlay" if on else ("hover" if hov else None)).pad(mid).add(*icon)
             else:
                 l = Line(bg).add("▎" if on else " ", "accent").add(tree, "line").add(*icon)
+                edge = on   # the shown one: the blue edge on both sides (drawn after its name and buttons)
             if not narrow:
                 # the shown and the hovered row: split it, close it (as VS Code's on hover); the name
                 # gives way first, then the split button
@@ -178,6 +179,8 @@ class TermList(App):
                 for x0, text, cmd in spots:
                     l.pad(x0 - l.w).add(text, "muted")
                 self.row_buttons[len(lines)] = [(x0, x0 + width(text), cmd) for x0, text, cmd in spots]
+                if edge:
+                    l.pad(w - 1 - l.w).add("▕", "accent")
             self.ys[len(lines)] = p["pane"]
             lines.append(l)
         if self.scroll > 0:

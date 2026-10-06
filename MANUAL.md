@@ -553,7 +553,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - **Collapse Projects / Threads:** `‹` beside a sidebar's `×` (or `c` in it) folds it to a narrow strip:
   a row per project (its state dot and initial) or thread (its state and number), `+` at the bottom;
   click one to open it, `›` at the top (or `c`) opens the sidebar back to its width. It stays
-  collapsed until opened (`collapsed` in `state.json`); dragging its border wide opens it too.
+  collapsed until opened (`collapsed` in `state.json`); dragging its border wide opens it too. A drag stops
+  at each sidebar's minimum (Projects 16 columns, Threads 20): it's either that wide or its strip.
 - **States and notifications, for every agent.** Each thread shows *needs you* (a permission prompt,
   a question, a plan to approve), *error*, *working*, *done* (finished, not looked at yet), *waiting*
   or *agent exited*; a desktop notification comes when it needs you (stays until you act, and goes away by itself once
@@ -578,7 +579,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   two) and a `×` that closes that terminal alone (one half of a split stays); `Ctrl+Alt+W` closes
   the focused one; the last one closes the column. `─` in the header minimizes the column (`Ctrl+Alt+3`): its shells keep running,
   `▸ terminals` in the status bar brings it back. Drag the border left of the list (or of the
-  column) to resize; both widths are remembered. Dragged very narrow, the list shows only the icons;
+  column) to resize; both widths are remembered. Dragged narrower than its names, the list collapses to its
+  icons; the terminal itself stops at 20 columns. The shown terminal's row has the blue edge on both sides.
   `›` at the left of its header (beside the count of terminals) collapses it to just that (`‹` expands it back to its width; it stays
   collapsed in every project until expanded). Each terminal is a window of the project's
   `<project>·terms` session on the agents server (`local/lib/agentmux/termlist.py` is the list).

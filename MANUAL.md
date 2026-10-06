@@ -317,13 +317,14 @@ GitHub (just `↓4` when main is the branch checked out), then the branch checke
 opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
 current.
 
-**Branches, two questions apart.** Under a project's chips, a small table lists its local branches (the
-checked-out one has the dot), with a column for each question: **GitHub**, is it there (`✓ pushed`,
-`↑2 to push`, `↓1 to pull`, `↑1 ↓3 diverged`, `• never pushed`, `✗ deleted there`), and **main** (the
-repo's main branch, whatever it's called), is it merged (`merged`: every commit of it is in main; `3 not
-merged`: 3 of its commits main doesn't have yet). So a `dev` that's pushed but not merged reads
-`✓ pushed · 3 not merged`. Hovering says more (how far main has moved on); a click on a branch shows its
-history (Graph). Up to 6 branches; the *Branches* tab has them all, with Check out, Pull and Push.
+**Branches against main.** Under a project's chips, main (the repo's main branch, whatever it's called)
+heads a short list, with its own state on GitHub: it's what the branches under it are compared to. Each
+other local branch is a row (the checked-out one has the dot): its state on **GitHub** (`✓ pushed`,
+`↑2 to push`, `↓1 to sync`, `↑1 ↓3 diverged`, `• never pushed`, `✗ deleted on GitHub`), then how it stands
+**against main**: `same as main`, `in main` (all of it is in main, which has moved on since), or
+`3 not in main` (3 of its commits main doesn't have yet). So a `dev` that's pushed but not merged reads
+`✓ pushed · 3 not in main`. A click on a branch shows its history (Graph). Up to 6 branches; the
+*Branches* tab has them all.
 
 **Sync with GitHub.** Every branch on GitHub is also a branch here, kept up to date by **Sync** (`s`, one
 project) or **Sync all** (in the *Out of date* section's header; 8 projects at a time, progress in the
@@ -341,7 +342,7 @@ them, then sync"). A branch where you and GitHub both have new commits is left a
 merge or pull you started: resolve them in VS Code, then commit), and every diverged branch: how many
 commits each side has, and the files that would clash (or "would merge cleanly"). Merging is yours to
 do, in VS Code; the panel only shows where things stand. The branch table's **main** column says
-whether each branch is in main (`merged` / `N not merged`).
+how each branch stands against main.
 
 **Commit…** (`c`, when there are changes) opens a popup like every other panel (`commitgui.py`: the screen blurred behind it, `Esc` or a click outside closes it): a message (subject line, then a body if it needs one;
 `Ctrl+Enter` commits), the changed files (untick what stays out), *Push it to GitHub after*. A normal

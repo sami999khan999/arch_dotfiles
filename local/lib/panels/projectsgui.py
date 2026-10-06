@@ -65,6 +65,10 @@ button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
 .chip { padding: 0 5px; font-size: 9pt; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
+/* main as the heading, the other branches under it, set off by a rule */
+.branch-block { border-left: 2px solid alpha(#3b4261, .7); padding: 2px 0 2px 10px; }
+separator.branch-rule { background: alpha(#3b4261, .5); min-height: 1px; margin: 3px 0; }
+.dot-col { min-width: 10px; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .chip-local { background: alpha(#6b8fe0, .2); color: #7aa2f7; }
 .chip-remote { background: alpha(#565f89, .2); color: #565f89; }
@@ -966,9 +970,10 @@ class Projects(View):
                       remotes, local)
 
     def paint_others(self, branches):
-        """The local branches as a small table, two separate questions a column each: is it on GitHub
-        (pushed, to push, to pull, never pushed, deleted there) and is it in main (merged, or how many of
-        its commits main lacks). The checked-out one has the dot; a row shows that branch's history."""
+        """The branches against main. Main is a heading of its own (the reference, with its GitHub state);
+        under it, every other local branch a row: its state on GitHub, then how it stands against main
+        (in main, the same, or how many of its commits main doesn't have yet). The checked-out one has
+        the dot; a branch's name shows its history (Graph)."""
         clear(self.others)
         local = [b for b in branches if b["local"]]
         remote_only = sum(not b["local"] for b in branches)
@@ -977,53 +982,69 @@ class Projects(View):
             self.others.set_visible(False)
             return
         self.others.set_visible(True)
-        local.sort(key=lambda b: (not b["head"], b["name"] != main, -b["unix"]))
-        grid = Gtk.Grid(column_spacing=18, row_spacing=1)
-        for c, text in enumerate(("", "branch", "GitHub", main or "main")):
-            grid.attach(label(text, "dim", "branch-head"), c, 0, 1, 1)
-        shown = local[:MAX_BRANCH_ROWS]
-        for r, b in enumerate(shown, 1):
+
+        def on_github(b):
             if b["gone"]:
-                gh, gcls = "✗ deleted there", "red"
-            elif not b["upstream"]:
-                gh, gcls = "• never pushed", "amber"
-            elif b["ahead"] and b["behind"]:
-                gh, gcls = f"↑{b['ahead']} ↓{b['behind']} diverged", "red"
-            elif b["ahead"]:
-                gh, gcls = f"↑{b['ahead']} to push", "amber"
-            elif b["behind"]:
-                gh, gcls = f"↓{b['behind']} to sync", "cyan"
-            else:
-                gh, gcls = "✓ pushed", "green"
-            if b["name"] == main:
-                mn, mcls, tip = "—", "dim", "this is the main branch"
-            elif b["vs_main"] is None:
-                mn, mcls, tip = "", "dim", ""
-            elif b["vs_main"][0]:
-                n = b["vs_main"][0]
-                mn, mcls = f"{n} not merged", "amber"
-                tip = f"{n} commit{'s' * (n > 1)} on {b['name']} that {main} doesn't have yet"
-            else:
-                mn, mcls = "merged", "green"
-                tip = f"every commit of {b['name']} is in {main}" + (
-                    f"; {main} has {b['vs_main'][1]} newer" if b["vs_main"][1] else "")
+                return "✗ deleted on GitHub", "red"
+            if not b["upstream"]:
+                return "• never pushed", "amber"
+            if b["ahead"] and b["behind"]:
+                return f"↑{b['ahead']} ↓{b['behind']} diverged", "red"
+            if b["ahead"]:
+                return f"↑{b['ahead']} to push", "amber"
+            if b["behind"]:
+                return f"↓{b['behind']} to sync", "cyan"
+            return "✓ pushed", "green"
+
+        def name_button(b):
             name = Gtk.Button(child=label(b["name"], *(("bold",) if b["head"] else ())), tooltip_text="its history (Graph)")
             name.add_css_class("flat")
             name.add_css_class("branch-chip")
             name.connect("clicked", lambda _b, n=b["name"]: self.show_graph_of(n, tab=True))
-            in_main = label(mn, mcls)
-            in_main.set_tooltip_text(tip or None)
-            for c, w in enumerate((label("●" if b["head"] else "", "accent"), name, label(gh, gcls), in_main)):
+            return name
+
+        base = next((b for b in local if b["name"] == main), None)
+        others = sorted((b for b in local if b["name"] != main), key=lambda b: (not b["head"], -b["unix"]))
+        block = box(True, 4, classes=("branch-block",))
+        grid = Gtk.Grid(column_spacing=18, row_spacing=1)   # one grid: main's row lines up with the others
+        first = 0
+        if base:   # the heading: main, its GitHub state, what the rows below are compared to; a rule under it
+            text, cls = on_github(base)
+            for c, w in enumerate((label("●" if base["head"] else "", "accent", "dot-col"), name_button(base),
+                                   label(text, cls), label(f"the branches below are compared to {main}", "dim"))):
+                w.set_valign(Gtk.Align.CENTER)
+                grid.attach(w, c, 0, 1, 1)
+            rule = Gtk.Separator()
+            rule.add_css_class("branch-rule")
+            grid.attach(rule, 0, 1, 4, 1)
+            first = 2
+        for r, b in enumerate(others[:MAX_BRANCH_ROWS], first):
+            gh, gcls = on_github(b)
+            if b["vs_main"] is None:
+                mn, mcls, tip = "", "dim", ""
+            elif b["vs_main"][0]:
+                n = b["vs_main"][0]
+                mn, mcls = f"{n} not in {main}", "amber"
+                tip = f"{n} commit{'s' * (n > 1)} on {b['name']} that {main} doesn't have yet"
+            elif b["vs_main"][1]:
+                mn, mcls = f"in {main}", "green"
+                tip = f"all of {b['name']} is in {main}; {main} has {b['vs_main'][1]} newer commit{'s' * (b['vs_main'][1] > 1)}"
+            else:
+                mn, mcls, tip = f"same as {main}", "green", f"{b['name']} and {main} are the same"
+            vs = label(mn, mcls)
+            vs.set_tooltip_text(tip or None)
+            for c, w in enumerate((label("●" if b["head"] else "", "accent", "dot-col"), name_button(b), label(gh, gcls), vs)):
                 w.set_valign(Gtk.Align.CENTER)
                 grid.attach(w, c, r, 1, 1)
+        block.append(grid)
         more = []
-        if len(local) > MAX_BRANCH_ROWS:
-            more.append(f"{len(local) - MAX_BRANCH_ROWS} more")
+        if len(others) > MAX_BRANCH_ROWS:
+            more.append(f"{len(others) - MAX_BRANCH_ROWS} more")
         if remote_only:
             more.append(f"{remote_only} only on GitHub")
         if more:
-            grid.attach(label(" · ".join(more) + " (Branches tab)", "dim"), 1, len(shown) + 1, 3, 1)
-        self.others.append(grid)
+            block.append(label(" · ".join(more) + " (Branches tab)", "dim"))
+        self.others.append(block)
 
     def paint_git(self, p, gen, branches, dirty, ahead, behind, has_origin):
         if gen != self.gen:

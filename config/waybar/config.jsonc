@@ -351,9 +351,9 @@
     "on-click": "~/.local/lib/panels/keysgui.py"
   },
   "custom/projects": {
-    "format": "\uf07c",
+    "format": "\uea62",
     "tooltip-format": "Projects (Super + Ctrl + P)",
-    "on-click": "~/.local/lib/panels/projectsgui.py"
+    "on-click": "~/.local/bin/wsgroups go sami.projects"
   },
   "custom/settings": {
     "format": "\uf013",

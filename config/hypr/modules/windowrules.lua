@@ -122,7 +122,6 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.pair)$" }, size = { 680, 670 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux)$" }, size = { 860, 620 } })
-hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.projects)$" }, size = { 1180, 680 } })
 -- agentmux's pickers (agentpickgui.py): New thread (which agent), Open project (folder browser)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthread)$" }, size = { 620, 440 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproject)$" }, size = { 820, 600 } })

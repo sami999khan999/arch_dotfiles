@@ -49,7 +49,7 @@ bind("SUPER + K",                    panels .. "keysgui.py") -- shortcut list
 bind("SUPER + I",                    panels .. "settingsgui.py") -- settings
 bind("SUPER + SHIFT + T",            panels .. "themegui.py") -- colour theme (Tokyo Night, Crimson…)
 bind("SUPER + CTRL + G",             "~/.local/bin/wsgroups") -- workspace groups manager
-bind("SUPER + CTRL + P",             panels .. "projectsgui.py") -- Projects (every repo in ~/code: branches, history, open in VS Code)
+bind("SUPER + CTRL + P",             "~/.local/bin/wsgroups go sami.projects") -- Projects workspace (every repo in ~/code: branches, history, open in VS Code)
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")
 bind("SUPER + V",                    "walker -m clipboard")

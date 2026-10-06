@@ -6,7 +6,8 @@
   wsgroups focus N            focus window N (1-10) of the current workspace, in the order opened
                               (or as reordered: move)
   wsgroups move ADDR up|down  move a window one place earlier / later in that order (Workspaces panel)
-  wsgroups go N               go to workspace N; launch its apps if none are open there yet
+  wsgroups go N|CLASS         go to workspace N (or the one CLASS belongs to); launch its apps if none
+                              are open there yet
   wsgroups new                open another window of the current workspace's app (Super + N)
   wsgroups launch N|all [-f]  launch a group's programs (-f: even if some are already open;
                               --background: return to the current workspace afterwards)
@@ -611,7 +612,12 @@ def main(argv):
     elif cmd == "new":
         new_window()
     elif cmd == "go" and rest:
-        go(int(rest[0]))
+        # a class: its group's workspace, wherever Settings → Workspaces put it (Super + Ctrl + P → Projects)
+        ws = int(rest[0]) if rest[0].isdigit() else next(
+            (n for n, g in groups().items() if matches({"class": rest[0]}, g["cls"])), None)
+        if ws is None:
+            sys.exit(f"no workspace has {rest[0]}")
+        go(ws)
     elif cmd == "launch" and rest:
         targets = sorted(groups()) if rest[0] == "all" else [int(rest[0])]
         home = (query("activeworkspace") or {}).get("id")

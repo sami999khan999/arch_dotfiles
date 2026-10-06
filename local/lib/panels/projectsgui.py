@@ -249,11 +249,11 @@ def load_projects():
 
 class Projects(View):
     title, subtitle = "Projects", ""
-    icon = ""
+    icon = "\uea62"
     interval = 0
     css = CSS
     hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("f", "fetch"), ("n", "new"),
-             ("Tab", "graph / branches"), ("←→", "fold"), ("/", "search"), ("Esc", "close")]
+             ("Tab", "graph / branches"), ("←→", "fold"), ("/", "search")]
 
     def __init__(self):
         super().__init__()
@@ -1193,7 +1193,8 @@ def make():
 
 
 def main():
-    run(make(), "panels.projects", (1180, 680))
+    # a workspace app (Projects, 5 by default; workspaces.conf), maximized there like the Docker panel
+    run(make(), "sami.projects", (1180, 680), toggle=False)
 
 
 if __name__ == "__main__":

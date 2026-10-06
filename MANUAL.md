@@ -309,6 +309,14 @@ button above opens `gh auth login`. *Start a new list instead* creates the priva
 (*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
 header shows **Clone missing (N)**, which uses the same progress list.
 
+**The list on the left** has three sections, each folding with a click (or Enter): **Pinned** (pin a
+project with *Pin* or `p`; pins are in the list, so every PC has them), **Changes** (every repo with
+uncommitted changes or commits on no remote) and **All projects** (the folder tree). A project's row says
+what needs doing: `● 3` uncommitted changes, `↑2` commits to push, `main ↓4` its main branch is behind
+GitHub (just `↓4` when main is the branch checked out), then the branch checked out. When the panel
+opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
+current.
+
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While
 the panel shows, the project's git status is looked at every 2 s (read-only: no index lock), so an edit,

@@ -19,6 +19,8 @@
                        repo under <owner> (private unless --public), and record it
   projects add <url> [path]
                        clone a repo into ~/code/<path> (default active/<repo name>) and record it
+  projects pin <path> / unpin <path>
+                       pin a project (first in the Projects panel; pins are in the list, every PC has them)
   projects forget <path>…
                        drop projects from the list
   projects move <path> <new path>
@@ -76,7 +78,8 @@ if not sys.stdout.isatty():
 
 def git(path, *args, timeout=60):
     """git in path: (ok, stdout). Never prompts (a private repo without access fails instead of hanging)."""
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    # no optional locks: a status check (the panel looks often) never takes index.lock from a git you run
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
     try:
         r = subprocess.run(["git", "-C", path, *args], capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
@@ -95,7 +98,8 @@ def load():
         data = json.load(open(LIST))
     except (OSError, ValueError):
         data = {}
-    return {"version": 1, "projects": data.get("projects", []), "local_only": data.get("local_only", [])}
+    return {"version": 1, "projects": data.get("projects", []), "local_only": data.get("local_only", []),
+            "pinned": data.get("pinned", [])}
 
 
 def save(data):
@@ -374,6 +378,10 @@ def scan(dry=False, quiet=False):
             kept.append(e)                            # not on this PC: still listed
     new = {"version": 1, "projects": list(found.values()) + kept,
            "local_only": [{"path": p, "git": is_repo(f"{ROOT}/{p}")} for p in local]}
+    # pins follow a project that moved, and go with one that's no longer listed
+    to = dict(moved)
+    listed = {e["path"] for e in new["projects"]} | {e["path"] for e in new["local_only"]}
+    new["pinned"] = [r for r in (to.get(r, r) for r in old["pinned"]) if r in listed]
     before = {e["path"]: e for e in old["projects"]}
     after = {e["path"]: e for e in new["projects"]}
     moved_to = {b for _, b in moved}
@@ -387,7 +395,8 @@ def scan(dry=False, quiet=False):
              + [f"{AMBER}~ {p}{RESET}" for p in sorted(changed)]
              + [f"{RED}- {p}{RESET}" for p in sorted(gone)]
              + [f"{DIM}+ {p} (local only){RESET}" for p in sorted(lo_after - lo_before)]
-             + [f"{DIM}- {p} (local only){RESET}" for p in sorted(lo_before - lo_after)])
+             + [f"{DIM}- {p} (local only){RESET}" for p in sorted(lo_before - lo_after)]
+             + ([f"{DIM}pins: {', '.join(new['pinned']) or 'none'}{RESET}"] if new["pinned"] != old["pinned"] else []))
     if not quiet:
         print("\n".join(lines) if lines else "no changes")
         print(f"{DIM}{len(new['projects'])} projects listed ({len(kept)} not on this PC), "
@@ -554,6 +563,10 @@ def move(rel, new):
     if busy:
         return False, f"{', '.join(busy)} running in it: close {'them' if len(busy) > 1 else 'it'} first"
     move_project(rel, new)
+    data = load()
+    if rel in data["pinned"]:   # a local-only project's move isn't seen as one by the scan: say it here
+        data["pinned"] = [new if r == rel else r for r in data["pinned"]]
+        save(data)
     scan(quiet=True)
     return True, f"moved to {new}"
 
@@ -598,6 +611,20 @@ def delete_on_github(rel):
     return True, f"{repo} deleted on GitHub (GitHub can restore it for 90 days); the folder stays, local-only", False
 
 
+def pin(rel, on=True):
+    """Pin a project (the Projects panel shows it first) or unpin it. Pins are in the list, so every
+    PC has them. Returns a problem, or ""."""
+    rel, data = rel.strip("/"), load()
+    if on and rel not in {e["path"] for e in data["projects"]} | {e["path"] for e in data["local_only"]}:
+        return f"not listed: {rel}"
+    pins = [r for r in data["pinned"] if r != rel] + ([rel] if on else [])
+    if pins == data["pinned"]:
+        return ""
+    data["pinned"] = pins
+    save(data)
+    return commit(f"{'pin' if on else 'unpin'} {rel}")
+
+
 def delete_git(rel):
     """Remove the project's .git: its files stay, as a local-only project. (ok, message)."""
     path = f"{ROOT}/{rel.strip('/')}"
@@ -620,6 +647,7 @@ def delete(rel):
     data = load()
     data["projects"] = [e for e in data["projects"] if e["path"] != rel]
     data["local_only"] = [e for e in data["local_only"] if e["path"] != rel]
+    data["pinned"] = [r for r in data["pinned"] if r != rel]
     save(data)
     problem = commit(f"delete {rel}")
     return True, f"deleted {rel}" + (f" ({problem})" if problem else "")
@@ -697,6 +725,29 @@ def clone(args):
     fails = clone_all(todo, report)
     print(f"done: {len(todo) - fails} cloned" + (f", {RED}{fails} failed{RESET}" if fails else ""))
     sys.exit(1 if fails else 0)
+
+
+def default_branch(path):
+    """The repo's main branch: what origin's HEAD points at (main, master…), else a local main / master."""
+    ok, out = git(path, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    if ok and "/" in out:
+        return out.split("/", 1)[1]
+    return next((b for b in ("main", "master") if git(path, "show-ref", "--verify", "-q", f"refs/heads/{b}")[0]), "")
+
+
+def health(rel):
+    """(changed files, commits on no remote, the main branch, how far it is behind origin's) of the
+    repo at ROOT/rel. Behind is as of the last fetch."""
+    path = f"{ROOT}/{rel}"
+    ok, st = git(path, "status", "--porcelain")
+    dirty = len(st.splitlines()) if ok and st else 0
+    ok, n = git(path, "rev-list", "--count", "--branches", "--not", "--remotes")
+    unpushed = int(n) if ok and n.isdigit() else 0
+    main, behind = default_branch(path), 0
+    if main:
+        ok, n = git(path, "rev-list", "--count", f"refs/heads/{main}..refs/remotes/origin/{main}")
+        behind = int(n) if ok and n.isdigit() else 0
+    return dirty, unpushed, main, behind
 
 
 def state(rel):
@@ -800,6 +851,7 @@ def forget(*rels):
     if not gone:
         sys.exit(f"not listed: {' '.join(rels)}")
     data["projects"] = [e for e in data["projects"] if e["path"] not in gone]
+    data["pinned"] = [r for r in data["pinned"] if r not in gone]
     save(data)
     problem = commit("forget " + ", ".join(gone))
     print("forgot " + ", ".join(gone) + (f"  {AMBER}{problem}{RESET}" if problem else ""))
@@ -857,6 +909,9 @@ def main():
         add(*args[:2])
     elif cmd == "forget" and args:
         forget(*args)
+    elif cmd in ("pin", "unpin") and args:
+        problem = pin(args[0], cmd == "pin")
+        print(f"{cmd}ned {args[0]}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))
     elif cmd == "move" and len(args) == 2:
         ok, msg = move(*args)
         print(msg) if ok else sys.exit(msg)

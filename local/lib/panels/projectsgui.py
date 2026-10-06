@@ -35,6 +35,9 @@ HIT = recolor("#7aa2f7")   # matched letters, as in the shortcut list
 HISTORY = 300              # commits in the graph
 STALE = 600                # seconds: an older fetch is redone when the project is selected
 FOLDED = {"archive", "templates", "forks"}   # groups that start folded
+STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer ago than this are fetched
+# the tree's three sections, each folds: pinned projects, the ones with work not on GitHub yet, all of them
+SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§all", "All projects")]
 G_OPEN, G_SHUT = "", ""         # folder open / closed
 G_REPO, G_MISSING, G_LOCAL = "", "", ""   # git branch, cloud download, warning
 # graph: lane colours (Tokyo Night; the theme recolours them), lane width and row height in px
@@ -44,6 +47,10 @@ NEW_FOLDER = "New folder…"
 CSS = """
 .tree > row { padding: 3px 10px; }
 .tree > row.group-row { padding-top: 6px; }
+.tree > row.section-row { padding: 10px 10px 4px; }
+.tree > row.section-row:not(:first-child) { margin-top: 6px; border-top: 1px solid alpha(#3b4261, .5); }
+.section-title { font-weight: 700; color: #a9b1d6; }
+.tree > row.hint-row { padding: 2px 10px 4px 36px; }
 .pj-glyph { min-width: 18px; }
 .graph > row { padding: 0 10px 0 0; min-height: 24px; }
 .graph > row:hover, .branch-list > row:hover { background: alpha(#292e42, .45); }
@@ -264,7 +271,9 @@ class Project:
         self.rel, self.kind, self.entry = rel, kind, entry
         self.path = f"{pj.ROOT}/{rel}"
         self.name = os.path.basename(rel)
-        self.dirty = 0
+        self.dirty = 0      # changed files (count_changes, live)
+        self.unpushed = 0   # commits on no remote
+        self.main, self.behind = "", 0   # the main branch, and how far it's behind origin's (last fetch)
         self.branch = pj.current_branch(self.path) if kind == "repo" else ""
 
 
@@ -283,7 +292,7 @@ class Projects(View):
     icon = "\uea62"
     interval = 2   # refresh(): the shown project's git status, live
     css = CSS
-    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("f", "fetch"), ("m", "move"), ("n", "new"),
+    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("f", "fetch"), ("p", "pin"), ("m", "move"), ("n", "new"),
              ("Tab", "changes / graph / branches"), ("←→", "fold"), ("/", "search")]
 
     def __init__(self):
@@ -296,10 +305,12 @@ class Projects(View):
         self.rows = {}                # rel -> (row, dot label) for in-place updates
         self.fetched = set()          # projects fetched since the panel opened
         self.fetching = set()
+        self.fetched_all = False      # the stale repos were fetched (once, when the panel opened)
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
         self.start = None             # the New form's "Start from" (None until it's built)
         self.gh_admin = {}            # owner/name -> may this account delete it on GitHub
+        self.pinned = pj.load()["pinned"]
 
     # ---- layout ----------------------------------------------------------------------------------
     def header_extra(self):
@@ -462,33 +473,57 @@ class Projects(View):
         return False
 
     def count_changes(self):
+        """Every repo's health (changed files, unpushed commits, main behind), then the tree again (the
+        Changes section is made of it). Then the repos not fetched for a while are fetched, quietly, so
+        "main behind" is current, and those are looked at again."""
         repos = [p for p in self.projects if p.kind == "repo"]
 
         def one(p):
-            p.dirty = len(git_lines(p.path, "status", "--porcelain"))
-            return p
-        with ThreadPoolExecutor(6) as pool:
-            for p in pool.map(one, repos):
-                if p.dirty:
-                    GLib.idle_add(self.mark_dirty, p.rel)
+            p.dirty, p.unpushed, p.main, p.behind = pj.health(p.rel)
+        with ThreadPoolExecutor(8) as pool:
+            list(pool.map(one, repos))
+        GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
+        stale = [p for p in repos if (pj.fetched_ago(p.path) or STALE_ALL + 1) > STALE_ALL
+                 and p.rel not in self.fetching]
+        if not stale or self.fetched_all:
+            return
+        self.fetched_all = True   # once per panel run
 
-    def mark_dirty(self, rel):
-        if rel in self.rows:
-            self.rows[rel][1].set_text("●")
-        return False
+        def fetch(p):
+            self.fetching.add(p.rel)
+            pj.git(p.path, "fetch", "--all", "--prune", "-q", timeout=120)
+            self.fetching.discard(p.rel)
+            self.fetched.add(p.rel)
+            one(p)
+        with ThreadPoolExecutor(8) as pool:
+            list(pool.map(fetch, stale))
+        GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
 
     # ---- the tree --------------------------------------------------------------------------------
     def layout(self):
-        """[(kind, key, depth, match)] in on-screen order: kind is group or project."""
+        """[(kind, key, depth, extra)] in on-screen order: kind is section, hint, group or project. A
+        search is one flat list of matches, best first; else the three sections, each folding."""
         q = self.search.get_text().strip()
-        if q:   # a flat list of matches, best first
+        if q:
             found = []
             for p in self.projects:
                 m = fuzzy(q, p.name, p.rel)
                 if m:
                     found.append((-m[0], p.rel, m))
             return [("project", rel, 0, m) for _, rel, m in sorted(found)]
-        out, groups = [], set()
+        by_rel = {p.rel: p for p in self.projects}
+        pinned = [r for r in self.pinned if r in by_rel]
+        changes = [p.rel for p in self.projects if p.kind == "repo" and (p.dirty or p.unpushed)]
+        out = []
+        for key, items, hint in (("§pinned", pinned, "Pin a project to keep it here (p)"),
+                                 ("§changes", changes, "Everything is committed and pushed")):
+            out.append(("section", key, 0, len(items)))
+            if key not in self.folded:
+                out += [("project", r, 0, "where") for r in items] or [("hint", hint, 0, None)]
+        out.append(("section", "§all", 0, len(self.projects)))
+        if "§all" in self.folded:
+            return out
+        groups = set()
         for p in self.projects:
             parts = p.rel.split("/")
             hidden = False
@@ -503,41 +538,60 @@ class Projects(View):
                 out.append(("project", p.rel, len(parts) - 1, None))
         return out
 
-    def paint_tree(self):
+    def paint_tree(self, keep_scroll=False):
+        adj = self.tree.get_parent().get_vadjustment() if keep_scroll and self.tree.get_parent() else None
+        top = adj.get_value() if adj else 0
         clear(self.tree)
         self.rows = {}
         by_rel = {p.rel: p for p in self.projects}
-        first = None
-        for kind, key, depth, match in self.layout():
-            if kind == "group":
+        titles = dict(SECTIONS)
+        first, picked = None, False
+        for kind, key, depth, extra in self.layout():
+            if kind == "section":
+                shut = key in self.folded
+                line = box(False, 8, label("▸" if shut else "▾", "dim", "pj-glyph"),
+                           label(titles[key], "section-title"), label(str(extra), "dim"))
+                row = Gtk.ListBoxRow(child=line, selectable=False)
+                row.add_css_class("section-row")
+            elif kind == "hint":
+                row = Gtk.ListBoxRow(child=label(key, "dim"), selectable=False, activatable=False)
+                row.add_css_class("hint-row")
+            elif kind == "group":
                 shut = key in self.folded
                 n = sum(p.rel.startswith(key + "/") for p in self.projects)
                 line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"),
                            label(os.path.basename(key), "bold"), label(str(n), "dim"))
                 row = Gtk.ListBoxRow(child=line)
                 row.add_css_class("group-row")
-                row.kind, row.key = "group", key
             else:
-                line, dot = self.project_line(by_rel[key], match)
-                row = Gtk.ListBoxRow(child=line)
-                row.kind, row.key = "project", key
-                self.rows[key] = (row, dot)
+                row = Gtk.ListBoxRow(child=self.project_line(by_rel[key], extra))
+                self.rows.setdefault(key, []).append(row)
                 first = first or row
+            row.kind, row.key = kind, key
             row.get_child().set_margin_start(depth * 16)
             self.tree.append(row)
-            if key == self.selected:
-                self.tree.select_row(row)
+            if kind == "project" and key == self.selected and not picked:
+                self.tree.select_row(row)   # a project in two sections: the first is the selected one
+                picked = True
         if self.search.get_text().strip() and first:
             self.tree.select_row(first)
+        if adj:
+            GLib.idle_add(lambda: adj.set_value(top) and False)
+        return False
 
     def project_line(self, p, match):
+        """A project's row: its icon, name (with where it is, in a section or a search), then what
+        needs doing (● changed files, ↑ unpushed commits, main ↓ behind GitHub) and its branch."""
         if p.kind == "repo":
             glyph, gclass, right, rclass = G_REPO, "amber", p.branch, "dim"
         elif p.kind == "missing":
             glyph, gclass, right, rclass = G_MISSING, "dim", "not cloned", "dim"
         else:
             glyph, gclass, right, rclass = G_LOCAL, "amber", "local only", "amber"
-        if match:
+        if match == "where":
+            name = label(p.name, ellipsize=True)
+            text = box(True, 1, name, label(os.path.dirname(p.rel) or "~/code", "setting-sub", ellipsize=True))
+        elif match:
             name = label(marked(p.name, match[1], HIT), markup=True, ellipsize=True)
             where = label(marked(os.path.dirname(p.rel), match[2], HIT), "setting-sub", markup=True, ellipsize=True)
             where.set_max_width_chars(10)
@@ -546,12 +600,25 @@ class Projects(View):
             name = text = label(p.name, *(("dim",) if p.kind == "missing" else ()), ellipsize=True)
         name.set_max_width_chars(10)   # the column keeps its width: long names ellipsize instead
         text.set_hexpand(True)
-        dot = label("●" if p.dirty else "", "amber")
-        return box(False, 8, label(glyph, gclass, "pj-glyph"), text, dot, label(right, rclass)), dot
+        line = box(False, 8, label(glyph, gclass, "pj-glyph"), text)
+        if p.rel in self.pinned and match != "where":   # in All projects: it's pinned too
+            line.append(label("\U000f0403", "dim"))
+        s = lambda n: "s" * (n > 1)
+        for show, text_, cls, tip in (
+                (p.dirty, f"● {p.dirty}", "amber", f"{p.dirty} uncommitted change{s(p.dirty)}"),
+                (p.unpushed, f"↑{p.unpushed}", "amber", f"{p.unpushed} commit{s(p.unpushed)} on no remote: push"),
+                (p.behind, (f"↓{p.behind}" if p.branch == p.main else f"{p.main} ↓{p.behind}"), "cyan",
+                 f"{p.main} is {p.behind} commit{s(p.behind)} behind GitHub: pull it")):
+            if show:
+                badge = label(text_, cls)
+                badge.set_tooltip_text(tip)
+                line.append(badge)
+        line.append(label(right, rclass))
+        return line
 
     def tree_clicked(self, gesture, _n, _x, y):
         row = self.tree.get_row_at_y(int(y))
-        if row and row.kind == "group":
+        if row and row.kind in ("group", "section"):
             self.fold(row.key)
 
     def fold(self, key, shut=None):
@@ -570,7 +637,7 @@ class Projects(View):
             i += 1
 
     def activated(self, row):
-        if row.kind == "group":
+        if row.kind in ("group", "section"):
             self.fold(row.key)
         else:
             self.open_code()
@@ -664,6 +731,9 @@ class Projects(View):
         if p.kind == "missing":   # nothing here: only the list entry (a repo that's gone, say)
             self.actions.append(button("Forget", self.ask_forget, "flat", "danger", tooltip="drop it from the list"))
         else:
+            pinned = p.rel in self.pinned
+            self.actions.append(button("Unpin" if pinned else "Pin", self.toggle_pin, "flat",
+                                       tooltip="p: " + ("off the Pinned section" if pinned else "first in the list, on every PC")))
             self.actions.append(button("Move…", self.ask_move, "flat", tooltip="m: to another folder in ~/code"))
             self.actions.append(button("Delete", self.ask_delete, "flat", "danger", tooltip="Delete: the folder"))
         # Delete on GitHub: only once GitHub says this account may (admin on the repo); asked in a thread
@@ -719,10 +789,14 @@ class Projects(View):
             return False
         before, self.live = self.live, seen
         if before is not None and before != seen:   # something changed: the whole page again (no fetch)
-            p.dirty = len([l for l in seen[0].splitlines() if l])
-            if p.rel in self.rows:   # the tree's dot follows too
-                self.rows[p.rel][1].set_text("●" if p.dirty else "")
-            threading.Thread(target=self.load_git, args=(p, gen), daemon=True).start()
+            def again():
+                old = (p.dirty, p.unpushed, p.behind)
+                p.dirty, p.unpushed, p.main, p.behind = pj.health(p.rel)
+                p.branch = pj.current_branch(p.path)
+                if (p.dirty, p.unpushed, p.behind) != old or seen[1] != (before[1] if before else None):
+                    GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))   # its badges, the Changes section
+                self.load_git(p, gen)
+            threading.Thread(target=again, daemon=True).start()
         return False
 
     def paint_changes(self, p, gen, lines):
@@ -790,6 +864,8 @@ class Projects(View):
         else:
             chip("in sync", "green")
         chip(f"{dirty} changed" if dirty else "clean", "amber" if dirty else "dim")
+        if p.behind and (not cur or cur["name"] != p.main or not behind):   # main behind, the branch shown or not
+            chip(f"{p.main} ↓{p.behind} behind GitHub", "cyan")
         chip("fetching…" if p.rel in self.fetching else ago(pj.fetched_ago(p.path)), "dim")
         if self.pull_btn:
             can_pull = bool(behind) and not ahead
@@ -903,6 +979,21 @@ class Projects(View):
         p = self.current()
         if p and p.kind != "local" and web_url(p.entry["url"]):
             subprocess.Popen(["xdg-open", web_url(p.entry["url"])], start_new_session=True)
+
+    def toggle_pin(self):
+        p = self.current()
+        if not p or p.kind == "missing":
+            return
+        on = p.rel not in self.pinned
+        self.pinned = [r for r in self.pinned if r != p.rel] + ([p.rel] if on else [])   # shown at once
+        self.paint_tree(keep_scroll=True)
+        self.paint_actions(p)
+
+        def save():
+            problem = pj.pin(p.rel, on)
+            if problem:
+                GLib.idle_add(lambda: self.say(f"{p.name}: {problem}", "bad") and False)
+        threading.Thread(target=save, daemon=True).start()
 
     # ---- the popups: move, delete, delete on GitHub, forget ------------------------------------------
     def open_dialog(self, title, *widgets, focus=None, handlers=()):
@@ -1530,6 +1621,8 @@ class Projects(View):
             self.fetch()
         elif keyval == Gdk.KEY_g:
             self.open_web()
+        elif keyval == Gdk.KEY_p and page == "detail":
+            self.toggle_pin()
         elif keyval == Gdk.KEY_m and page == "detail":
             self.ask_move()
         elif keyval == Gdk.KEY_Delete and page == "detail":

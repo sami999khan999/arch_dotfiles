@@ -23,6 +23,10 @@
   agentmux maximize [role]     the focused panel (or role's) takes the whole width; again: back
   agentmux click <range>       a status-bar button
   agentmux reload              refresh everything without closing it (Ctrl+Alt+R)
+  agentmux quit [--yes]        really close it (Ctrl+Alt+Q; closing the window only detaches): asks
+                               first, listing what's still running; ends the workspace, its threads
+                               and terminals. Threads also open in a VS Code kitty keep running there;
+                               the others are remembered and come back the next time it opens
   agentmux speak <pane>        the read-aloud key (Ctrl+Alt+L) in a thread: Audio Cursor reads the
                                selection in the project's VS Code window, or by itself when none
                                is open (nothing selected: play / pause)
@@ -44,7 +48,7 @@ Threads are sessions on the agents server (tmux -L agents): the middle pane and 
 are nested clients of them, as is the kitty beside a VS Code window, so the same agent shows live in
 both places. See local/lib/agentmux/lib.py.
 """
-import hashlib, json, os, re, shlex, shutil, socket, subprocess, sys
+import hashlib, json, os, re, shlex, shutil, socket, subprocess, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
 import lib
@@ -738,6 +742,59 @@ def click(rng):
      "show-terms": lambda: toggle("terms")}.get(rng, lambda: None)()
 
 
+def still_running():
+    """What quitting would cut short: agents at work or waiting on you, and terminals running a
+    program (not just their shell). Threads open in a VS Code kitty aren't ended, so not listed."""
+    shown = lib.load_state().get("threads", {}).get(lib.load_state().get("project", ""))
+    out = []
+    for t in lib.threads():
+        mine = t["attached"] - (1 if t["name"] == shown else 0)   # viewers besides agentmux's own
+        if t["kind"] != "terms" and lib.runs_agent(t) and mine <= 0 and lib.state_of(t) in ("working", "needs"):
+            label = lib.HARNESSES.get(t["harness"], (t["harness"] or "agent",))[0]
+            out.append(f"{label} in {lib.project_name(t['project'])} is {'working' if lib.state_of(t) == 'working' else 'waiting on you'}")
+    rc, panes = lib.agents("list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}")
+    for line in panes.splitlines() if rc == 0 else []:
+        name, _, cmd = line.partition("\t")
+        if name.endswith(lib.SEP + "terms") and cmd not in lib.SHELLS:
+            out.append(f"{cmd} running in {name.rsplit(lib.SEP, 1)[0]}'s terminals")
+    return out
+
+
+def quit_agentmux(args):
+    """Ctrl+Alt+Q: asks (y / n on the status line, saying what's still running), then quit_now in its
+    own session: it ends the server this key runs in."""
+    if "--now" in args:
+        return quit_now()
+    if "--yes" not in args:
+        running = still_running()
+        client = lib.app("list-clients", "-F", "#{client_name}")[1].splitlines()
+        if client:   # a y / n question on the status line
+            what = (", ".join(running) + ". ") if running else ""
+            prompt = f"Quit agentmux? {what}Threads come back next time; VS Code's keep running. (y/n) "
+            lib.app("confirm-before", "-b", "-t", client[0], "-p", prompt.replace("#", "##"),   # -b: don't wait for it
+                    f"run-shell -b '{SELF} quit --yes'")
+            return
+        print("\n".join(running) or "nothing is running")
+        if input("Quit agentmux? [y/N] ").strip().lower() != "y":
+            return
+    subprocess.Popen([SELF, "quit", "--now"], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def quit_now():
+    """The workspace server first: its sidebars stop watching (so the agents ending aren't taken for
+    agents that quit, which would forget their conversations) and its window closes. Then, on the
+    agents server, every terminals session and every thread nobody else is viewing; what a VS Code
+    kitty shows stays. Nothing is forgotten: restore() brings the threads back next time."""
+    lib.app("kill-server")
+    time.sleep(0.5)   # its nested clients detach
+    for t in lib.threads():
+        if t["kind"] == "terms" or t["attached"] == 0:
+            lib.agents("kill-session", "-t", f"={t['name']}")
+    if not lib.threads():   # nothing left that a VS Code kitty shows: the server too
+        lib.agents("kill-server")
+
+
 def reload():
     """Ctrl+Alt+R: refresh agentmux in place. Both tmux configs are read again and every pane of the
     workspace is started again: the sidebars, the home screen, and the clients that show the thread
@@ -1401,7 +1458,7 @@ def main(argv):
         "close-project": lambda: close_project(args[0]),
         "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
         "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,
-        "toggle": lambda: toggle(args[0]), "reload": reload, "restore": restore, "maximize": lambda: maximize(args[0] if args else None),
+        "toggle": lambda: toggle(args[0]), "reload": reload, "restore": restore, "quit": lambda: quit_agentmux(args), "maximize": lambda: maximize(args[0] if args else None),
         "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,

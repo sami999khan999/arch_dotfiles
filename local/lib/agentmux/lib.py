@@ -308,6 +308,7 @@ ACTIONS = [
     ("resize-right", "Wider (focused column)", "tmux:resize-pane -R 3", "C-M-Right"),
     ("settings", "Settings", "settings", "C-M-s"),
     ("reload", "Reload agentmux", "reload", "C-M-r"),
+    ("quit", "Quit agentmux (asks first; the threads come back next time)", "quit", "C-M-q"),
     ("help", "Show the shortcuts", "click help", "C-M-?"),
     # bound on the agents server (agents:), so it works wherever a thread shows: agentmux and the
     # kitty beside VS Code. Reads the selection in the project's VS Code window (Audio Cursor).

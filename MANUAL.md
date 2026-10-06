@@ -608,8 +608,14 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
   `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+Z` maximize, `Ctrl+Alt+←→`
   resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
-  and shells keep running), `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the
+  and shells keep running), `Ctrl+Alt+Q` quit, `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the
   wheel; long lists scroll with the selection (`↑ more` / `↓ more`); Agents: `n` new, `a` adopt, `r` rescan.
+- **Closing the window only detaches:** the agents keep working (and notifying), the terminals keep
+  running, and `Super + A` comes back to it as it was. **`Ctrl+Alt+Q` really quits:** it asks on the
+  status line, saying what's still running (agents at work or waiting on you, terminals running a
+  program), then ends the workspace, its threads and its terminals. Threads also open in a VS Code
+  kitty keep running there; the others are remembered and come back on their conversations the next
+  time agentmux opens, as after a restart. Terminals don't come back.
 - **Settings** (`Ctrl+Alt+S`, or System Settings → More settings → agentmux): a window laid out
   like System Settings (search, sections: Shortcuts, Notifications, Projects). Click a shortcut and
   press the new keys (Esc cancels); a key already in use is refused, and so are Super (Hyprland's) and

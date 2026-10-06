@@ -247,7 +247,7 @@ The program is `local/bin/codesync`.
 ## Projects
 
 Every project in `~/code`, with its git remotes, is recorded in a list, so one command brings them all
-back on a new PC or after losing the SSD. **Super + Ctrl + P** opens the Projects panel to browse them.
+back on a new PC or after losing the SSD. **Super + Ctrl + P** (or the folder icon in waybar, beside the keyboard one) opens the Projects panel to browse them.
 
 `~/code` is arranged by status: `active/` (worked on this month), `paused/`, `archive/` (finished or
 dropped; `archive/exercises/` the small practice ones), `templates/`, `forks/`, `notes/`, and `inbox/`
@@ -297,10 +297,10 @@ without git, dependencies and build output, then a fresh git), or *Clone a URL* 
 a clone, it can also create the GitHub repo (owner: you or one of your orgs; private by default) and push.
 It's recorded in the list, which is pushed.
 
-**On a new PC** the panel opens on a setup page when there's no list: if `gh` isn't logged in, a button opens
-`gh auth login`. *Restore your list* fills in your `code-projects` URL (or paste any), clones it, then clones
-every project in it, with a progress list (4 at a time, ✓ / ✗ per project, Stop skips the rest).
-*Start a new list* creates the private repo from what's in `~/code`; then build the structure with + New
+**On a new PC** the panel opens on a setup page when there's no list: the list's URL (your `code-projects`
+repo, filled in when `gh` finds it; or paste any) and **Restore**, which clones it, then every project in it,
+with a progress list (4 at a time, ✓ / ✗ per project, Stop skips the rest). If `gh` isn't logged in, a
+button above opens `gh auth login`. *Start a new list instead* creates the private repo from what's in `~/code`; then build the structure with + New
 (*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
 header shows **Clone missing (N)**, which uses the same progress list.
 
@@ -430,6 +430,7 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | Network (`netgui.py`) | `Super + Ctrl + W`, waybar network | connection, traffic graph, addresses; "Manage connections" opens nmtui |
 | Bluetooth (`btgui.py`) | `Super + Ctrl + B`, waybar Bluetooth | your paired devices (Connect / Disconnect, battery, Forget on a second click) and the ones nearby: it scans while open, and Pair pairs, trusts and connects in one go. A device that shows a code (phone, keyboard) has it on the status line. The switch (`p`) turns Bluetooth on / off, unblocking rfkill if needed; `s` stops / starts the scan |
 | Shortcuts (`keysgui.py`) | `Super + K`, waybar keyboard icon | every shortcut, live from the config; type to fuzzy-search |
+| Projects (`projectsgui.py`) | `Super + Ctrl + P`, waybar folder icon | see Projects above |
 | Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
 | Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |

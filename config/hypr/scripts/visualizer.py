@@ -40,7 +40,7 @@ import importlib.machinery, importlib.util, json, math, os, shutil, signal, sock
 # group count "⊞ 1/1", the play button showing, no indicator and the short clock. Every difference
 # from that is added or taken off below. A wider screen adds its width. (The bar has no tray: apps
 # with a tray icon have their own workspace.)
-GAP_REF, TITLE_REF = 196, 30   # measured with the Settings button on the right (the agentmux one left again)
+GAP_REF, TITLE_REF = 169, 30   # measured with the Settings button on the right, less the Projects one (27 px)
 COUNT_REF = "\U000f0570 1/1"   # the group count's text in the reference
 CLOCK_REF_LEN = 17             # "Thu 01 Oct  22:43": the short clock
 CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; measured with Pango)

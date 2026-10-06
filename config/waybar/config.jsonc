@@ -24,6 +24,7 @@
     "custom/divider",
     "custom/codesync",
     "custom/keys",
+    "custom/projects",
     "custom/settings",
     "bluetooth",
     "network",
@@ -321,8 +322,6 @@
     "tooltip-format": "Devices connected: {num_connections}",
     "on-click": "~/.local/lib/panels/btgui.py"
   },
-  // one width at 5 % or 100 % (the stats' gap is sized to the pixel), the spare space before the
-  // icon: "{volume:>3}" put it between the icon and the number
   "pulseaudio": {
     "format": "{icon}  {volume}%",
     "on-click": "~/.local/lib/panels/audiogui.py",
@@ -350,6 +349,11 @@
     "format": "",
     "tooltip-format": "Shortcuts (Super + K)",
     "on-click": "~/.local/lib/panels/keysgui.py"
+  },
+  "custom/projects": {
+    "format": "\uf07c",
+    "tooltip-format": "Projects (Super + Ctrl + P)",
+    "on-click": "~/.local/lib/panels/projectsgui.py"
   },
   "custom/settings": {
     "format": "\uf013",

@@ -982,29 +982,23 @@ class Projects(View):
 
     # ---- a new PC: the setup page ----------------------------------------------------------------
     def build_setup(self):
+        """The list's URL and Restore (filled in when gh finds a code-projects repo); a new list is the
+        small button under it. GitHub only shows up when gh isn't logged in (private repos need it)."""
         self.gh_state = label("checking GitHub…", "dim", wrap=True)
         self.gh_login_btn = button("Log in to GitHub", lambda: self.terminal(["gh", "auth", "login"], "gh auth login"))
-        gh = box(False, 8, self.gh_login_btn, button("Check again", self.check_gh, "flat"))
-        gh.set_margin_top(8)
+        self.gh_row = box(False, 8, self.gh_login_btn, button("Check again", self.check_gh, "flat"))
         self.list_url = Gtk.Entry(placeholder_text="https://github.com/<you>/code-projects", hexpand=True)
         self.list_url.connect("activate", lambda *_: self.restore())
-        restore = box(False, 8, self.list_url, button("Get the list and clone everything", self.restore, "primary"))
-        restore.set_margin_top(10)
-        fresh = button("Create the list", self.create_list)
+        restore = box(False, 8, self.list_url, button("Restore", self.restore, "primary",
+                                                      tooltip="clone the list, then every project in it"))
+        restore.set_margin_top(16)
+        fresh = button("Start a new list instead", self.create_list, "flat",
+                       tooltip="a private GitHub repo listing what's in ~/code now")
         fresh.set_halign(Gtk.Align.START)
-        fresh.set_margin_top(10)
-        return box(True, 0, label("Set up Projects on this PC", "heading"),
-                   label(f"There's no project list in {tilde(pj.DIR)} yet.", "dim"),
-                   rule_heading("GitHub", spaced=True), self.gh_state, gh,
-                   rule_heading("Restore your list", spaced=True),
-                   label("Your list is a private repo (code-projects). Paste its URL: it's cloned, then every "
-                         "project in it, into the same folders, with all their branches.", "sub", wrap=True),
-                   restore,
-                   rule_heading("Start a new list", spaced=True),
-                   label("No list yet? Create one (a private GitHub repo) from what's in ~/code now. Then build "
-                         "your structure with + New: pick a folder or New folder…, choose Clone a URL, paste "
-                         "the repo's URL. Each project is recorded in the list.", "sub", wrap=True),
-                   fresh)
+        fresh.set_margin_top(8)
+        return box(True, 6, label("Set up Projects on this PC", "heading"),
+                   label("Paste your project list's URL: every project in it is cloned back.", "sub", wrap=True),
+                   self.gh_state, self.gh_row, restore, fresh)
 
     def show_setup(self):
         for w in children(self.pages.get_child_by_name("setup")):
@@ -1023,10 +1017,11 @@ class Projects(View):
 
     def paint_gh(self, user, url):
         if user:
-            self.gh_state.set_text(f"Logged in as {user}." + ("" if url else " No code-projects repo under it."))
+            self.gh_state.set_text("" if url else f"No code-projects repo under {user} on GitHub.")
         else:
-            self.gh_state.set_text("gh isn't logged in, so private repos can't be cloned. Log in, then Check again.")
-        self.gh_login_btn.set_visible(not user)
+            self.gh_state.set_text("Log in to GitHub first: your list is a private repo.")
+        self.gh_state.set_visible(bool(self.gh_state.get_text()))
+        self.gh_row.set_visible(not user)
         if url and not self.list_url.get_text():
             self.list_url.set_text(url)
         return False

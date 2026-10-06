@@ -12,8 +12,13 @@ window the kitty belongs to. It starts in the folder the window's title names
 its project, codepair.lua runs --follow and the kitty cd's there. Does nothing if that window
 already has its kitty. The VS Code window is focused first: a new column opens beside the focused one.
 
+The kitty and agentmux show the same threads: opened on a project agentmux already has agent threads
+in, the kitty opens with a tab attached to each of them (the same live sessions, both ways), and a
+fresh thread only when the project has none.
+
 Follow: if the shell is idle at its prompt it cd's into the new project; if something is running
 there (a dev server, tests) that's left alone and a new kitty tab opens in the new project instead.
+Either way, the new project's agentmux threads the kitty doesn't show yet open as tabs too.
 New tab: kitty's own Ctrl+Shift+T opened in the folder kitty started in (~/code, the project root): it
 only sees tmux running in a tab, not the shell's cd. So the kitty maps it here (PAIR_MAPS): the tab
 opens in the directory the shown tab's thread is in, as a thread of the same project.
@@ -101,8 +106,31 @@ def open_pair(addr):
            "--listen-on", f"unix:{socket_of(addr)}", "-o", "allow_remote_control=socket-only"]
     for m in PAIR_MAPS:
         cmd += ["-o", m.format(addr=addr)]
+    lib = agentmux()
+    existing = project_threads(lib, folder) if lib else []
+    if existing:   # agentmux already works in this project: the kitty shows its threads, a tab each
+        session = socket_of(addr) + ".session"
+        with open(session, "w") as f:
+            for name in existing:
+                f.write(f"new_tab {name}\ncd {folder}\nlaunch {shlex.join(lib.AGENTS + ['attach', '-t', '=' + name])}\n")
+        os.execvp("uwsm", cmd + ["--session", session])
     thread = agentmux_thread(folder)
     os.execvp("uwsm", cmd + (["--", *thread] if thread else []))
+
+
+def project_threads(lib, folder, skip=()):
+    """agentmux's agent threads in folder, oldest first, but those in skip (already shown here)."""
+    real = os.path.realpath(folder)
+    return [t["name"] for t in lib.threads()
+            if t["kind"] == "agent" and lib.runs_agent(t) and t["name"] not in skip
+            and os.path.realpath(t["project"] or "/") == real]
+
+
+def open_project_threads(addr, lib, folder, tabs):
+    """The project's agentmux threads this kitty doesn't show yet, a new tab each (after a --follow)."""
+    shown = {tmux_thread(lib, w) for t in tabs for w in t["windows"]}
+    for name in project_threads(lib, folder, skip=shown):
+        kitty(addr, "launch", "--type=tab", "--tab-title", name, "--cwd", folder, *lib.AGENTS, "attach", "-t", f"={name}")
 
 
 def agentmux():
@@ -172,10 +200,11 @@ def follow(addr):
             lib.agents("send-keys", "-t", f"={thread}:", "C-u", f"cd -- {shlex.quote(folder)}", "Enter")
             lib.agents("set-option", "-t", f"={thread}:", "@project", folder)
             lib.agents("rename-session", "-t", f"={thread}", lib.next_name(folder))
-        else:   # busy: keep it running, a new thread in a new tab
+        elif not project_threads(lib, folder):   # busy, and nothing of agentmux's to show: a new thread
             new = lib.next_name(folder)
             lib.new_session(new, folder, "agent")
             kitty(addr, "launch", "--type=tab", "--cwd", folder, *lib.AGENTS, "attach", "-t", f"={new}")
+        open_project_threads(addr, lib, folder, tabs)
         remember(addr, folder)
         return
     if fg and fg <= SHELLS:

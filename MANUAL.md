@@ -516,7 +516,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - **Synced with the VS Code kittys.** Every thread is a session on a separate tmux server
   (`tmux -L agents`). The kitty beside a VS Code window starts in one (kitty-pair), and agentmux's
   middle pane attaches to the same one: one agent, two live views, nothing restarted or copied. A
-  new thread made in agentmux also opens as a tab in that project's VS Code kitty. The agent
+  new thread made in agentmux also opens as a tab in that project's VS Code kitty, and the other way
+  round: opening a project in VS Code that agentmux already has threads in, its kitty opens with a tab
+  on each of them (a fresh thread only when there are none); a VS Code window switching to such a
+  project adds the ones its kitty doesn't show yet. The agent
   redraws at the size of the view you last typed in. A VS Code kitty's session is listed as a thread
   only while an agent runs in it (`claude`, `opencode`, `codex`, `agy` typed there): a dev server,
   tests or a plain shell in it stay that kitty's terminal (`lib.runs_agent`).

@@ -37,8 +37,10 @@ STALE = 600                # seconds: an older fetch is redone when the project 
 FOLDED = {"archive", "templates", "forks"}   # groups that start folded
 MAX_BRANCH_ROWS = 6       # local branches in a project's branch table (the Branches tab has them all)
 STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer ago than this are fetched
-# the tree's three sections, each folds: pinned projects, the ones with work not on GitHub yet, all of them
-SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§all", "All projects")]
+# the tree's sections, each folds: pinned projects, work not on GitHub yet, GitHub ahead of you (Sync
+# brings it), what needs merging by hand, and all of them
+SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§outdated", "Out of date"),
+            ("§conflicts", "Conflicts"), ("§all", "All projects")]
 G_OPEN, G_SHUT = "", ""         # folder open / closed
 G_REPO, G_MISSING, G_LOCAL = "", "", ""   # git branch, cloud download, warning
 # graph: lane colours (Tokyo Night; the theme recolours them), lane width and row height in px
@@ -60,7 +62,6 @@ CSS = """
 .chip { padding: 0 5px; font-size: 9pt; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
-.pending { background: alpha(#e0af68, .08); border-left: 2px solid #e0af68; padding: 6px 12px; }
 .commit-files { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
 .commit-files > row { padding: 2px 8px; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
@@ -254,6 +255,31 @@ def para(text, *classes):
     return l
 
 
+def sync_summary(reps):
+    """One line for what pj.sync() did across one or more repos."""
+    n = lambda key: sum(len(r[key]) for r in reps)
+    bits = [f"{n('updated')} branch{'es' * (n('updated') != 1)} updated"]
+    if n("created"):
+        bits.append(f"{n('created')} new")
+    if n("deleted"):
+        bits.append(f"{n('deleted')} deleted (gone on GitHub, all in main)")
+    skipped = [f"{b} ({why})" for r in reps for b, why in r["skipped"]]
+    if skipped:
+        bits.append("skipped " + ", ".join(skipped[:3]) + ("…" if len(skipped) > 3 else ""))
+    if n("diverged"):
+        bits.append(f"{n('diverged')} diverged: see Conflicts")
+    errors = [r["error"] for r in reps if r["error"]]
+    if errors:
+        bits.append(f"{len(errors)} couldn't fetch ({errors[0]})")
+    return ", ".join(bits)
+
+
+def set_health(p, h):
+    """A Project's numbers from pj.health()."""
+    p.dirty, p.unpushed, p.main, p.behind = h["dirty"], h["unpushed"], h["main"], h["behind"]
+    p.out_of_date, p.conflicts = h["out_of_date"], h["diverged"] + h["unmerged"]
+
+
 def status_lines(path):
     """`git status --porcelain` lines as git writes them: XY, a space, the path. Not git_lines(): its
     strip() takes the first line's leading space (" M a.txt", modified but not staged) with it."""
@@ -281,6 +307,8 @@ class Project:
         self.dirty = 0      # changed files (count_changes, live)
         self.unpushed = 0   # commits on no remote
         self.main, self.behind = "", 0   # the main branch, and how far it's behind origin's (last fetch)
+        self.out_of_date = 0   # what Sync would bring (branches behind GitHub, branches new there)
+        self.conflicts = 0     # diverged branches + files left with conflicts: merging by hand
         self.branch = pj.current_branch(self.path) if kind == "repo" else ""
 
 
@@ -299,8 +327,8 @@ class Projects(View):
     icon = "\uea62"
     interval = 2   # refresh(): the shown project's git status, live
     css = CSS
-    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("c", "commit"), ("f", "fetch"), ("p", "pin"), ("m", "move"), ("n", "new"),
-             ("Tab", "changes / graph / branches"), ("←→", "fold"), ("/", "search")]
+    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("c", "commit"), ("s", "sync"), ("p", "pin"), ("m", "move"), ("n", "new"),
+             ("Tab", "changes / conflicts / graph / branches"), ("←→", "fold"), ("/", "search")]
 
     def __init__(self):
         super().__init__()
@@ -313,6 +341,7 @@ class Projects(View):
         self.fetched = set()          # projects fetched since the panel opened
         self.fetching = set()
         self.fetched_all = False      # the stale repos were fetched (once, when the panel opened)
+        self.syncing = False          # Sync all is running
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
         self.start = None             # the New form's "Start from" (None until it's built)
@@ -389,10 +418,6 @@ class Projects(View):
         # the other branches, a chip each with its state; a click shows its history (Graph)
         self.others = box(False, 6)
         self.others.set_margin_top(10)
-        # a merge made here and not pushed yet: say so, with Push and Undo
-        self.pending = box(False, 10, classes=("pending",))
-        self.pending.set_margin_top(10)
-        self.pending.set_visible(False)
         self.urls = box(True, 2)
         self.urls.set_margin_top(8)
         self.actions = box(False, 8)
@@ -402,7 +427,7 @@ class Projects(View):
 
         self.tab_btns = {}
         bar = box(False, 0, classes=("tabs", "inner"))
-        for name, title in (("changes", "Changes"), ("graph", "Graph"), ("branches", "Branches")):
+        for name, title in (("changes", "Changes"), ("conflicts", "Conflicts"), ("graph", "Graph"), ("branches", "Branches")):
             b = button(title, lambda n=name: self.switch_tab(n), "tab")
             self.tab_btns[name] = b
             bar.append(b)
@@ -422,13 +447,15 @@ class Projects(View):
         self.change_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.change_list.add_css_class("changes")
         self.tab_pages.add_named(scrolled(self.change_list), "changes")
+        self.conflict_list = box(True, 4)
+        self.tab_pages.add_named(scrolled(self.conflict_list), "conflicts")
         self.tab_pages.add_named(scrolled(self.graph), "graph")
         self.tab_pages.add_named(scrolled(self.branch_list), "branches")
         self.tab_pages.set_margin_top(6)
         self.live = None   # the shown project's (status, HEAD, refs) at the last look: refresh() redraws on a change
         self.live_busy = False
         self.switch_tab("changes")
-        return box(True, 0, self.heading, self.where, self.chips, self.others, self.pending, self.urls, self.actions, self.note,
+        return box(True, 0, self.heading, self.where, self.chips, self.others, self.urls, self.actions, self.note,
                    self.tabs_bar, self.tab_pages)
 
     def switch_tab(self, name):
@@ -493,7 +520,7 @@ class Projects(View):
         repos = [p for p in self.projects if p.kind == "repo"]
 
         def one(p):
-            p.dirty, p.unpushed, p.main, p.behind = pj.health(p.rel)
+            set_health(p, pj.health(p.rel))
         with ThreadPoolExecutor(8) as pool:
             list(pool.map(one, repos))
         GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
@@ -527,10 +554,15 @@ class Projects(View):
             return [("project", rel, 0, m) for _, rel, m in sorted(found)]
         by_rel = {p.rel: p for p in self.projects}
         pinned = [r for r in self.pinned if r in by_rel]
-        changes = [p.rel for p in self.projects if p.kind == "repo" and (p.dirty or p.unpushed)]
+        repos = [p for p in self.projects if p.kind == "repo"]
+        changes = [p.rel for p in repos if p.dirty or p.unpushed]
+        outdated = [p.rel for p in repos if p.out_of_date]
+        clashing = [p.rel for p in repos if p.conflicts]
         out = []
         for key, items, hint in (("§pinned", pinned, "Pin a project to keep it here (p)"),
-                                 ("§changes", changes, "Everything is committed and pushed")):
+                                 ("§changes", changes, "Everything is committed and pushed"),
+                                 ("§outdated", outdated, "Everything is up to date with GitHub"),
+                                 ("§conflicts", clashing, "Nothing to merge by hand")):
             out.append(("section", key, 0, len(items)))
             if key not in self.folded:
                 out += [("project", r, 0, "where") for r in items] or [("hint", hint, 0, None)]
@@ -565,6 +597,13 @@ class Projects(View):
                 shut = key in self.folded
                 line = box(False, 8, label("▸" if shut else "▾", "dim", "pj-glyph"),
                            label(titles[key], "section-title"), label(str(extra), "dim"))
+                if key == "§outdated":   # Sync all, at the right of its header
+                    line.get_last_child().set_hexpand(True)
+                    sync = button("Syncing…" if self.syncing else "Sync all", self.sync_all, "flat", "branch-chip",
+                                  tooltip="every project: GitHub's changes down, every branch (never merges, "
+                                          "pushes or touches uncommitted work)")
+                    sync.set_sensitive(not self.syncing)
+                    line.append(sync)
                 row = Gtk.ListBoxRow(child=line, selectable=False)
                 row.add_css_class("section-row")
             elif kind == "hint":
@@ -621,8 +660,9 @@ class Projects(View):
         for show, text_, cls, tip in (
                 (p.dirty, f"● {p.dirty}", "amber", f"{p.dirty} uncommitted change{s(p.dirty)}"),
                 (p.unpushed, f"↑{p.unpushed}", "amber", f"{p.unpushed} commit{s(p.unpushed)} on no remote: push"),
-                (p.behind, (f"↓{p.behind}" if p.branch == p.main else f"{p.main} ↓{p.behind}"), "cyan",
-                 f"{p.main} is {p.behind} commit{s(p.behind)} behind GitHub: pull it")):
+                (p.out_of_date, f"↓{p.out_of_date}", "cyan",
+                 f"{p.out_of_date} branch{'es' * (p.out_of_date > 1)} behind GitHub or new there: Sync"),
+                (p.conflicts, f"⚠ {p.conflicts}", "red", "needs merging by hand: see its Conflicts tab")):
             if show:
                 badge = label(text_, cls)
                 badge.set_tooltip_text(tip)
@@ -630,7 +670,12 @@ class Projects(View):
         line.append(label(right, rclass))
         return line
 
-    def tree_clicked(self, gesture, _n, _x, y):
+    def tree_clicked(self, gesture, _n, x, y):
+        hit = self.tree.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while hit is not None and not isinstance(hit, (Gtk.Button, Gtk.ListBoxRow)):
+            hit = hit.get_parent()
+        if isinstance(hit, Gtk.Button):
+            return   # a button in a section's header (Sync all): it does its own thing, no folding
         row = self.tree.get_row_at_y(int(y))
         if row and row.kind in ("group", "section"):
             self.fold(row.key)
@@ -725,7 +770,7 @@ class Projects(View):
     def paint_actions(self, p):
         """The project's buttons: what you do with it on the left; Move… and the deletes at the right."""
         clear(self.actions)
-        self.pull_btn = self.push_btn = self.commit_btn = None
+        self.push_btn = self.commit_btn = None
         if p.kind == "missing":
             self.actions.append(button("Clone", self.clone, "primary", tooltip="every branch, into its folder"))
         else:
@@ -736,12 +781,11 @@ class Projects(View):
             self.commit_btn.set_visible(p.kind == "repo" and p.dirty > 0)
             self.actions.append(self.commit_btn)
             if p.kind == "repo":
-                self.actions.append(button("Fetch", self.fetch, tooltip="f: every remote, prune"))
-                self.pull_btn = button("Pull", self.pull, tooltip="fast-forward the checked-out branch")
+                self.actions.append(button("Sync", self.sync_one, tooltip="s: bring GitHub's changes down "
+                                           "(every branch; never merges, pushes or touches your edits)"))
                 self.push_btn = button("Push", self.push, tooltip="push the checked-out branch")
-                for b in (self.pull_btn, self.push_btn):
-                    b.set_sensitive(False)
-                    self.actions.append(b)
+                self.push_btn.set_sensitive(False)
+                self.actions.append(self.push_btn)
         if p.kind != "local" and web_url(p.entry["url"]):
             self.actions.append(button("GitHub", self.open_web, "flat", tooltip="g"))
         spacer = label("")
@@ -789,16 +833,16 @@ class Projects(View):
         dirty, ahead, behind = pj.state(p.rel)
         has_origin = "origin" in pj.remotes(p.path)
         changes = status_lines(p.path)
-        old = (p.dirty, p.unpushed, p.behind)   # its badges may be stale (a push since the panel opened)
-        p.dirty, p.unpushed, p.main, p.behind = pj.health(p.rel)
-        if (p.dirty, p.unpushed, p.behind) != old:
+        old = (p.dirty, p.unpushed, p.behind, p.out_of_date, p.conflicts)   # its badges may be stale (a push since the panel opened)
+        set_health(p, pj.health(p.rel))
+        if (p.dirty, p.unpushed, p.behind, p.out_of_date, p.conflicts) != old:
             GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
         seen = self.look(p)   # the baseline the live checks compare against
         GLib.idle_add(lambda: gen == self.gen and setattr(self, "live", seen) and False)
         GLib.idle_add(self.paint_git, p, gen, branches, dirty, ahead, behind, has_origin)
         GLib.idle_add(self.paint_changes, p, gen, changes)
-        pending = pj.pending_merge(p.rel)
-        GLib.idle_add(lambda: gen == self.gen and self.paint_pending(p, pending) and False)
+        clashes = pj.conflicts(p.rel)
+        GLib.idle_add(self.paint_conflicts, p, gen, clashes)
         self.load_graph(p, gen, self.ref)
 
     # ---- live: the shown project's git status, every `interval` s while the panel shows --------------
@@ -828,13 +872,44 @@ class Projects(View):
         before, self.live = self.live, seen
         if before is not None and before != seen:   # something changed: the whole page again (no fetch)
             def again():
-                old = (p.dirty, p.unpushed, p.behind)
-                p.dirty, p.unpushed, p.main, p.behind = pj.health(p.rel)
+                old = (p.dirty, p.unpushed, p.behind, p.out_of_date, p.conflicts)
+                set_health(p, pj.health(p.rel))
                 p.branch = pj.current_branch(p.path)
-                if (p.dirty, p.unpushed, p.behind) != old or seen[1] != (before[1] if before else None):
+                if (p.dirty, p.unpushed, p.behind, p.out_of_date, p.conflicts) != old or seen[1] != (before[1] if before else None):
                     GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))   # its badges, the Changes section
                 self.load_git(p, gen)
             threading.Thread(target=again, daemon=True).start()
+        return False
+
+    def paint_conflicts(self, p, gen, c):
+        """The Conflicts tab: files left with conflicts in the folder (from a merge or pull you started),
+        then each branch where you and GitHub both have new commits, with the files that would clash.
+        Nothing here is merged automatically: VS Code is where you merge and resolve."""
+        if gen != self.gen:
+            return False
+        clear(self.conflict_list)
+        n = len(c["unmerged"]) + len(c["diverged"])
+        self.tab_btns["conflicts"].set_label(f"Conflicts {n}" if n else "Conflicts")
+        if not n:
+            self.conflict_list.append(label("No conflicts: every branch is in step with GitHub, or only ahead.", "dim"))
+            return False
+        if c["unmerged"]:
+            self.conflict_list.append(label("Unresolved in your folder: resolve them in VS Code, then commit", "bold"))
+            for f in c["unmerged"]:
+                self.conflict_list.append(box(False, 10, label("U", "st", "red"), label(f, ellipsize=True)))
+        for name, ahead, behind, files in c["diverged"]:
+            head = box(False, 10, label(name, "bold"),
+                       label(f"you have {ahead} commit{'s' * (ahead > 1)}, GitHub has {behind}", "dim"))
+            head.set_margin_top(10)
+            self.conflict_list.append(head)
+            if files:
+                self.conflict_list.append(label(f"would clash in {len(files)} file{'s' * (len(files) > 1)}: "
+                                                "merge it in VS Code (pull, then resolve)", "red"))
+                for f in files:
+                    self.conflict_list.append(box(False, 10, label("!", "st", "red"), label(f, ellipsize=True)))
+            else:
+                self.conflict_list.append(label("no clashing files: it would merge cleanly; pull it in VS Code "
+                                                "(or a terminal: git pull) when you're ready", "amber"))
         return False
 
     def paint_changes(self, p, gen, lines):
@@ -882,22 +957,6 @@ class Projects(View):
         GLib.idle_add(self.paint_graph, gen, ref, commits, graph_rows(commits), head[0] if head else "",
                       remotes, local)
 
-    def paint_pending(self, p, rec):
-        clear(self.pending)
-        self.pending.set_visible(bool(rec))
-        if not rec:
-            return
-        text = label(f"Merged {rec['src']} into {rec['dst']}, not pushed yet: check it (Graph), then push it, or undo.",
-                     "amber", wrap=True)
-        text.set_hexpand(True)
-        self.pending.append(text)
-        self.pending.append(button(f"Push {rec['dst']}", lambda: self.run_job(
-            f"pushing {rec['dst']}…", lambda: pj.push_branch(p.rel, rec["dst"]), lambda ok: self.show_detail(fetch=False)),
-            "primary"))
-        self.pending.append(button("Undo", lambda: self.run_job(
-            "undoing the merge…", lambda: pj.undo_merge(p.rel), lambda ok: self.show_detail(fetch=False)),
-            "flat", tooltip=f"{rec['dst']} back where it was before the merge"))
-
     def paint_others(self, branches):
         """The local branches as a small table, two separate questions a column each: is it on GitHub
         (pushed, to push, to pull, never pushed, deleted there) and is it in main (merged, or how many of
@@ -925,7 +984,7 @@ class Projects(View):
             elif b["ahead"]:
                 gh, gcls = f"↑{b['ahead']} to push", "amber"
             elif b["behind"]:
-                gh, gcls = f"↓{b['behind']} to pull", "cyan"
+                gh, gcls = f"↓{b['behind']} to sync", "cyan"
             else:
                 gh, gcls = "✓ pushed", "green"
             if b["name"] == main:
@@ -946,15 +1005,7 @@ class Projects(View):
             name.connect("clicked", lambda _b, n=b["name"]: self.show_graph_of(n, tab=True))
             in_main = label(mn, mcls)
             in_main.set_tooltip_text(tip or None)
-            # what to do about it: its commits into main, or main's newer ones into it
-            act = label("")
-            if b["vs_main"] and b["vs_main"][0]:
-                act = button(f"Merge into {main}", lambda n=b["name"]: self.ask_merge(n, main), "flat", "branch-chip",
-                             tooltip=f"{b['name']}'s commits into {main}, then push it")
-            elif b["vs_main"] and b["vs_main"][1]:
-                act = button(f"Update from {main}", lambda n=b["name"]: self.ask_merge(main, n), "flat", "branch-chip",
-                             tooltip=f"{main}'s {b['vs_main'][1]} newer commits into {b['name']}")
-            for c, w in enumerate((label("●" if b["head"] else "", "accent"), name, label(gh, gcls), in_main, act)):
+            for c, w in enumerate((label("●" if b["head"] else "", "accent"), name, label(gh, gcls), in_main)):
                 w.set_valign(Gtk.Align.CENTER)
                 grid.attach(w, c, r, 1, 1)
         more = []
@@ -992,12 +1043,7 @@ class Projects(View):
         if p.behind and (not cur or cur["name"] != p.main or not behind):   # main behind, the branch shown or not
             chip(f"{p.main} ↓{p.behind} behind GitHub", "cyan")
         chip("fetching…" if p.rel in self.fetching else ago(pj.fetched_ago(p.path)), "dim")
-        if self.pull_btn:
-            can_pull = bool(behind) and not ahead
-            self.pull_btn.set_sensitive(can_pull)
-            self.pull_btn.set_tooltip_text("fast-forward the checked-out branch" if can_pull else
-                                           "diverged: merge or rebase it yourself" if ahead and behind else
-                                           "nothing to pull")
+        if self.push_btn:
             self.push_btn.set_sensitive(bool(ahead) or (ahead is None and has_origin))
         self.paint_branches(branches)
         clear(self.filter_box)
@@ -1224,82 +1270,6 @@ class Projects(View):
                          para("Its HDD backup copy moves with it (codesync), and the list records it.", "dim"),
                          self.dialog_buttons(move_btn), focus=tree, handlers=handlers)
 
-    def ask_merge(self, src, dst):
-        """Merge src into dst: what goes in (its commits, the files they change), whether it's a
-        fast-forward or a merge commit, conflicts (then it can't, here: VS Code or a pull request), and
-        Push after. The project's files only change when dst is the branch checked out."""
-        p = self.current()
-        if not p or p.kind != "repo":
-            return
-        plan = pj.merge_plan(p.path, src, dst)
-        if plan["up_to_date"]:
-            self.say(f"{src} is already in {dst}")
-            return
-        n = len(plan["commits"])
-        lines = [para((f"{dst} just moves forward to {src} (a fast-forward)." if plan["ff"] else
-                       f"A merge commit on {dst} joins the two.") + " " +
-                      (f"{dst} is checked out, so its files update." if p.branch == dst else
-                       f"The project's files don't change: {dst} isn't checked out."), "sub")]
-        commits = box(True, 2)
-        for short, subject in plan["commits"][:8]:
-            commits.append(box(False, 10, label(short, "hash"), label(subject, ellipsize=True)))
-        if n > 8:
-            commits.append(label(f"and {n - 8} more", "dim"))
-        added = sum(int(a) for a, _, _ in plan["files"] if a.isdigit())
-        removed = sum(int(d) for _, d, _ in plan["files"] if d.isdigit())
-        lines += [label(f"{n} commit{'s' * (n > 1)}", "bold"), commits,
-                  label(f"{len(plan['files'])} file{'s' * (len(plan['files']) != 1)} changed, +{added} −{removed}", "dim")]
-        if plan["conflicts"]:
-            lines.append(para(f"Conflicts in {', '.join(plan['conflicts'][:6])}: the two branches change the same "
-                              "lines. Merge it in VS Code (resolving them there), or open a pull request.", "red"))
-        has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", f"{dst}@{{u}}")[0]
-        push = Gtk.CheckButton(label=f"Push {dst} to GitHub after (until then, Undo puts it back)", active=True)
-        push.set_visible(bool(has_up))
-        shared = para("", "amber")   # filled in once GitHub says whether the repo is yours, main protected
-        shared.set_visible(False)
-        lines.append(shared)
-        go = button("Merge", lambda: self.run_job(f"merging {src} into {dst}…",
-                                                  lambda: pj.merge(p.rel, src, dst, push.get_active() and bool(has_up)),
-                                                  lambda ok: self.show_detail(fetch=False)), "primary")
-        go.set_sensitive(not plan["conflicts"])
-        extra = []
-        repo = pj.github_repo(p.entry.get("url", ""))
-        if repo:
-            url = f"https://github.com/{repo}/compare/{dst}...{src}?expand=1"
-            pr = button("Open pull request", lambda: (subprocess.Popen(["xdg-open", url], start_new_session=True),
-                                                      self.close_dialog()), "flat",
-                        tooltip=f"GitHub: review {src} → {dst} there; push {src} first")
-            extra.append(pr)
-
-            def check():   # a shared repo (not yours) or a protected main: a pull request is the way
-                admin = self.gh_admin.get(repo)
-                if admin is None:
-                    admin = self.gh_admin[repo] = pj.can_delete_on_github(p.entry["url"])
-                protected = pj.github_protected(p.entry["url"], dst)
-                GLib.idle_add(lambda: self.dim.get_visible() and self.shared_repo(admin, protected, dst, shared, go, pr, push)
-                              and False)
-            threading.Thread(target=check, daemon=True).start()
-        self.open_dialog(f"Merge {src} into {dst}", *lines, push, self.dialog_buttons(*extra, go), focus=go)
-
-    def shared_repo(self, admin, protected, dst, note, go, pr, push):
-        """Turn the Merge popup towards a pull request: main protected (a direct push is refused, so
-        Merge is off) or a repo that isn't yours (others expect to review it: Merge stays, as the
-        secondary choice, and doesn't push by itself)."""
-        if not protected and admin:
-            return
-        if protected:
-            note.set_text(f"{dst} is protected on GitHub: changes go in through a pull request.")
-            go.set_sensitive(False)
-        else:
-            note.set_text("A shared repo (you're not its admin): a pull request lets the others review it. "
-                          "Merge here only if that's how your team works.")
-            push.set_active(False)
-        note.set_visible(True)
-        for b, primary in ((pr, True), (go, False)):
-            (b.add_css_class if primary else b.remove_css_class)("primary")
-            (b.remove_css_class if primary else b.add_css_class)("flat")
-        pr.grab_focus()
-
     def ask_commit(self):
         """Commit: a message, the changed files (all ticked; untick what stays out), Push after. A normal
         git commit, so the project's hooks run."""
@@ -1444,6 +1414,46 @@ class Projects(View):
             GLib.idle_add(lambda: (self.say(f"{p.name}: {msg}", "ok" if ok else "bad"), self.paint_tree(),
                                    self.show_detail(fetch=False)) and False)
         threading.Thread(target=run_it, daemon=True).start()
+
+    # ---- Sync: GitHub's side down, never merging or pushing (pj.sync) -------------------------------
+    def sync_one(self):
+        p = self.current()
+        if not p or p.kind != "repo":
+            return
+        self.say(f"syncing {p.name}…", seconds=300)
+
+        def go():
+            rep = pj.sync(p.rel)
+            set_health(p, pj.health(p.rel))
+            p.branch = pj.current_branch(p.path)
+            GLib.idle_add(lambda: (self.say(f"{p.name}: {sync_summary([rep])}", "bad" if rep["error"] else "ok",
+                                            seconds=12),
+                                   self.paint_tree(keep_scroll=True), self.show_detail(fetch=False)) and False)
+        threading.Thread(target=go, daemon=True).start()
+
+    def sync_all(self):
+        """Every repo, 8 at a time, the progress in the status line; then a summary."""
+        if self.syncing:
+            return
+        repos = [p for p in self.projects if p.kind == "repo"]
+        self.syncing, done, reps = True, [0], []
+
+        def one(p):
+            rep = pj.sync(p.rel)
+            set_health(p, pj.health(p.rel))
+            p.branch = pj.current_branch(p.path)
+            reps.append(rep)
+            done[0] += 1
+            GLib.idle_add(lambda n=done[0]: self.say(f"syncing {n} / {len(repos)}…", seconds=300) and False)
+
+        def go():
+            with ThreadPoolExecutor(8) as pool:
+                list(pool.map(one, repos))
+            self.syncing = False
+            GLib.idle_add(lambda: (self.say(sync_summary(reps), "ok", seconds=15), self.paint_tree(keep_scroll=True),
+                                   self.current() and self.show_detail(fetch=False)) and False)
+        self.say(f"syncing {len(repos)} projects…", seconds=300)
+        threading.Thread(target=go, daemon=True).start()
 
     def fetch(self):
         p = self.openable()
@@ -1852,8 +1862,8 @@ class Projects(View):
         if keyval == Gdk.KEY_slash:
             self.search.grab_focus()
         elif keyval == Gdk.KEY_Tab and page == "detail" and self.tabs_bar.get_visible():
-            order = ["changes", "graph", "branches"]
-            self.switch_tab(order[(order.index(self.tab) + 1) % 3])
+            order = ["changes", "conflicts", "graph", "branches"]
+            self.switch_tab(order[(order.index(self.tab) + 1) % 4])
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row:
             group = row.key if row.kind == "group" else os.path.dirname(row.key)
             if group and not self.search.get_text():
@@ -1864,6 +1874,8 @@ class Projects(View):
             self.open_term()
         elif keyval == Gdk.KEY_a:
             self.open_agent()
+        elif keyval == Gdk.KEY_s and page == "detail":
+            self.sync_one()
         elif keyval == Gdk.KEY_f:
             self.fetch()
         elif keyval == Gdk.KEY_g:

@@ -21,9 +21,11 @@
                        clone a repo into ~/code/<path> (default active/<repo name>) and record it
   projects pin <path> / unpin <path>
                        pin a project (first in the Projects panel; pins are in the list, every PC has them)
-  projects merge <path> <branch> [<into>] [--no-push]
-                       merge a branch into another (default: the main branch) without touching the
-                       project's files unless <into> is checked out; then push it. Refused on conflicts
+  projects sync [path…] [-n]
+                       bring every project (or those) up to date with GitHub: fetch, a local branch for
+                       every branch there, fast-forward the ones only behind. Never merges, pushes or
+                       touches a folder with uncommitted changes; diverged branches are only reported.
+                       -n: only say what it would do
   projects forget <path>…
                        drop projects from the list
   projects move <path> <new path>
@@ -292,167 +294,103 @@ def pull_ff(path, branch):
     return ok, f"{branch} fast-forwarded" if ok else last_line(out, "fetch failed")
 
 
-# ---- merging one branch into another (the Projects panel's Merge) ---------------------------------
-# Without touching the project's files: a fast-forward only moves the branch; a real merge is made in a
-# temporary checkout of the target (a hidden worktree, removed after), so the project's commit hooks
-# and signing apply as to any merge, and the folder you work in stays as it is. Only when the target is
-# the branch checked out does the folder change (a normal git merge there). Until it's pushed, a merge
-# can be undone (UNDO remembers where the target was).
-UNDO = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "projects-undo.json")
-WORKTREES = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "projects-merge")
+# ---- syncing with GitHub (the Projects panel's Sync / Sync all) ---------------------------------------
+# Brings GitHub's side down and nothing else: never merges, rebases, pushes, forces or stashes, and
+# never touches a folder with uncommitted changes. A branch only moves when it's strictly behind (a
+# fast-forward); one that has diverged is left as it is and reported, with the files that would clash.
+def _branches(path):
+    """[(name, upstream, track, sha)] of the local branches."""
+    sep = "\x1f"
+    ok, out = git(path, "for-each-ref", f"--format=%(refname:short){sep}%(upstream){sep}%(upstream:track){sep}%(objectname)",
+                  "refs/heads")
+    return [tuple((l.split(sep) + ["", "", ""])[:4]) for l in out.splitlines()] if ok else []
 
 
-def merge_plan(path, src, dst):
-    """What merging src into dst does, read-only: {commits: [(short hash, subject)], files: [(added,
-    removed, path)], ff: dst just moves forward, conflicts: [paths], up_to_date: nothing to merge}."""
-    ok, out = git(path, "log", "--format=%h\x1f%s", f"refs/heads/{dst}..refs/heads/{src}")
-    commits = [tuple(l.split("\x1f", 1)) for l in out.splitlines() if "\x1f" in l] if ok else []
-    ok, out = git(path, "diff", "--numstat", f"refs/heads/{dst}...refs/heads/{src}")
-    files = [tuple(l.split("\t", 2)) for l in out.splitlines() if l.count("\t") >= 2] if ok else []
-    ff = git(path, "merge-base", "--is-ancestor", f"refs/heads/{dst}", f"refs/heads/{src}")[0]
-    conflicts = []
-    if commits and not ff:
-        env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
-        r = subprocess.run(["git", "-C", path, "merge-tree", "--write-tree", "--name-only", "--no-messages",
-                            f"refs/heads/{dst}", f"refs/heads/{src}"], capture_output=True, text=True, env=env)
-        if r.returncode == 1:   # 1: conflicts; the lines after the tree are the conflicted files
-            conflicts = [l for l in r.stdout.splitlines()[1:] if l.strip()]
-    return {"commits": commits, "files": files, "ff": ff, "conflicts": conflicts, "up_to_date": not commits}
+def _counts(track):
+    ahead = int(m.group(1)) if (m := re.search(r"ahead (\d+)", track)) else 0
+    behind = int(m.group(1)) if (m := re.search(r"behind (\d+)", track)) else 0
+    return ahead, behind
 
 
-def github_protected(url, branch):
-    """True if the branch is protected on GitHub (pushing to it directly is refused: a pull request then)."""
-    repo = github_repo(url)
-    if not repo or not shutil.which("gh"):
-        return False
-    try:
-        r = subprocess.run(["gh", "api", f"repos/{repo}/branches/{branch}", "--jq", ".protected"],
-                           capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return r.stdout.strip() == "true"
+def clash_files(path, a, b):
+    """The files merging b into a would conflict in ([] if it would merge cleanly). Read-only:
+    git merge-tree builds the result in memory."""
+    r = subprocess.run(["git", "-C", path, "merge-tree", "--write-tree", "--name-only", "--no-messages", a, b],
+                       capture_output=True, text=True, env=dict(os.environ, GIT_TERMINAL_PROMPT="0"))
+    return [l for l in r.stdout.splitlines()[1:] if l.strip()] if r.returncode == 1 else []
 
 
-def _undo_load():
-    try:
-        return json.load(open(UNDO))
-    except (OSError, ValueError):
-        return {}
+def unmerged_files(path):
+    """Files left with merge conflicts in the folder (by a merge or pull you started)."""
+    ok, out = git(path, "diff", "--name-only", "--diff-filter=U")
+    return out.splitlines() if ok and out else []
 
 
-def _undo_save(data):
-    os.makedirs(os.path.dirname(UNDO), exist_ok=True)
-    with open(UNDO, "w") as f:
-        json.dump(data, f, indent=1)
-
-
-def pending_merge(rel):
-    """The project's last merge if it can still be undone: {src, dst, old, new} (dst is still where the
-    merge put it, and it isn't on GitHub yet), else None."""
-    rec = _undo_load().get(rel.strip("/"))
-    if not rec:
-        return None
+def sync(rel, dry=False):
+    """Bring the repo at ROOT/rel up to date with GitHub: fetch; a local branch for every branch on
+    origin; fast-forward the branches that are only behind (the checked-out one only with no
+    uncommitted changes); delete a local branch whose GitHub branch was deleted, only when all its
+    commits are in main. dry: only say what it would do. Returns {updated, created, deleted,
+    skipped: [(branch, why)], diverged: [(branch, clash files)], error}."""
     path = f"{ROOT}/{rel.strip('/')}"
-    ok, now = git(path, "rev-parse", f"refs/heads/{rec['dst']}")
-    pushed = git(path, "merge-base", "--is-ancestor", rec["new"], f"refs/remotes/origin/{rec['dst']}")[0]
-    return rec if ok and now == rec["new"] and not pushed else None
-
-
-def _forget_merge(rel):
-    data = _undo_load()
-    if data.pop(rel.strip("/"), None) is not None:
-        _undo_save(data)
-
-
-def undo_merge(rel):
-    """Put the target of the last merge back where it was (only before it's pushed). (ok, message)."""
-    rec = pending_merge(rel)
-    if not rec:
-        return False, "nothing to undo (already pushed, or the branch moved on since)"
-    path = f"{ROOT}/{rel.strip('/')}"
-    if current_branch(path) == rec["dst"]:   # its files too; --keep refuses rather than lose your edits
-        ok, out = git(path, "reset", "-q", "--keep", rec["old"])
-    else:
-        ok, out = git(path, "update-ref", f"refs/heads/{rec['dst']}", rec["old"], rec["new"])
+    rep = {"updated": [], "created": [], "deleted": [], "skipped": [], "diverged": [], "error": ""}
+    ok, out = git(path, "fetch", "--all", "--prune", "-q", timeout=300)
     if not ok:
-        return False, last_line(out, "couldn't undo")
-    _forget_merge(rel)
-    return True, f"undone: {rec['dst']} is back where it was"
-
-
-def push_branch(rel, branch):
-    """Push one branch to origin (never forced). (ok, message)."""
-    path = f"{ROOT}/{rel.strip('/')}"
-    ok, out = git(path, "push", "-q", "origin", f"refs/heads/{branch}:refs/heads/{branch}", timeout=300)
-    if ok:
-        rec = _undo_load().get(rel.strip("/"))
-        if rec and rec["dst"] == branch:
-            _forget_merge(rel)   # on GitHub now: undoing it would need a revert
-    return ok, f"{branch} pushed" if ok else last_line(out, "push failed")
-
-
-def merge(rel, src, dst, push_after=True):
-    """Merge src into dst (both branches of the repo at ROOT/rel): dst is first brought up to date
-    from GitHub, then fast-forwarded or merged, then pushed. (ok, message)."""
-    path = f"{ROOT}/{rel.strip('/')}"
+        rep["error"] = last_line(out, "fetch failed")
+        return rep
     head = current_branch(path)
-    if not git(path, "show-ref", "--verify", "-q", f"refs/heads/{dst}")[0]:   # only on the remote: make it
-        if not git(path, "branch", "-q", "--track", dst, f"origin/{dst}")[0]:
-            return False, f"no branch {dst} here or on origin"
-    upstream = git(path, "rev-parse", "--abbrev-ref", f"{dst}@{{u}}")[0]
-    if upstream:   # merging into a stale dst would make a push that GitHub refuses
-        git(path, "fetch", "-q", "origin", timeout=300)
-        ok, n = git(path, "rev-list", "--left-right", "--count", f"refs/heads/{dst}...{dst}@{{u}}")
-        mine, theirs = (int(x) for x in n.split()) if ok and len(n.split()) == 2 else (0, 0)
-        if theirs and mine:
-            return False, f"{dst} has diverged from GitHub: pull or rebase it first"
-        if theirs:
-            ok, msg = pull_ff(path, dst)
-            if not ok:
-                return False, f"couldn't update {dst} from GitHub: {msg}"
-    plan = merge_plan(path, src, dst)
-    if plan["up_to_date"]:
-        return True, f"{src} is already in {dst}"
-    if plan["conflicts"]:
-        return False, f"conflicts in {', '.join(plan['conflicts'][:4])}: merge it in VS Code, or open a pull request"
-    message = f"Merge branch '{src}' into {dst}"
-    ok, old = git(path, "rev-parse", f"refs/heads/{dst}")
-    if head == dst:   # the folder shows dst: a normal merge, which updates its files too
-        ok, out = git(path, "merge", "-q", "--no-edit", "--ff" if plan["ff"] else "--no-ff", "-m", message, src)
-        if not ok:
-            git(path, "merge", "--abort")
-            return False, last_line(out, "merge failed")
-    elif plan["ff"]:   # dst just moves forward to src (if it's still where it was); no new commit
-        ok, new = git(path, "rev-parse", f"refs/heads/{src}")
-        ok, out = git(path, "update-ref", f"refs/heads/{dst}", new, old)
-        if not ok:
-            return False, last_line(out, "couldn't move the branch")
-    else:   # a merge commit, made in a hidden checkout of dst: hooks and signing apply, your folder doesn't change
-        os.makedirs(WORKTREES, exist_ok=True)
-        wt = os.path.join(WORKTREES, f"{os.path.basename(path)}-{os.getpid()}")
-        git(path, "worktree", "prune")   # one left behind by a crash would block dst
-        ok, out = git(path, "worktree", "add", "-q", wt, dst, timeout=300)
-        if not ok:
-            return False, last_line(out, f"couldn't check out {dst} to merge into it")
-        try:
-            ok, out = git(wt, "merge", "-q", "--no-ff", "--no-edit", "-m", message, src, timeout=600)
-            if not ok:
-                git(wt, "merge", "--abort")
-        finally:
-            git(path, "worktree", "remove", "--force", wt)
-        if not ok:
-            return False, last_line(out, "the merge failed (a commit hook may have stopped it)")
-    ok, new = git(path, "rev-parse", f"refs/heads/{dst}")
-    data = _undo_load()
-    data[rel.strip("/")] = {"src": src, "dst": dst, "old": old, "new": new, "at": int(time.time())}
-    _undo_save(data)
-    how = "fast-forwarded" if plan["ff"] else "merged"
-    n = len(plan["commits"])
-    msg = f"{src} {how} into {dst} ({n} commit{'s' * (n > 1)})"
-    if push_after and upstream:
-        ok, out = push_branch(rel, dst)
-        return ok, msg + (", pushed" if ok else f"; push failed ({out}): it can still be undone")
-    return True, msg + ("; not pushed yet: Undo puts it back" if upstream else "")
+    main = default_branch(path)
+    local = _branches(path)
+    have = {n for n, *_ in local}
+    ok, remote = git(path, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin")
+    for ref in remote.split() if ok else []:   # every branch on GitHub, locally too
+        name = ref.partition("/")[2]
+        if name and name != "HEAD" and name not in have:
+            if dry or git(path, "branch", "-q", "--track", name, ref)[0]:
+                rep["created"].append(name)
+    dirty = bool(git(path, "status", "--porcelain", "--untracked-files=no")[1])
+    for name, upstream, track, sha in local:
+        if not upstream:
+            continue   # never pushed: nothing to bring down
+        if "gone" in track:   # deleted on GitHub: its local copy goes only if main has all of it
+            if name != head and main and git(path, "merge-base", "--is-ancestor", sha, f"refs/remotes/origin/{main}")[0]:
+                if dry or git(path, "update-ref", "-d", f"refs/heads/{name}", sha)[0]:
+                    rep["deleted"].append(name)
+            continue
+        ahead, behind = _counts(track)
+        if not behind:
+            continue
+        if ahead:   # both sides have new commits: you merge it (VS Code); here it's only reported
+            rep["diverged"].append((name, clash_files(path, f"refs/heads/{name}", upstream)))
+            continue
+        if name == head:
+            if dirty:
+                rep["skipped"].append((name, "uncommitted changes: commit them, then sync"))
+                continue
+            if not dry:
+                ok, out = git(path, "merge", "-q", "--ff-only", "@{u}", timeout=300)
+                if not ok:
+                    rep["skipped"].append((name, last_line(out, "git refused to update the files")))
+                    continue
+        elif not dry:
+            ok, new = git(path, "rev-parse", upstream)
+            if not (ok and git(path, "update-ref", f"refs/heads/{name}", new, sha)[0]):   # only from where it was
+                rep["skipped"].append((name, "it moved while syncing: sync again"))
+                continue
+        rep["updated"].append(name)
+    return rep
+
+
+def conflicts(rel):
+    """What needs merging by hand: {unmerged: [files with conflicts in the folder], diverged:
+    [(branch, ahead, behind, clash files)]} (a diverged branch with no clash files would merge cleanly)."""
+    path = f"{ROOT}/{rel.strip('/')}"
+    out = {"unmerged": unmerged_files(path), "diverged": []}
+    for name, upstream, track, _ in _branches(path):
+        ahead, behind = _counts(track)
+        if upstream and ahead and behind:
+            out["diverged"].append((name, ahead, behind, clash_files(path, f"refs/heads/{name}", upstream)))
+    return out
 
 
 def commit_changes(rel, message, paths=None, push_after=False):
@@ -925,8 +863,10 @@ def default_branch(path):
 
 
 def health(rel):
-    """(changed files, commits on no remote, the main branch, how far it is behind origin's) of the
-    repo at ROOT/rel. Behind is as of the last fetch."""
+    """How the repo at ROOT/rel stands, as of the last fetch: {dirty: changed files, unpushed: commits on
+    no remote, main: its main branch, behind: how far main is behind origin's, out_of_date: what Sync
+    would bring (branches behind + branches on GitHub not here yet), diverged: branches with new commits
+    on both sides, unmerged: files left with conflicts in the folder}."""
     path = f"{ROOT}/{rel}"
     ok, st = git(path, "status", "--porcelain")
     dirty = len(st.splitlines()) if ok and st else 0
@@ -936,7 +876,14 @@ def health(rel):
     if main:
         ok, n = git(path, "rev-list", "--count", f"refs/heads/{main}..refs/remotes/origin/{main}")
         behind = int(n) if ok and n.isdigit() else 0
-    return dirty, unpushed, main, behind
+    local = _branches(path)
+    have = {name for name, *_ in local}
+    ok, remote = git(path, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin")
+    new = sum(1 for r in (remote.split() if ok else []) if r.partition("/")[2] not in have | {"HEAD", ""})
+    counts = [_counts(track) for _, up, track, _ in local if up and "gone" not in track]
+    return {"dirty": dirty, "unpushed": unpushed, "main": main, "behind": behind,
+            "out_of_date": sum(1 for a, b in counts if b and not a) + new,
+            "diverged": sum(1 for a, b in counts if a and b), "unmerged": len(unmerged_files(path))}
 
 
 def state(rel):
@@ -1098,12 +1045,21 @@ def main():
         add(*args[:2])
     elif cmd == "forget" and args:
         forget(*args)
-    elif cmd == "merge" and len(args) >= 2:
-        rel, src = args[0], args[1]
-        rest = [a for a in args[2:] if not a.startswith("--")]
-        dst = rest[0] if rest else default_branch(f"{ROOT}/{rel.strip('/')}")
-        ok, msg = merge(rel, src, dst, "--no-push" not in args)
-        print(msg) if ok else sys.exit(msg)
+    elif cmd == "sync":
+        dry = "-n" in args
+        rels = [a.strip("/") for a in args if a != "-n"] or [e["path"] for e in load()["projects"]
+                                                              if is_repo(f"{ROOT}/{e['path']}")]
+        for rel in rels:
+            r = sync(rel, dry)
+            bits = [f"{k} {', '.join(r[k])}" for k in ("updated", "created", "deleted") if r[k]]
+            bits += [f"{AMBER}skipped {b}: {why}{RESET}" for b, why in r["skipped"]]
+            bits += [f"{RED}diverged {b}" + (f" (would clash: {', '.join(f)})" if f else "") + RESET for b, f in r["diverged"]]
+            if r["error"]:
+                bits = [f"{RED}{r['error']}{RESET}"]
+            if bits:
+                print(f"{rel}: " + "; ".join(bits))
+        if dry:
+            print(f"{DIM}(nothing changed: -n){RESET}")
     elif cmd in ("pin", "unpin") and args:
         problem = pin(args[0], cmd == "pin")
         print(f"{cmd}ned {args[0]}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))

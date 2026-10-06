@@ -325,27 +325,26 @@ merged`: 3 of its commits main doesn't have yet). So a `dev` that's pushed but n
 `✓ pushed · 3 not merged`. Hovering says more (how far main has moved on); a click on a branch shows its
 history (Graph). Up to 6 branches; the *Branches* tab has them all, with Check out, Pull and Push.
 
-**The whole flow, from the panel.** `dev` → commit → push → merge into main → push:
+**Sync with GitHub.** Every branch on GitHub is also a branch here, kept up to date by **Sync** (`s`, one
+project) or **Sync all** (in the *Out of date* section's header; 8 projects at a time, progress in the
+status line, a summary after). Sync fetches, makes a local branch for every branch on GitHub,
+fast-forwards the branches that are only behind, and deletes a local branch whose GitHub branch was
+deleted, but only when all its commits are in main. It **never merges, pushes, forces or stashes**, and
+never touches a folder with uncommitted changes: that branch is skipped and the reason said ("commit
+them, then sync"). A branch where you and GitHub both have new commits is left as it is and listed in
+**Conflicts**. From a shell: `projects sync [path…] [-n]` (`-n`: only say what it would do).
 
-- **Commit…** (`c`, shown when there are changes): a message, the changed files (all ticked; untick what
-  stays out), *Push it to GitHub after*. A normal `git commit`: the project's hooks run.
-- **Merge into main** in the branch table (a branch only behind main gets *Update from main*, the other
-  way round). The popup shows the commits that go in, the files, whether main just moves forward (a
-  fast-forward) or gets a merge commit, and *Push main to GitHub after*. Before anything happens:
-  conflicts are found (Merge is off, the files named: merge it in VS Code, or a pull request); main is
-  brought up to date from GitHub (one that diverged from GitHub is refused).
-  **Your files don't change**: a merge commit is made in a hidden temporary checkout of main
-  (`~/.cache/projects-merge`, removed after), so the project's hooks and signing apply as to any merge;
-  only when main is the branch checked out is it a normal merge in your folder.
-- **Shared repos.** When you're not the repo's admin, *Open pull request* (GitHub's compare page)
-  becomes the main button and Merge doesn't push by itself; when main is protected on GitHub, Merge is
-  off (a direct push would be refused anyway).
-- **Undo.** A merge not pushed yet shows a bar: *Push main* or *Undo* (main goes back exactly where it
-  was; with main checked out, your edits are kept, or it refuses). Once pushed, it can't be undone here
-  (on GitHub, a revert commit is the clean way). The push is never forced: if GitHub's main moved
-  meanwhile, it's refused, nothing lost.
+**The sections** on the left: Pinned · Changes (uncommitted `● N`, unpushed `↑N`) · **Out of date**
+(`↓N`: branches behind GitHub or new there; *Sync all*) · **Conflicts** (`⚠ N`) · All projects.
 
-From a shell: `projects merge <path> <branch> [<into>] [--no-push]`.
+**Conflicts tab** (in a project's page, beside Changes): files left with conflicts in the folder (from a
+merge or pull you started: resolve them in VS Code, then commit), and every diverged branch: how many
+commits each side has, and the files that would clash (or "would merge cleanly"). Merging is yours to
+do, in VS Code; the panel only shows where things stand. The branch table's **main** column says
+whether each branch is in main (`merged` / `N not merged`).
+
+**Commit…** (`c`, when there are changes): a message, the changed files (untick what stays out),
+*Push it to GitHub after*. A normal `git commit`: the project's hooks run.
 
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While

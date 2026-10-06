@@ -92,7 +92,8 @@ overlay, line, muted, text, accent, alert, green…; the reference is `tokyo-nig
 `preview.png` (a screenshot of the Control Center in it). `theme apply <id>` (`local/bin/theme`) makes
 each app's file by swapping every Tokyo Night colour for the theme's colour of the same role, into
 `config/themes/current/` (gitignored), and reloads what's running (Hyprland, waybar, mako, kitty,
-walker, swayosd, agentmux, the Control Center and Docker). Each app reads that file after its own
+walker, swayosd, agentmux, and the workspace panels: Control Center, Docker, Projects; one busy with
+git, a restore cloning, is left to take it when it next starts). Each app reads that file after its own
 colours, with one line:
 
 | App | Its line | Made from |

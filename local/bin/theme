@@ -166,15 +166,33 @@ def reload_running():
     restart_panels()
 
 
+def busy_with_git(pid):
+    """True if pid has a git process running under it (the Projects panel cloning, pulling, pushing):
+    restarting it then would cut that short."""
+    try:
+        kids = [int(k) for t in os.listdir(f"/proc/{pid}/task")
+                for k in open(f"/proc/{pid}/task/{t}/children").read().split()]
+    except OSError:
+        return False
+    for k in kids:
+        try:
+            if open(f"/proc/{k}/comm").read().strip() == "git":
+                return True
+        except OSError:
+            pass
+    return False
+
+
 def restart_panels():
-    """The workspace apps (Control Center, Docker) are long-running GTK windows: restart them (a
-    popup panel takes the theme the next time it opens)."""
+    """The workspace apps (sami.*: Control Center, Docker, Projects) are long-running GTK windows:
+    restart them (a popup panel takes the theme the next time it opens). One busy with git (a restore
+    cloning) is left alone: it takes the theme when it next starts."""
     try:
         clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
     except (ValueError, OSError):
         return
     for c in clients:
-        if c.get("class") in ("sami.controlcenter", "sami.docker") and c.get("pid"):
+        if str(c.get("class", "")).startswith("sami.") and c.get("pid") and not busy_with_git(c["pid"]):
             ws = str(c["workspace"]["id"])
             try:
                 os.kill(c["pid"], 15)

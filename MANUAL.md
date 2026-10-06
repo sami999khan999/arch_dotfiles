@@ -308,14 +308,24 @@ button above opens `gh auth login`. *Start a new list instead* creates the priva
 (*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
 header shows **Clone missing (N)**, which uses the same progress list.
 
-**Move, delete, forget** (under a project's buttons): *Move…* takes it to another folder in `~/code` (type
-the new path; its HDD backup copy moves with it through `codesync move`, so nothing is copied again) and
-records it; it's refused while something runs inside the project (a shell, a dev server, an agent).
-*Delete git* removes `.git` (the files stay, as a local-only project); *Delete folder* deletes it and drops
-it from the list. Both take a second click, which first says what only this copy has (uncommitted
-changes, commits on no remote, stashes); the HDD backup keeps a deleted copy in codesync's trash for a
-while. A listed project that isn't here (its repo gone) has *Forget* instead. The same from a shell:
-`projects move`, `projects delete-git`, `projects delete`, `projects forget`.
+**Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
+deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While
+the panel shows, the project's git status is looked at every 2 s (read-only: no index lock), so an edit,
+a commit, a checkout or a pull shows up by itself, the graph and the tree's dot too. *Graph* and
+*Branches* are the other tabs (`Tab`).
+
+**Move, delete** (at the right of a project's buttons; each opens a popup over the panel):
+*Move…* (`m`) shows the folder tree of `~/code`: pick where it goes, optionally type a new folder to make
+inside it and a new name; the line under them says where it ends up. Its HDD backup copy moves with it
+(`codesync move`) and the list records it; it's refused while something runs inside the project (a
+shell, a dev server, an agent). *Delete* (`Delete`) deletes the folder and drops it from the list,
+first saying what only this copy has (uncommitted changes, commits on no remote, stashes); the HDD
+backup keeps a deleted copy in codesync's trash for 30 days. *Delete on GitHub* shows only when your
+GitHub account may delete the repo (admin on it): type the repo's name to confirm; the folder stays,
+without that remote (local-only). GitHub can restore a deleted repo for 90 days. The first time, gh
+needs the `delete_repo` permission: the popup offers to grant it (`gh auth refresh`). A listed project
+that isn't here has *Forget* instead. From a shell: `projects move`, `projects delete`,
+`projects delete-github`, `projects delete-git` (remove `.git` only), `projects forget`.
 
 The list syncs by itself: every change is committed and pushed, after pulling what the other PC pushed
 (a scan, at login and whenever the panel opens, pulls first, and pushes a commit a failed push left

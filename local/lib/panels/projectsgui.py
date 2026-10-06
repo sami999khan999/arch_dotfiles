@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from gtkkit import (Gdk, GLib, Gtk, View, box, button, clear, dropdown, label, recolor, rgbf, rule_heading,
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, box, button, clear, dropdown, label, recolor, rgbf, rule_heading,
                     run, scrolled, switch)
 from keys import fuzzy
 from keysgui import marked
@@ -58,6 +58,18 @@ CSS = """
 .state { padding: 1px 7px; background: alpha(#c0caf5, .06); }
 .form-label { color: #a9b1d6; min-width: 120px; }
 .tabs.inner { padding: 0; margin-top: 14px; }
+/* the panel's own popups (Move, Delete…): a dimmed panel, a bordered card in the middle */
+.dialog-dim { background: alpha(#16161e, .72); }
+.dialog { background: #1a1b26; border: 1px solid alpha(#3b4261, .7); padding: 20px 22px; }
+.dialog-title { font-weight: 700; font-size: 12pt; }
+.folders { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
+.folders > row { padding: 4px 10px; }
+.folders > row:selected { background: #292e42; }
+button.danger-fill { background: alpha(#f7768e, .16); color: #f7768e; }
+button.danger-fill:hover { background: alpha(#f7768e, .26); }
+button.danger-fill:disabled { background: alpha(#c0caf5, .04); color: #565f89; }
+.changes > row { padding: 2px 4px; }
+.st { min-width: 22px; font-weight: 700; }
 """
 
 
@@ -220,6 +232,25 @@ def branch_state(b):
     return "in sync", "green"
 
 
+def para(text, *classes):
+    """A popup's paragraph: wraps at the card's width instead of widening it."""
+    l = label(text, *classes, wrap=True)
+    l.set_max_width_chars(62)
+    l.set_wrap_mode(Pango.WrapMode.WORD_CHAR)   # a long path breaks too
+    return l
+
+
+def status_lines(path):
+    """`git status --porcelain` lines as git writes them: XY, a space, the path. Not git_lines(): its
+    strip() takes the first line's leading space (" M a.txt", modified but not staged) with it."""
+    try:
+        r = subprocess.run(["git", "-C", path, "status", "--porcelain=v1", "-uall"], capture_output=True,
+                           text=True, timeout=20, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    return [l for l in r.stdout.splitlines() if len(l) > 3]
+
+
 def children(widget):
     child = widget.get_first_child()
     while child is not None:
@@ -250,10 +281,10 @@ def load_projects():
 class Projects(View):
     title, subtitle = "Projects", ""
     icon = "\uea62"
-    interval = 0
+    interval = 2   # refresh(): the shown project's git status, live
     css = CSS
-    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("f", "fetch"), ("n", "new"),
-             ("Tab", "graph / branches"), ("←→", "fold"), ("/", "search")]
+    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("f", "fetch"), ("m", "move"), ("n", "new"),
+             ("Tab", "changes / graph / branches"), ("←→", "fold"), ("/", "search")]
 
     def __init__(self):
         super().__init__()
@@ -268,6 +299,7 @@ class Projects(View):
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
         self.start = None             # the New form's "Start from" (None until it's built)
+        self.gh_admin = {}            # owner/name -> may this account delete it on GitHub
 
     # ---- layout ----------------------------------------------------------------------------------
     def header_extra(self):
@@ -318,7 +350,18 @@ class Projects(View):
         else:
             self.show_setup()
         GLib.idle_add(lambda: (self.update_counts(), self.focus_list()) and False)
-        return box(False, 0, left, self.pages)
+        # the panel's popups (Move, Delete…) are a card over the dimmed panel, not windows of their own:
+        # a window of this class would be tiled on the workspace like the panel itself
+        self.card = box(True, 10, classes=("dialog",))
+        self.card.set_halign(Gtk.Align.CENTER)
+        self.card.set_valign(Gtk.Align.CENTER)
+        self.card.set_vexpand(True)   # the dimmed layer's height is the card's to centre in
+        self.card.set_size_request(560, -1)
+        self.dim = box(True, 0, self.card, classes=("dialog-dim",))
+        self.dim.set_visible(False)
+        overlay = Gtk.Overlay(child=box(False, 0, left, self.pages))
+        overlay.add_overlay(self.dim)
+        return overlay
 
     def build_detail(self):
         self.heading = label("", "heading", ellipsize=True)
@@ -329,22 +372,12 @@ class Projects(View):
         self.urls.set_margin_top(8)
         self.actions = box(False, 8)
         self.actions.set_margin_top(14)
-        # managing the folder: Move… (the row under it asks where), Delete git, Delete folder / Forget
-        self.manage = box(False, 8)
-        self.manage.set_margin_top(8)
-        self.move_to = Gtk.Entry(hexpand=True, placeholder_text="new folder, inside ~/code (active/name, archive/…)")
-        self.move_to.connect("activate", lambda *_: self.do_move())
-        self.move_row = box(False, 8, self.move_to, button("Move", self.do_move, "primary"),
-                            button("Cancel", lambda: self.move_row.set_visible(False), "flat"))
-        self.move_row.set_margin_top(8)
-        self.move_row.set_visible(False)
-        self.armed = None   # (what, rel, time) while a delete waits for its second click
         self.note = label("", "amber", wrap=True)
         self.note.set_margin_top(12)
 
         self.tab_btns = {}
         bar = box(False, 0, classes=("tabs", "inner"))
-        for name, title in (("graph", "Graph"), ("branches", "Branches")):
+        for name, title in (("changes", "Changes"), ("graph", "Graph"), ("branches", "Branches")):
             b = button(title, lambda n=name: self.switch_tab(n), "tab")
             self.tab_btns[name] = b
             bar.append(b)
@@ -361,12 +394,17 @@ class Projects(View):
         self.branch_list.connect("row-activated", lambda _l, row: self.show_graph_of(row.ref, tab=True))
         self.tab_pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, vexpand=True,
                                    hhomogeneous=False)   # sized by the shown tab, not the widest one
+        self.change_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.change_list.add_css_class("changes")
+        self.tab_pages.add_named(scrolled(self.change_list), "changes")
         self.tab_pages.add_named(scrolled(self.graph), "graph")
         self.tab_pages.add_named(scrolled(self.branch_list), "branches")
         self.tab_pages.set_margin_top(6)
-        self.switch_tab("graph")
-        return box(True, 0, self.heading, self.where, self.chips, self.urls, self.actions, self.manage,
-                   self.move_row, self.note, self.tabs_bar, self.tab_pages)
+        self.live = None   # the shown project's (status, HEAD, refs) at the last look: refresh() redraws on a change
+        self.live_busy = False
+        self.switch_tab("changes")
+        return box(True, 0, self.heading, self.where, self.chips, self.urls, self.actions, self.note,
+                   self.tabs_bar, self.tab_pages)
 
     def switch_tab(self, name):
         self.tab = name
@@ -556,6 +594,7 @@ class Projects(View):
         self.pages.set_visible_child_name("detail")
         self.gen += 1
         gen = self.gen
+        self.live = None
         self.heading.set_text(p.name)
         self.where.set_text(tilde(p.path))
         clear(self.chips)
@@ -601,6 +640,7 @@ class Projects(View):
         return False
 
     def paint_actions(self, p):
+        """The project's buttons: what you do with it on the left; Move… and the deletes at the right."""
         clear(self.actions)
         self.pull_btn = self.push_btn = None
         if p.kind == "missing":
@@ -618,32 +658,99 @@ class Projects(View):
                     self.actions.append(b)
         if p.kind != "local" and web_url(p.entry["url"]):
             self.actions.append(button("GitHub", self.open_web, "flat", tooltip="g"))
-        clear(self.manage)
-        self.move_row.set_visible(False)
-        self.armed = None
-        if p.kind == "missing":   # nothing on disk: only the list entry (a repo that's gone, say)
-            self.forget_btn = button("Forget", lambda: self.arm("forget", self.forget_btn), "flat", "danger",
-                                     tooltip="drop it from the list (click twice)")
-            self.manage.append(self.forget_btn)
-            return
-        self.manage.append(button("Move…", self.ask_move, "flat", tooltip="to another folder in ~/code; "
-                                  "the HDD backup copy moves with it"))
-        if p.kind == "repo" or p.entry.get("git"):
-            self.ungit_btn = button("Delete git", lambda: self.arm("git", self.ungit_btn), "flat", "danger",
-                                    tooltip="remove .git (history, branches): the files stay, local-only (click twice)")
-            self.manage.append(self.ungit_btn)
-        self.delete_btn = button("Delete folder", lambda: self.arm("folder", self.delete_btn), "flat", "danger",
-                                 tooltip="delete it from ~/code and the list; codesync's trash on the HDD "
-                                         "keeps the backup copy for a while (click twice)")
-        self.manage.append(self.delete_btn)
+        spacer = label("")
+        spacer.set_hexpand(True)
+        self.actions.append(spacer)
+        if p.kind == "missing":   # nothing here: only the list entry (a repo that's gone, say)
+            self.actions.append(button("Forget", self.ask_forget, "flat", "danger", tooltip="drop it from the list"))
+        else:
+            self.actions.append(button("Move…", self.ask_move, "flat", tooltip="m: to another folder in ~/code"))
+            self.actions.append(button("Delete", self.ask_delete, "flat", "danger", tooltip="Delete: the folder"))
+        # Delete on GitHub: only once GitHub says this account may (admin on the repo); asked in a thread
+        self.gh_btn = button("Delete on GitHub", self.ask_delete_github, "flat", "danger")
+        self.gh_btn.set_visible(False)
+        self.actions.append(self.gh_btn)
+        repo = pj.github_repo(p.entry.get("url", "")) if p.kind != "local" else None
+        if repo:
+            if repo in self.gh_admin:
+                self.gh_btn.set_visible(self.gh_admin[repo])
+            else:
+                def ask(rel=p.rel):
+                    self.gh_admin[repo] = pj.can_delete_on_github(p.entry["url"])
+                    GLib.idle_add(lambda: (self.selected == rel and self.gh_btn.set_visible(self.gh_admin[repo]))
+                                  and False)
+                threading.Thread(target=ask, daemon=True).start()
 
     def load_git(self, p, gen):
         """What the detail page shows from git (in this thread), then the graph."""
         branches = pj.branch_states(p.path)
         dirty, ahead, behind = pj.state(p.rel)
         has_origin = "origin" in pj.remotes(p.path)
+        changes = status_lines(p.path)
+        seen = self.look(p)   # the baseline the live checks compare against
+        GLib.idle_add(lambda: gen == self.gen and setattr(self, "live", seen) and False)
         GLib.idle_add(self.paint_git, p, gen, branches, dirty, ahead, behind, has_origin)
+        GLib.idle_add(self.paint_changes, p, gen, changes)
         self.load_graph(p, gen, self.ref)
+
+    # ---- live: the shown project's git status, every `interval` s while the panel shows --------------
+    def look(self, p):
+        """What changes when you work in it: the working tree, HEAD, the branches (a commit, a checkout,
+        a pull, an edit)."""
+        return ("\n".join(status_lines(p.path)), "\n".join(git_lines(p.path, "rev-parse", "HEAD")),
+                "\n".join(git_lines(p.path, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/remotes")))
+
+    def refresh(self):
+        p = self.current()
+        if (not p or p.kind != "repo" or self.live_busy or self.dim.get_visible()
+                or self.pages.get_visible_child_name() != "detail"):
+            return
+        self.live_busy = True
+        gen = self.gen
+
+        def go():
+            seen = self.look(p)
+            GLib.idle_add(self.live_seen, p, gen, seen)
+        threading.Thread(target=go, daemon=True).start()
+
+    def live_seen(self, p, gen, seen):
+        self.live_busy = False
+        if gen != self.gen or p.rel != self.selected:
+            return False
+        before, self.live = self.live, seen
+        if before is not None and before != seen:   # something changed: the whole page again (no fetch)
+            p.dirty = len([l for l in seen[0].splitlines() if l])
+            if p.rel in self.rows:   # the tree's dot follows too
+                self.rows[p.rel][1].set_text("●" if p.dirty else "")
+            threading.Thread(target=self.load_git, args=(p, gen), daemon=True).start()
+        return False
+
+    def paint_changes(self, p, gen, lines):
+        """The Changes tab: each changed file, what happened to it (staged or not), live."""
+        if gen != self.gen:
+            return False
+        clear(self.change_list)
+        what = {"M": ("modified", "amber"), "A": ("added", "green"), "D": ("deleted", "red"),
+                "R": ("renamed", "cyan"), "C": ("copied", "cyan"), "U": ("conflict", "red"), "?": ("new", "green"),
+                "T": ("type changed", "amber")}
+        for l in lines:
+            if len(l) < 4:
+                continue
+            x, y, path = l[0], l[1], l[3:]
+            code = "U" if "U" in (x, y) or (x, y) in (("A", "A"), ("D", "D")) else (x if x not in " ?" else y)
+            word, colour = what.get(code, ("changed", "amber"))
+            staged = x not in " ?" and code != "U"
+            row = box(False, 10, label(code if code != "?" else "+", "st", colour),
+                      label(path.replace(" -> ", "  →  "), ellipsize=True),
+                      label(word + (" · staged" if staged else ""), "dim"))
+            row.get_first_child().get_next_sibling().set_hexpand(True)
+            self.change_list.append(Gtk.ListBoxRow(child=row, activatable=False))
+        if not any(len(l) >= 4 for l in lines):
+            self.change_list.append(Gtk.ListBoxRow(child=label("Nothing changed: the working tree is clean.", "dim"),
+                                                   activatable=False))
+        n = sum(len(l) >= 4 for l in lines)
+        self.tab_btns["changes"].set_label(f"Changes {n}" if n else "Changes")
+        return False
 
     def load_graph(self, p, gen, ref):
         sep = "\x1f"
@@ -797,61 +904,184 @@ class Projects(View):
         if p and p.kind != "local" and web_url(p.entry["url"]):
             subprocess.Popen(["xdg-open", web_url(p.entry["url"])], start_new_session=True)
 
-    # ---- managing the folder: move, delete git, delete, forget ----------------------------------------
+    # ---- the popups: move, delete, delete on GitHub, forget ------------------------------------------
+    def open_dialog(self, title, *widgets, focus=None):
+        clear(self.card)
+        self.card.append(para(title, "dialog-title"))
+        for w in widgets:
+            self.card.append(w)
+        self.dim.set_visible(True)
+        GLib.idle_add(lambda: (focus or self.card).grab_focus() and False)
+
+    def close_dialog(self):
+        self.dim.set_visible(False)
+        self.focus_list()
+
+    def dialog_buttons(self, *buttons):
+        row = box(False, 8, label(""), button("Cancel", self.close_dialog, "flat", tooltip="Esc"), *buttons)
+        row.get_first_child().set_hexpand(True)
+        row.set_margin_top(10)
+        return row
+
+    def run_job(self, start, work, after=None):
+        """Close the popup, say(start), run work() -> (ok, message) in a thread, say how it went, then
+        after(ok) (default: reload the list)."""
+        self.close_dialog()
+        self.say(start, seconds=300)
+
+        def go():
+            ok, msg = work()
+            GLib.idle_add(lambda: (self.say(msg, "ok" if ok else "bad", seconds=8),
+                                   (after or (lambda ok: self.reload()))(ok)) and False)
+        threading.Thread(target=go, daemon=True).start()
+
+    def busy_note(self, p):
+        """A red line naming what runs in the project (moving or deleting it would break it), or None."""
+        busy = pj.busy_in(p.rel)
+        return para(f"{', '.join(busy)} {'are' if len(busy) > 1 else 'is'} running in it: close "
+                     f"{'them' if len(busy) > 1 else 'it'} first.", "red") if busy else None
+
     def ask_move(self):
+        """Move: the folder tree of ~/code (pick where it goes), a new folder inside the picked one if
+        you want one, its own name; the line under them shows where it ends up."""
         p = self.current()
-        if p:
-            self.move_to.set_text(p.rel)
-            self.move_row.set_visible(True)
-            self.move_to.grab_focus()
-            self.move_to.select_region(len(os.path.dirname(p.rel)) + 1 if "/" in p.rel else 0, -1)
-
-    def do_move(self):
-        p = self.current()
-        new = self.move_to.get_text().strip().strip("/")
-        if not p or not new:
+        if not p or p.kind == "missing":
             return
-        self.say(f"moving {p.name}…", seconds=300)
+        own = lambda g: g == p.rel or g.startswith(p.rel + "/")
+        folders = [""] + sorted(g for g in pj.groups() if not own(g))
+        tree = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        tree.add_css_class("folders")
+        for g in folders:
+            depth = g.count("/") + 1 if g else 0
+            line = box(False, 8, label("\uf07b", "accent"), label(os.path.basename(g) or "~/code", *(() if g else ("bold",))))
+            line.set_margin_start(depth * 18)
+            row = Gtk.ListBoxRow(child=line)
+            row.rel = g
+            tree.append(row)
+        scroll = scrolled(tree)
+        scroll.set_size_request(-1, 260)
+        new_dir = Gtk.Entry(placeholder_text="new folder inside it (optional)", hexpand=True)
+        name = Gtk.Entry(text=p.name, hexpand=True)
+        where = para("", "sub")
+        move_btn = button("Move", lambda: go(), "primary")
 
-        def work():
-            ok, msg = pj.move(p.rel, new)
-            GLib.idle_add(lambda: (self.say(f"{p.name}: {msg}", "ok" if ok else "bad"),
-                                   ok and self.reload(select=new)) and False)
-        threading.Thread(target=work, daemon=True).start()
+        def target():
+            row = tree.get_selected_row()
+            parts = [row.rel if row else "", new_dir.get_text().strip().strip("/"), name.get_text().strip().strip("/")]
+            return "/".join(x for x in parts if x)
 
-    def arm(self, what, btn):
-        """A delete / forget: the first click says what it costs, the second (within 4 s) does it."""
+        def update(*_):
+            t = target()
+            taken = t != p.rel and os.path.exists(f"{pj.ROOT}/{t}")
+            where.set_text("stays where it is" if t == p.rel else f"{tilde(pj.ROOT)}/{t}" +
+                           ("   (taken)" if taken else ""))
+            move_btn.set_sensitive(bool(name.get_text().strip()) and t != p.rel and not taken and not busy)
+
+        def go():
+            if move_btn.get_sensitive():
+                t = target()
+                self.run_job(f"moving {p.name}…", lambda: pj.move(p.rel, t),
+                             lambda ok: self.reload(select=t if ok else p.rel))
+        tree.connect("row-selected", update)
+        for e in (new_dir, name):
+            e.connect("changed", update)
+            e.connect("activate", lambda *_: go())
+        busy = self.busy_note(p)
+        here = folders.index(os.path.dirname(p.rel)) if os.path.dirname(p.rel) in folders else 0
+        tree.select_row(tree.get_row_at_index(here))
+        update()
+        self.open_dialog(f"Move {p.name}", para(f"from {tilde(p.path)}", "dim"), scroll,
+                         box(False, 10, label("New folder", "form-label"), new_dir),
+                         box(False, 10, label("Name", "form-label"), name),
+                         box(False, 10, label("Goes to", "form-label"), where),
+                         *([busy] if busy else []),
+                         para("Its HDD backup copy moves with it (codesync), and the list records it.", "dim"),
+                         self.dialog_buttons(move_btn), focus=tree)
+
+    def ask_delete(self):
+        p = self.current()
+        if not p or p.kind == "missing":
+            return
+        risk, busy = pj.at_risk(p.rel), self.busy_note(p)
+        lines = [para(f"{tilde(p.path)} goes, and it's dropped from the list.", "sub")]
+        if risk:
+            lines.append(para("Only this copy has: " + ", ".join(risk) + ".", "red"))
+        if busy:
+            lines.append(busy)
+        lines.append(para("If codesync backs it up, the HDD copy goes to its trash (kept 30 days).", "dim"))
+        go = button("Delete folder", lambda: self.run_job(f"deleting {p.name}…", lambda: pj.delete(p.rel),
+                                                          lambda ok: (self.reload(), ok and self.pages.set_visible_child_name("empty"))),
+                    "danger-fill")
+        go.set_sensitive(not busy)
+        self.open_dialog(f"Delete {p.name}?", *lines, self.dialog_buttons(go), focus=go)
+
+    def ask_delete_github(self):
+        p = self.current()
+        repo = pj.github_repo(p.entry.get("url", "")) if p else None
+        if not repo:
+            return
+        short = repo.split("/")[1]
+        confirm = Gtk.Entry(placeholder_text=f"type {short} to confirm", hexpand=True)
+        go = button("Delete on GitHub", lambda: start(), "danger-fill")
+        go.set_sensitive(False)
+        confirm.connect("changed", lambda e: go.set_sensitive(e.get_text().strip() == short))
+        confirm.connect("activate", lambda *_: go.get_sensitive() and start())
+
+        def start():
+            self.close_dialog()
+            self.say(f"deleting {repo} on GitHub…", seconds=120)
+
+            def work():
+                ok, msg, scope = pj.delete_on_github(p.rel) if p.kind != "missing" else self.delete_missing_on_github(repo)
+                GLib.idle_add(lambda: self.after_github(p, repo, ok, msg, scope) and False)
+            threading.Thread(target=work, daemon=True).start()
+        here = ("The folder here stays: its GitHub remote is removed and it becomes local-only."
+                if p.kind != "missing" else "It isn't cloned here: it's dropped from the list too.")
+        self.open_dialog(f"Delete {repo} on GitHub?",
+                         para("The repository goes with its issues, pull requests, releases and wiki. GitHub can "
+                               "restore it for 90 days (Settings → Repositories → Deleted repositories).", "sub"),
+                         para(here, "dim"), confirm, self.dialog_buttons(go), focus=confirm)
+
+    def delete_missing_on_github(self, repo):
+        r = subprocess.run(["gh", "repo", "delete", repo, "--yes"], capture_output=True, text=True, timeout=60)
+        if r.returncode:
+            return False, pj.last_line(r.stderr, "gh failed"), "delete_repo" in r.stderr
+        data = pj.load()
+        data["projects"] = [e for e in data["projects"] if pj.github_repo(e["url"]) != repo]
+        pj.save(data)
+        pj.commit(f"deleted {repo} on GitHub")
+        return True, f"{repo} deleted on GitHub (GitHub can restore it for 90 days)", False
+
+    def after_github(self, p, repo, ok, msg, scope):
+        if scope:   # gh's token can't delete repos: grant it once, in a terminal (a browser login)
+            self.say("")
+            self.open_dialog("GitHub needs your permission first",
+                             para("gh can't delete repositories yet. Grant it once (gh auth refresh adds the "
+                                   "delete_repo scope; a browser page asks you), then delete again.", "sub"),
+                             self.dialog_buttons(button("Grant permission", lambda: (
+                                 self.terminal(["gh", "auth", "refresh", "-h", "github.com", "-s", "delete_repo"],
+                                               "gh auth refresh"), self.close_dialog()), "primary")))
+            return
+        self.say(msg, "ok" if ok else "bad", seconds=10)
+        if ok:
+            self.gh_admin.pop(repo, None)
+            self.reload(select=p.rel if p.kind != "missing" else None)
+
+    def ask_forget(self):
         p = self.current()
         if not p:
             return
-        if self.armed and self.armed[:2] == (what, p.rel) and time.time() - self.armed[2] < 4:
-            self.armed = None
-            return self.do_delete(what, p)
-        self.armed = (what, p.rel, time.time())
-        risk = pj.at_risk(p.rel) if what in ("git", "folder") else []
-        btn.set_label("Click again" + (f": {', '.join(risk)} lost" if risk else ""))
-        busy = pj.busy_in(p.rel) if what == "folder" else []
-        if busy:
-            self.say(f"{', '.join(busy)} running in it: close {'them' if len(busy) > 1 else 'it'} first", "bad")
-        GLib.timeout_add(4000, lambda: btn.set_label({"forget": "Forget", "git": "Delete git",
-                                                      "folder": "Delete folder"}[what]) or False)
-
-    def do_delete(self, what, p):
-        self.say(f"{p.name}: deleting…", seconds=300)
 
         def work():
-            if what == "forget":
-                data = pj.load()
-                data["projects"] = [e for e in data["projects"] if e["path"] != p.rel]
-                pj.save(data)
-                problem = pj.commit(f"forget {p.rel}")
-                ok, msg = True, "dropped from the list" + (f" ({problem})" if problem else "")
-            else:
-                ok, msg = (pj.delete_git if what == "git" else pj.delete)(p.rel)
-            GLib.idle_add(lambda: (self.say(f"{p.name}: {msg}", "ok" if ok else "bad"),
-                                   self.reload(select=p.rel if what == "git" else None),
-                                   what != "git" and self.pages.set_visible_child_name("empty")) and False)
-        threading.Thread(target=work, daemon=True).start()
+            data = pj.load()
+            data["projects"] = [e for e in data["projects"] if e["path"] != p.rel]
+            pj.save(data)
+            problem = pj.commit(f"forget {p.rel}")
+            return True, f"{p.name}: dropped from the list" + (f" ({problem})" if problem else "")
+        self.open_dialog(f"Forget {p.name}?",
+                         para("It's dropped from the list. Nothing else changes: on GitHub, or on another PC.",
+                               "sub"),
+                         self.dialog_buttons(button("Forget", lambda: self.run_job("forgetting…", work), "danger-fill")))
 
     def git_job(self, start, work):
         """say(start), run work(p) -> (ok, message) in a thread, report it and redraw the project."""
@@ -1255,6 +1485,11 @@ class Projects(View):
     def key(self, keyval, state):
         page = self.pages.get_visible_child_name()
         row = self.tree.get_selected_row()
+        if self.dim.get_visible():   # a popup is open: Esc closes it, everything else is its own
+            if keyval == Gdk.KEY_Escape:
+                self.close_dialog()
+                return True
+            return False
         if keyval == Gdk.KEY_Escape:
             if self.search.get_text():
                 self.search.set_text("")
@@ -1269,7 +1504,8 @@ class Projects(View):
         if keyval == Gdk.KEY_slash:
             self.search.grab_focus()
         elif keyval == Gdk.KEY_Tab and page == "detail" and self.tabs_bar.get_visible():
-            self.switch_tab("branches" if self.tab == "graph" else "graph")
+            order = ["changes", "graph", "branches"]
+            self.switch_tab(order[(order.index(self.tab) + 1) % 3])
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row:
             group = row.key if row.kind == "group" else os.path.dirname(row.key)
             if group and not self.search.get_text():
@@ -1284,6 +1520,10 @@ class Projects(View):
             self.fetch()
         elif keyval == Gdk.KEY_g:
             self.open_web()
+        elif keyval == Gdk.KEY_m and page == "detail":
+            self.ask_move()
+        elif keyval == Gdk.KEY_Delete and page == "detail":
+            self.ask_delete()
         else:
             return False
         return True

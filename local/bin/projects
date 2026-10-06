@@ -26,6 +26,9 @@
                        record it; refused while something runs in it
   projects delete-git <path> [-y]
                        remove its .git (it stays, as a local-only project)
+  projects delete-github <path> [-y]
+                       delete its repo on GitHub (if gh may: admin on it, the delete_repo scope) and drop
+                       that remote; the folder stays, local-only
   projects delete <path> [-y]
                        delete its folder and drop it from the list (codesync's trash keeps the backup
                        copy for a while). Both say what only this copy has and ask first, unless -y
@@ -555,6 +558,46 @@ def move(rel, new):
     return True, f"moved to {new}"
 
 
+def github_repo(url):
+    """owner/name of a GitHub URL (https or ssh spelling, its own case), or None."""
+    m = re.match(r"^(?:https?://(?:[^@/]+@)?github\.com/|(?:ssh://)?git@github\.com[:/])([^/]+)/([^/]+?)(?:\.git)?/?$",
+                 url.strip())
+    return f"{m[1]}/{m[2]}" if m else None
+
+
+def can_delete_on_github(url):
+    """True if gh's account may delete that repo (admin on it). Asks GitHub: a few hundred ms."""
+    repo = github_repo(url)
+    if not repo or not shutil.which("gh"):
+        return False
+    try:
+        r = subprocess.run(["gh", "api", f"repos/{repo}", "--jq", ".permissions.admin"],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.returncode == 0 and r.stdout.strip() == "true"
+
+
+def delete_on_github(rel):
+    """Delete the project's origin repo on GitHub, then drop that remote here: the folder stays, a
+    local-only project (or one with its other remotes). (ok, message, needs_scope): needs_scope when
+    gh's token can't delete repos yet (`gh auth refresh -s delete_repo` grants it)."""
+    rel = rel.strip("/")
+    path = f"{ROOT}/{rel}"
+    rs = remotes(path)
+    name = "origin" if "origin" in rs else (sorted(rs)[0] if rs else None)
+    repo = github_repo(rs[name]) if name else None
+    if not repo:
+        return False, "no GitHub remote", False
+    r = subprocess.run(["gh", "repo", "delete", repo, "--yes"], capture_output=True, text=True, timeout=60)
+    if r.returncode:
+        err = last_line(r.stderr, "gh failed")
+        return False, err, "delete_repo" in r.stderr
+    git(path, "remote", "remove", name)
+    scan(quiet=True)
+    return True, f"{repo} deleted on GitHub (GitHub can restore it for 90 days); the folder stays, local-only", False
+
+
 def delete_git(rel):
     """Remove the project's .git: its files stay, as a local-only project. (ok, message)."""
     path = f"{ROOT}/{rel.strip('/')}"
@@ -817,6 +860,15 @@ def main():
     elif cmd == "move" and len(args) == 2:
         ok, msg = move(*args)
         print(msg) if ok else sys.exit(msg)
+    elif cmd == "delete-github" and args:
+        rel = args[0].strip("/")
+        repo = github_repo(remotes(f"{ROOT}/{rel}").get("origin", "")) if is_repo(f"{ROOT}/{rel}") else None
+        if not repo:
+            sys.exit(f"{rel} has no GitHub origin")
+        if "-y" not in args and input(f"delete {repo} on GitHub? type its name: ").strip() != repo.split("/")[1]:
+            return
+        ok, msg, scope = delete_on_github(rel)
+        print(msg) if ok else sys.exit(msg + ("\n(gh auth refresh -h github.com -s delete_repo)" if scope else ""))
     elif cmd in ("delete", "delete-git") and args:
         rel = args[0].strip("/")
         if not os.path.exists(f"{ROOT}/{rel}"):

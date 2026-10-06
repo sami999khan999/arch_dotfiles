@@ -299,7 +299,7 @@ It's recorded in the list, which is pushed.
 
 **On a new PC** the panel opens on a setup page when there's no list: the list's URL (your `code-projects`
 repo, filled in when `gh` finds it; or paste any) and **Restore**, which clones it, then every project in it,
-with a progress list (4 at a time, ✓ / ✗ per project, Stop skips the rest). The folder structure is the
+with a progress list (12 at a time: GitHub is slow per connection from here, not in total; ✓ / ✗ per project, Stop skips the rest). The folder structure is the
 list's: before cloning, what's already in `~/code` is matched by remote URL (`git@host:o/r` and
 `https://host/o/r.git` count as the same). A listed repo moves to its listed folder; a project the list
 doesn't have (an unlisted repo, a folder without git) moves to `~/code/unsorted/` and is added to the list;

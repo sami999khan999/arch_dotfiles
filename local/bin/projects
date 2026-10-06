@@ -53,7 +53,10 @@ TEMPLATE_SKIP = SKIP | {".git", ".turbo", ".output", ".svelte-kit", ".expo", ".w
 NOT_RECORDED = {"inbox"}      # top-level folders that are scratch
 UNSORTED = "unsorted"         # arrange: projects the list doesn't have go here (and get recorded)
 MAX_DEPTH = 4
-JOBS = 4                      # clones / status checks at once
+JOBS = 4                      # status checks at once
+# clones at once: GitHub gives each connection only ~0.2 MB/s from here (the line does 19 MB/s), and
+# connections add up (1 clone 0.17 MB/s, 4 at once 0.83), so a restore runs many side by side
+CLONE_JOBS = 12
 
 DIM, RED, GREEN, AMBER, BOLD, RESET = "\033[2m", "\033[31m", "\033[32m", "\033[33m", "\033[1m", "\033[0m"
 if not sys.stdout.isatty():
@@ -430,7 +433,7 @@ def missing(paths=()):
 
 
 def clone_all(todo, report, stop=None):
-    """Clone each entry, JOBS at a time. report(entry, state, detail) with state started / ok / failed /
+    """Clone each entry, CLONE_JOBS at a time. report(entry, state, detail) with state started / ok / failed /
     skipped, from the worker threads. stop: a threading.Event; once set, the rest are skipped.
     Returns the number that failed."""
     fails = [0]
@@ -445,7 +448,7 @@ def clone_all(todo, report, stop=None):
         with lock:
             fails[0] += not ok
         report(e, "ok" if ok else "failed", detail)
-    with ThreadPoolExecutor(JOBS) as pool:
+    with ThreadPoolExecutor(CLONE_JOBS) as pool:
         list(pool.map(one, todo))
     return fails[0]
 

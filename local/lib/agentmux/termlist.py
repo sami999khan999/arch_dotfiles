@@ -157,11 +157,14 @@ class TermList(App):
             sel, hov, on = p["pane"] == current, p["pane"] == self.hover, p["pane"] == shown
             bg = "overlay" if sel else ("hover" if hov else None)
             icon = (SPLIT_ICON if split else TERM_ICON, "accent" if on else "muted")
-            if narrow:   # only the icon, centred; the shown one has the band (no edge against the border)
+            # the shown one has the blue edge at the right, on the window's edge (the list is the
+            # rightmost pane), collapsed too
+            if narrow:   # only the icon, centred, on the band
                 l = Line("overlay" if on else ("hover" if hov else None)).pad(mid).add(*icon)
+                if on:
+                    l.pad(w - 1 - l.w).add("▕", "accent")
             else:
-                l = Line(bg).add("▎" if on else " ", "accent").add(tree, "line").add(*icon)
-                edge = on   # the shown one: the blue edge on both sides (drawn after its name and buttons)
+                l = Line(bg).add(" ").add(tree, "line").add(*icon)
             if not narrow:
                 # the shown and the hovered row: split it, close it (as VS Code's on hover); the name
                 # gives way first, then the split button
@@ -179,7 +182,7 @@ class TermList(App):
                 for x0, text, cmd in spots:
                     l.pad(x0 - l.w).add(text, "muted")
                 self.row_buttons[len(lines)] = [(x0, x0 + width(text), cmd) for x0, text, cmd in spots]
-                if edge:
+                if on:
                     l.pad(w - 1 - l.w).add("▕", "accent")
             self.ys[len(lines)] = p["pane"]
             lines.append(l)

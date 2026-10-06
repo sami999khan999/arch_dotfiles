@@ -580,7 +580,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   the focused one; the last one closes the column. `─` in the header minimizes the column (`Ctrl+Alt+3`): its shells keep running,
   `▸ terminals` in the status bar brings it back. Drag the border left of the list (or of the
   column) to resize; both widths are remembered. Dragged narrower than its names, the list collapses to its
-  icons; the terminal itself stops at 20 columns. The shown terminal's row has the blue edge on both sides.
+  icons; the terminal itself stops at 20 columns. The shown terminal's row has the blue edge at its right, collapsed too.
   `›` at the left of its header (beside the count of terminals) collapses it to just that (`‹` expands it back to its width; it stays
   collapsed in every project until expanded). Each terminal is a window of the project's
   `<project>·terms` session on the agents server (`local/lib/agentmux/termlist.py` is the list).

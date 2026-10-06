@@ -2,9 +2,10 @@ source /usr/share/cachyos-fish-config/cachyos-config.fish
 
 # The greeting: ~/.local/bin/greet, a spinning bagel beside the system summary (any key skips it). It
 # fits itself to the terminal: wide gets the bagel, medium the summary alone, narrow (agentmux's
-# terminals column, a VS Code kitty) nothing, just the prompt
+# terminals column, a VS Code kitty) nothing, just the prompt. agentmux's terminals never get it
+# (AGENTMUX_TERM, set on their session): a new one opens clean
 function fish_greeting
-    ~/.local/bin/greet
+    set -q AGENTMUX_TERM; or ~/.local/bin/greet
 end
 
 # Omarchy prompt (in the colour theme's colours: local/bin/theme makes this file, Tokyo Night's own when it's active)

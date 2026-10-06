@@ -274,7 +274,9 @@ def new_session(name, path, kind, harness="", command=None, project=None):
     run instead of the login shell (run directly, not through it). An agent thread is remembered for
     its project (remember_agent)."""
     project = project or path
-    agents("new-session", "-d", "-s", name, "-c", path, *(command or []))
+    # a terminals session's shells skip fish's greeting (config.fish): a new terminal opens clean, at its prompt
+    env = ["-e", "AGENTMUX_TERM=1"] if kind == "terms" else []
+    agents("new-session", "-d", "-s", name, "-c", path, *env, *(command or []))
     for opt, val in (("@project", project), ("@kind", kind), ("@harness", harness)):
         agents("set-option", "-t", f"={name}:", opt, val)
     if kind == "agent" and harness:

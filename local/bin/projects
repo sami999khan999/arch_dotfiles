@@ -21,6 +21,9 @@
                        clone a repo into ~/code/<path> (default active/<repo name>) and record it
   projects pin <path> / unpin <path>
                        pin a project (first in the Projects panel; pins are in the list, every PC has them)
+  projects merge <path> <branch> [<into>] [--no-push]
+                       merge a branch into another (default: the main branch) without touching the
+                       project's files unless <into> is checked out; then push it. Refused on conflicts
   projects forget <path>…
                        drop projects from the list
   projects move <path> <new path>
@@ -287,6 +290,86 @@ def pull_ff(path, branch):
     remote, _, rbranch = up.partition("/")
     ok, out = git(path, "fetch", "-q", remote, f"{rbranch}:{branch}", timeout=300)
     return ok, f"{branch} fast-forwarded" if ok else last_line(out, "fetch failed")
+
+
+# ---- merging one branch into another (the Projects panel's Merge) ---------------------------------
+# Without touching the project's files: a fast-forward only moves the branch, and a real merge is made
+# by git merge-tree (the merged tree, conflicts found, nothing checked out) + commit-tree, then the
+# branch is moved to it. Only when the target is the branch checked out does the folder change (a
+# normal git merge there, which also updates its files).
+def merge_plan(path, src, dst):
+    """What merging src into dst does, read-only: {commits: [(short hash, subject)], files: [(added,
+    removed, path)], ff: dst just moves forward, conflicts: [paths], up_to_date: nothing to merge}."""
+    ok, out = git(path, "log", "--format=%h\x1f%s", f"refs/heads/{dst}..refs/heads/{src}")
+    commits = [tuple(l.split("\x1f", 1)) for l in out.splitlines() if "\x1f" in l] if ok else []
+    ok, out = git(path, "diff", "--numstat", f"refs/heads/{dst}...refs/heads/{src}")
+    files = [tuple(l.split("\t", 2)) for l in out.splitlines() if l.count("\t") >= 2] if ok else []
+    ff = git(path, "merge-base", "--is-ancestor", f"refs/heads/{dst}", f"refs/heads/{src}")[0]
+    conflicts = []
+    if commits and not ff:
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+        r = subprocess.run(["git", "-C", path, "merge-tree", "--write-tree", "--name-only", "--no-messages",
+                            f"refs/heads/{dst}", f"refs/heads/{src}"], capture_output=True, text=True, env=env)
+        if r.returncode == 1:   # 1: conflicts; the lines after the tree are the conflicted files
+            conflicts = [l for l in r.stdout.splitlines()[1:] if l.strip()]
+    return {"commits": commits, "files": files, "ff": ff, "conflicts": conflicts, "up_to_date": not commits}
+
+
+def merge(rel, src, dst, push_after=True):
+    """Merge src into dst (both local branches of the repo at ROOT/rel): dst is first brought up to date
+    from GitHub, then fast-forwarded or given a merge commit, then pushed. (ok, message)."""
+    path = f"{ROOT}/{rel.strip('/')}"
+    head = current_branch(path)
+    if not git(path, "show-ref", "--verify", "-q", f"refs/heads/{dst}")[0]:   # only on the remote: make it
+        if not git(path, "branch", "-q", "--track", dst, f"origin/{dst}")[0]:
+            return False, f"no branch {dst} here or on origin"
+    upstream = git(path, "rev-parse", "--abbrev-ref", f"{dst}@{{u}}")[0]
+    if upstream:   # merging into a stale dst would make a push that GitHub refuses
+        git(path, "fetch", "-q", "origin", timeout=300)
+        ok, n = git(path, "rev-list", "--left-right", "--count", f"refs/heads/{dst}...{dst}@{{u}}")
+        mine, theirs = (int(x) for x in n.split()) if ok and len(n.split()) == 2 else (0, 0)
+        if theirs and mine:
+            return False, f"{dst} has diverged from GitHub: pull or rebase it first"
+        if theirs:
+            ok, msg = pull_ff(path, dst)
+            if not ok:
+                return False, f"couldn't update {dst} from GitHub: {msg}"
+    plan = merge_plan(path, src, dst)
+    if plan["up_to_date"]:
+        return True, f"{src} is already in {dst}"
+    if plan["conflicts"]:
+        return False, f"conflicts in {', '.join(plan['conflicts'][:4])}: merge it in VS Code, or open a pull request"
+    message = f"Merge branch '{src}' into {dst}"
+    if head == dst:   # the folder shows dst: a normal merge, which updates its files too
+        ok, out = git(path, "merge", "-q", "--no-edit", "--ff" if plan["ff"] else "--no-ff", "-m", message, src)
+        if not ok:
+            git(path, "merge", "--abort")
+            return False, last_line(out, "merge failed")
+    elif plan["ff"]:   # dst just moves forward to src; nothing checked out changes
+        ok, out = git(path, "update-ref", f"refs/heads/{dst}", f"refs/heads/{src}", f"refs/heads/{dst}")
+        if not ok:
+            return False, last_line(out, "couldn't move the branch")
+    else:   # the merge commit, made without a checkout
+        r = subprocess.run(["git", "-C", path, "merge-tree", "--write-tree", f"refs/heads/{dst}", f"refs/heads/{src}"],
+                           capture_output=True, text=True)
+        tree = r.stdout.split()[0] if r.returncode == 0 and r.stdout.split() else ""
+        if not tree:
+            return False, "the merge failed"
+        ok, old = git(path, "rev-parse", f"refs/heads/{dst}")
+        ok2, commit = git(path, "commit-tree", tree, "-p", f"refs/heads/{dst}", "-p", f"refs/heads/{src}", "-m", message)
+        if not (ok and ok2):
+            return False, last_line(commit, "couldn't make the merge commit")
+        ok, out = git(path, "update-ref", f"refs/heads/{dst}", commit, old)
+        if not ok:
+            return False, last_line(out, "couldn't move the branch")
+    how = "fast-forwarded" if plan["ff"] else "merged"
+    n = len(plan["commits"])
+    msg = f"{src} {how} into {dst} ({n} commit{'s' * (n > 1)})"
+    if push_after and upstream:
+        ok, out = git(path, "push", "-q", "origin", f"refs/heads/{dst}:refs/heads/{dst}", timeout=300)
+        msg += ", pushed" if ok else f"; push failed: {last_line(out)}"
+        return ok, msg
+    return True, msg
 
 
 def push(path):
@@ -909,6 +992,12 @@ def main():
         add(*args[:2])
     elif cmd == "forget" and args:
         forget(*args)
+    elif cmd == "merge" and len(args) >= 2:
+        rel, src = args[0], args[1]
+        rest = [a for a in args[2:] if not a.startswith("--")]
+        dst = rest[0] if rest else default_branch(f"{ROOT}/{rel.strip('/')}")
+        ok, msg = merge(rel, src, dst, "--no-push" not in args)
+        print(msg) if ok else sys.exit(msg)
     elif cmd in ("pin", "unpin") and args:
         problem = pin(args[0], cmd == "pin")
         print(f"{cmd}ned {args[0]}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))

@@ -914,7 +914,15 @@ class Projects(View):
             name.connect("clicked", lambda _b, n=b["name"]: self.show_graph_of(n, tab=True))
             in_main = label(mn, mcls)
             in_main.set_tooltip_text(tip or None)
-            for c, w in enumerate((label("●" if b["head"] else "", "accent"), name, label(gh, gcls), in_main)):
+            # what to do about it: its commits into main, or main's newer ones into it
+            act = label("")
+            if b["vs_main"] and b["vs_main"][0]:
+                act = button(f"Merge into {main}", lambda n=b["name"]: self.ask_merge(n, main), "flat", "branch-chip",
+                             tooltip=f"{b['name']}'s commits into {main}, then push it")
+            elif b["vs_main"] and b["vs_main"][1]:
+                act = button(f"Update from {main}", lambda n=b["name"]: self.ask_merge(main, n), "flat", "branch-chip",
+                             tooltip=f"{main}'s {b['vs_main'][1]} newer commits into {b['name']}")
+            for c, w in enumerate((label("●" if b["head"] else "", "accent"), name, label(gh, gcls), in_main, act)):
                 w.set_valign(Gtk.Align.CENTER)
                 grid.attach(w, c, r, 1, 1)
         more = []
@@ -1183,6 +1191,50 @@ class Projects(View):
                          *([busy] if busy else []),
                          para("Its HDD backup copy moves with it (codesync), and the list records it.", "dim"),
                          self.dialog_buttons(move_btn), focus=tree, handlers=handlers)
+
+    def ask_merge(self, src, dst):
+        """Merge src into dst: what goes in (its commits, the files they change), whether it's a
+        fast-forward or a merge commit, conflicts (then it can't, here: VS Code or a pull request), and
+        Push after. The project's files only change when dst is the branch checked out."""
+        p = self.current()
+        if not p or p.kind != "repo":
+            return
+        plan = pj.merge_plan(p.path, src, dst)
+        if plan["up_to_date"]:
+            self.say(f"{src} is already in {dst}")
+            return
+        n = len(plan["commits"])
+        lines = [para((f"{dst} just moves forward to {src} (a fast-forward)." if plan["ff"] else
+                       f"A merge commit on {dst} joins the two.") + " " +
+                      (f"{dst} is checked out, so its files update." if p.branch == dst else
+                       f"The project's files don't change: {dst} isn't checked out."), "sub")]
+        commits = box(True, 2)
+        for short, subject in plan["commits"][:8]:
+            commits.append(box(False, 10, label(short, "hash"), label(subject, ellipsize=True)))
+        if n > 8:
+            commits.append(label(f"and {n - 8} more", "dim"))
+        added = sum(int(a) for a, _, _ in plan["files"] if a.isdigit())
+        removed = sum(int(d) for _, d, _ in plan["files"] if d.isdigit())
+        lines += [label(f"{n} commit{'s' * (n > 1)}", "bold"), commits,
+                  label(f"{len(plan['files'])} file{'s' * (len(plan['files']) != 1)} changed, +{added} −{removed}", "dim")]
+        if plan["conflicts"]:
+            lines.append(para(f"Conflicts in {', '.join(plan['conflicts'][:6])}: the two branches change the same "
+                              "lines. Merge it in VS Code (resolving them there), or open a pull request.", "red"))
+        has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", f"{dst}@{{u}}")[0]
+        push = Gtk.CheckButton(label=f"Push {dst} to GitHub after", active=True)
+        push.set_visible(bool(has_up))
+        go = button("Merge", lambda: self.run_job(f"merging {src} into {dst}…",
+                                                  lambda: pj.merge(p.rel, src, dst, push.get_active() and bool(has_up)),
+                                                  lambda ok: self.show_detail(fetch=False)), "primary")
+        go.set_sensitive(not plan["conflicts"])
+        extra = []
+        repo = pj.github_repo(p.entry.get("url", ""))
+        if repo:
+            url = f"https://github.com/{repo}/compare/{dst}...{src}?expand=1"
+            extra.append(button("Open pull request", lambda: (subprocess.Popen(["xdg-open", url], start_new_session=True),
+                                                              self.close_dialog()), "flat",
+                                tooltip=f"GitHub: review {src} → {dst} there (for a shared repo); push {src} first"))
+        self.open_dialog(f"Merge {src} into {dst}", *lines, push, self.dialog_buttons(*extra, go), focus=go)
 
     def ask_delete(self):
         p = self.current()

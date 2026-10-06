@@ -325,6 +325,17 @@ merged`: 3 of its commits main doesn't have yet). So a `dev` that's pushed but n
 `✓ pushed · 3 not merged`. Hovering says more (how far main has moved on); a click on a branch shows its
 history (Graph). Up to 6 branches; the *Branches* tab has them all, with Check out, Pull and Push.
 
+**Merging.** A branch with commits main doesn't have gets *Merge into main* in that table (one only behind
+main gets *Update from main*, the other way round). The popup shows what goes in (its commits, the files
+they change, `+added −removed`), whether main just moves forward (a fast-forward) or gets a merge commit,
+and *Push main to GitHub after* (on). Main is first brought up to date from GitHub (a merge into a stale
+main would make a push GitHub refuses; one that has diverged from GitHub is refused). **Your files don't
+change**: the merge is made inside git (`git merge-tree`, `commit-tree`) and main is moved to it, unless
+main is the branch checked out (then it's a normal merge, and its files update). Conflicts are found
+before anything happens: the popup names the files and Merge is off; merge it in VS Code, or *Open pull
+request* (GitHub's compare page, for a shared repo where it should be reviewed). From a shell:
+`projects merge <path> <branch> [<into>] [--no-push]`.
+
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While
 the panel shows, the project's git status is looked at every 2 s (read-only: no index lock), so an edit,

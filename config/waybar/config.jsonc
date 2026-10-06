@@ -24,7 +24,6 @@
     "custom/divider",
     "custom/codesync",
     "custom/keys",
-    "custom/projects",
     "custom/settings",
     "bluetooth",
     "network",
@@ -349,11 +348,6 @@
     "format": "",
     "tooltip-format": "Shortcuts (Super + K)",
     "on-click": "~/.local/lib/panels/keysgui.py"
-  },
-  "custom/projects": {
-    "format": "\uea62",
-    "tooltip-format": "Projects (Super + Ctrl + P)",
-    "on-click": "~/.local/bin/wsgroups go sami.projects"
   },
   "custom/settings": {
     "format": "\uf013",

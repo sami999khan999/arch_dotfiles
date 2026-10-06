@@ -35,6 +35,7 @@ HIT = recolor("#7aa2f7")   # matched letters, as in the shortcut list
 HISTORY = 300              # commits in the graph
 STALE = 600                # seconds: an older fetch is redone when the project is selected
 FOLDED = {"archive", "templates", "forks"}   # groups that start folded
+MAX_BRANCH_ROWS = 6       # local branches in a project's branch table (the Branches tab has them all)
 STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer ago than this are fetched
 # the tree's three sections, each folds: pinned projects, the ones with work not on GitHub yet, all of them
 SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§all", "All projects")]
@@ -57,7 +58,8 @@ CSS = """
 .branch-list > row { padding: 5px 4px; }
 .hash { color: #e0af68; }
 .chip { padding: 0 5px; font-size: 9pt; }
-button.branch-chip { padding: 0 7px; min-height: 0; background: alpha(#c0caf5, .04); }
+button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
+.branch-head { font-size: 9pt; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .chip-local { background: alpha(#6b8fe0, .2); color: #7aa2f7; }
 .chip-remote { background: alpha(#565f89, .2); color: #565f89; }
@@ -383,7 +385,7 @@ class Projects(View):
         self.chips.set_margin_top(8)
         # the other branches, a chip each with its state; a click shows its history (Graph)
         self.others = box(False, 6)
-        self.others.set_margin_top(6)
+        self.others.set_margin_top(10)
         self.urls = box(True, 2)
         self.urls.set_margin_top(8)
         self.actions = box(False, 8)
@@ -761,6 +763,17 @@ class Projects(View):
     def load_git(self, p, gen):
         """What the detail page shows from git (in this thread), then the graph."""
         branches = pj.branch_states(p.path)
+        main = pj.default_branch(p.path)
+        # each local branch against main: how many of its commits main lacks, how many of main's it lacks
+        base = (f"refs/heads/{main}" if any(b["local"] and b["name"] == main for b in branches)
+                else f"refs/remotes/origin/{main}") if main else ""
+        for b in branches:
+            b["main"], b["vs_main"] = main, None
+            if base and b["local"] and b["name"] != main:
+                out = git_lines(p.path, "rev-list", "--left-right", "--count", f"{base}...refs/heads/{b['name']}")
+                if out and len(out[0].split()) == 2:
+                    behind, ahead = (int(x) for x in out[0].split())
+                    b["vs_main"] = (ahead, behind)
         dirty, ahead, behind = pj.state(p.rel)
         has_origin = "origin" in pj.remotes(p.path)
         changes = status_lines(p.path)
@@ -854,39 +867,64 @@ class Projects(View):
                       remotes, local)
 
     def paint_others(self, branches):
-        """One chip per local branch besides the checked-out one: ✓ in sync, ↑ to push, ↓ to pull, both
-        diverged, ✗ its remote branch is gone, • local only; then how many exist only on the remote."""
+        """The local branches as a small table, two separate questions a column each: is it on GitHub
+        (pushed, to push, to pull, never pushed, deleted there) and is it in main (merged, or how many of
+        its commits main lacks). The checked-out one has the dot; a row shows that branch's history."""
         clear(self.others)
-        local = [b for b in branches if b["local"] and not b["head"]]
+        local = [b for b in branches if b["local"]]
         remote_only = sum(not b["local"] for b in branches)
-        if not local and not remote_only:
+        main = next((b["main"] for b in branches if b.get("main")), "")
+        if len(local) < 2 and not remote_only:   # only the branch shown above: nothing to add
             self.others.set_visible(False)
             return
         self.others.set_visible(True)
-        self.others.append(label("other branches", "dim"))
-        for b in local:
+        local.sort(key=lambda b: (not b["head"], b["name"] != main, -b["unix"]))
+        grid = Gtk.Grid(column_spacing=18, row_spacing=1)
+        for c, text in enumerate(("", "branch", "GitHub", main or "main")):
+            grid.attach(label(text, "dim", "branch-head"), c, 0, 1, 1)
+        shown = local[:MAX_BRANCH_ROWS]
+        for r, b in enumerate(shown, 1):
             if b["gone"]:
-                mark, cls, tip = "✗", "red", "its branch on the remote was deleted"
+                gh, gcls = "✗ deleted there", "red"
             elif not b["upstream"]:
-                mark, cls, tip = "•", "amber", "local only: never pushed"
+                gh, gcls = "• never pushed", "amber"
             elif b["ahead"] and b["behind"]:
-                mark, cls, tip = f"↑{b['ahead']} ↓{b['behind']}", "red", "diverged from the remote"
+                gh, gcls = f"↑{b['ahead']} ↓{b['behind']} diverged", "red"
             elif b["ahead"]:
-                mark, cls, tip = f"↑{b['ahead']}", "amber", f"{b['ahead']} to push"
+                gh, gcls = f"↑{b['ahead']} to push", "amber"
             elif b["behind"]:
-                mark, cls, tip = f"↓{b['behind']}", "cyan", f"{b['behind']} to pull"
+                gh, gcls = f"↓{b['behind']} to pull", "cyan"
             else:
-                mark, cls, tip = "✓", "green", "in sync with the remote"
-            inner = box(False, 5, label(b["name"]), label(mark, cls))
-            chip = Gtk.Button(child=inner, tooltip_text=f"{b['name']}: {tip} · {b['date']} · click: its history")
-            chip.add_css_class("flat")
-            chip.add_css_class("branch-chip")
-            chip.connect("clicked", lambda _b, name=b["name"]: self.show_graph_of(name, tab=True))
-            self.others.append(chip)
+                gh, gcls = "✓ pushed", "green"
+            if b["name"] == main:
+                mn, mcls, tip = "—", "dim", "this is the main branch"
+            elif b["vs_main"] is None:
+                mn, mcls, tip = "", "dim", ""
+            elif b["vs_main"][0]:
+                n = b["vs_main"][0]
+                mn, mcls = f"{n} not merged", "amber"
+                tip = f"{n} commit{'s' * (n > 1)} on {b['name']} that {main} doesn't have yet"
+            else:
+                mn, mcls = "merged", "green"
+                tip = f"every commit of {b['name']} is in {main}" + (
+                    f"; {main} has {b['vs_main'][1]} newer" if b["vs_main"][1] else "")
+            name = Gtk.Button(child=label(b["name"], *(("bold",) if b["head"] else ())), tooltip_text="its history (Graph)")
+            name.add_css_class("flat")
+            name.add_css_class("branch-chip")
+            name.connect("clicked", lambda _b, n=b["name"]: self.show_graph_of(n, tab=True))
+            in_main = label(mn, mcls)
+            in_main.set_tooltip_text(tip or None)
+            for c, w in enumerate((label("●" if b["head"] else "", "accent"), name, label(gh, gcls), in_main)):
+                w.set_valign(Gtk.Align.CENTER)
+                grid.attach(w, c, r, 1, 1)
+        more = []
+        if len(local) > MAX_BRANCH_ROWS:
+            more.append(f"{len(local) - MAX_BRANCH_ROWS} more")
         if remote_only:
-            more = label(f"+{remote_only} only on the remote", "dim")
-            more.set_tooltip_text("the Branches tab lists them; Check out makes a local one")
-            self.others.append(more)
+            more.append(f"{remote_only} only on GitHub")
+        if more:
+            grid.attach(label(" · ".join(more) + " (Branches tab)", "dim"), 1, len(shown) + 1, 3, 1)
+        self.others.append(grid)
 
     def paint_git(self, p, gen, branches, dirty, ahead, behind, has_origin):
         if gen != self.gen:

@@ -317,10 +317,13 @@ GitHub (just `↓4` when main is the branch checked out), then the branch checke
 opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
 current.
 
-**Other branches** are one line under a project's chips: a chip per local branch besides the checked-out
-one, with its state (`✓` in sync, `↑2` to push, `↓1` to pull, `↑1 ↓3` diverged, `•` never pushed, `✗` its
-remote branch was deleted) and how many branches exist only on the remote; a click shows that branch's
-history (Graph). The *Branches* tab has them all, with Check out, Pull and Push.
+**Branches, two questions apart.** Under a project's chips, a small table lists its local branches (the
+checked-out one has the dot), with a column for each question: **GitHub**, is it there (`✓ pushed`,
+`↑2 to push`, `↓1 to pull`, `↑1 ↓3 diverged`, `• never pushed`, `✗ deleted there`), and **main** (the
+repo's main branch, whatever it's called), is it merged (`merged`: every commit of it is in main; `3 not
+merged`: 3 of its commits main doesn't have yet). So a `dev` that's pushed but not merged reads
+`✓ pushed · 3 not merged`. Hovering says more (how far main has moved on); a click on a branch shows its
+history (Graph). Up to 6 branches; the *Branches* tab has them all, with Check out, Pull and Push.
 
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While

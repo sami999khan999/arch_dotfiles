@@ -57,6 +57,8 @@ CSS = """
 .branch-list > row { padding: 5px 4px; }
 .hash { color: #e0af68; }
 .chip { padding: 0 5px; font-size: 9pt; }
+button.branch-chip { padding: 0 7px; min-height: 0; background: alpha(#c0caf5, .04); }
+button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .chip-local { background: alpha(#6b8fe0, .2); color: #7aa2f7; }
 .chip-remote { background: alpha(#565f89, .2); color: #565f89; }
 .chip-remote.same { color: #a9b1d6; }
@@ -379,6 +381,9 @@ class Projects(View):
         self.where = label("", "dim", ellipsize=True)
         self.chips = box(False, 8)
         self.chips.set_margin_top(8)
+        # the other branches, a chip each with its state; a click shows its history (Graph)
+        self.others = box(False, 6)
+        self.others.set_margin_top(6)
         self.urls = box(True, 2)
         self.urls.set_margin_top(8)
         self.actions = box(False, 8)
@@ -414,7 +419,7 @@ class Projects(View):
         self.live = None   # the shown project's (status, HEAD, refs) at the last look: refresh() redraws on a change
         self.live_busy = False
         self.switch_tab("changes")
-        return box(True, 0, self.heading, self.where, self.chips, self.urls, self.actions, self.note,
+        return box(True, 0, self.heading, self.where, self.chips, self.others, self.urls, self.actions, self.note,
                    self.tabs_bar, self.tab_pages)
 
     def switch_tab(self, name):
@@ -665,6 +670,8 @@ class Projects(View):
         self.heading.set_text(p.name)
         self.where.set_text(tilde(p.path))
         clear(self.chips)
+        clear(self.others)
+        self.others.set_visible(False)
         clear(self.urls)
         e = p.entry
         if p.kind != "local":
@@ -757,6 +764,10 @@ class Projects(View):
         dirty, ahead, behind = pj.state(p.rel)
         has_origin = "origin" in pj.remotes(p.path)
         changes = status_lines(p.path)
+        old = (p.dirty, p.unpushed, p.behind)   # its badges may be stale (a push since the panel opened)
+        p.dirty, p.unpushed, p.main, p.behind = pj.health(p.rel)
+        if (p.dirty, p.unpushed, p.behind) != old:
+            GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
         seen = self.look(p)   # the baseline the live checks compare against
         GLib.idle_add(lambda: gen == self.gen and setattr(self, "live", seen) and False)
         GLib.idle_add(self.paint_git, p, gen, branches, dirty, ahead, behind, has_origin)
@@ -842,9 +853,45 @@ class Projects(View):
         GLib.idle_add(self.paint_graph, gen, ref, commits, graph_rows(commits), head[0] if head else "",
                       remotes, local)
 
+    def paint_others(self, branches):
+        """One chip per local branch besides the checked-out one: ✓ in sync, ↑ to push, ↓ to pull, both
+        diverged, ✗ its remote branch is gone, • local only; then how many exist only on the remote."""
+        clear(self.others)
+        local = [b for b in branches if b["local"] and not b["head"]]
+        remote_only = sum(not b["local"] for b in branches)
+        if not local and not remote_only:
+            self.others.set_visible(False)
+            return
+        self.others.set_visible(True)
+        self.others.append(label("other branches", "dim"))
+        for b in local:
+            if b["gone"]:
+                mark, cls, tip = "✗", "red", "its branch on the remote was deleted"
+            elif not b["upstream"]:
+                mark, cls, tip = "•", "amber", "local only: never pushed"
+            elif b["ahead"] and b["behind"]:
+                mark, cls, tip = f"↑{b['ahead']} ↓{b['behind']}", "red", "diverged from the remote"
+            elif b["ahead"]:
+                mark, cls, tip = f"↑{b['ahead']}", "amber", f"{b['ahead']} to push"
+            elif b["behind"]:
+                mark, cls, tip = f"↓{b['behind']}", "cyan", f"{b['behind']} to pull"
+            else:
+                mark, cls, tip = "✓", "green", "in sync with the remote"
+            inner = box(False, 5, label(b["name"]), label(mark, cls))
+            chip = Gtk.Button(child=inner, tooltip_text=f"{b['name']}: {tip} · {b['date']} · click: its history")
+            chip.add_css_class("flat")
+            chip.add_css_class("branch-chip")
+            chip.connect("clicked", lambda _b, name=b["name"]: self.show_graph_of(name, tab=True))
+            self.others.append(chip)
+        if remote_only:
+            more = label(f"+{remote_only} only on the remote", "dim")
+            more.set_tooltip_text("the Branches tab lists them; Check out makes a local one")
+            self.others.append(more)
+
     def paint_git(self, p, gen, branches, dirty, ahead, behind, has_origin):
         if gen != self.gen:
             return False
+        self.paint_others(branches)
         clear(self.chips)
         cur = next((b for b in branches if b["head"]), None)
 

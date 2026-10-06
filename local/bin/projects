@@ -929,7 +929,8 @@ def health(rel):
     """How the repo at ROOT/rel stands, as of the last fetch: {dirty: changed files, unpushed: commits on
     no remote, main: its main branch, behind: how far main is behind origin's, out_of_date: what Sync
     would bring (branches behind + branches on GitHub not here yet), diverged: branches with new commits
-    on both sides, unmerged: files left with conflicts in the folder}."""
+    on both sides, unmerged: files left with conflicts in the folder; to_sync: commits behind in all,
+    behind_branches: {branch: commits behind}, new_branches: on GitHub, not here yet}."""
     path = f"{ROOT}/{rel}"
     ok, st = git(path, "status", "--porcelain")
     dirty = len(st.splitlines()) if ok and st else 0
@@ -943,10 +944,13 @@ def health(rel):
     have = {name for name, *_ in local}
     ok, remote = git(path, "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin")
     new = sum(1 for r in (remote.split() if ok else []) if r.partition("/")[2] not in have | {"HEAD", ""})
-    counts = [_counts(track) for _, up, track, _ in local if up and "gone" not in track]
+    counts = {name: _counts(track) for name, up, track, _ in local if up and "gone" not in track}
+    behind_branches = {name: b for name, (a, b) in counts.items() if b and not a}
     return {"dirty": dirty, "unpushed": unpushed, "main": main, "behind": behind,
-            "out_of_date": sum(1 for a, b in counts if b and not a) + new,
-            "diverged": sum(1 for a, b in counts if a and b), "unmerged": len(unmerged_files(path))}
+            "out_of_date": len(behind_branches) + new,   # branches Sync would update or create
+            "to_sync": sum(behind_branches.values()),   # commits Sync would bring down, all branches
+            "behind_branches": behind_branches, "new_branches": new,
+            "diverged": sum(1 for a, b in counts.values() if a and b), "unmerged": len(unmerged_files(path))}
 
 
 def state(rel):

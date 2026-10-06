@@ -282,6 +282,7 @@ def set_health(p, h):
     """A Project's numbers from pj.health()."""
     p.dirty, p.unpushed, p.main, p.behind = h["dirty"], h["unpushed"], h["main"], h["behind"]
     p.out_of_date, p.conflicts = h["out_of_date"], h["diverged"] + h["unmerged"]
+    p.to_sync, p.behind_branches, p.new_branches = h["to_sync"], h["behind_branches"], h["new_branches"]
 
 
 def status_lines(path):
@@ -312,6 +313,7 @@ class Project:
         self.unpushed = 0   # commits on no remote
         self.main, self.behind = "", 0   # the main branch, and how far it's behind origin's (last fetch)
         self.out_of_date = 0   # what Sync would bring (branches behind GitHub, branches new there)
+        self.to_sync, self.behind_branches, self.new_branches = 0, {}, 0   # its commits, by branch; new branches
         self.conflicts = 0     # diverged branches + files left with conflicts: merging by hand
         self.branch = pj.current_branch(self.path) if kind == "repo" else ""
 
@@ -602,7 +604,7 @@ class Projects(View):
     def paint_tree(self, keep_scroll=False):
         # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
         seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned),
-                tuple((p.rel, p.kind, p.branch, p.dirty, p.unpushed, p.out_of_date, p.conflicts) for p in self.projects))
+                tuple((p.rel, p.kind, p.branch, p.dirty, p.unpushed, p.out_of_date, p.to_sync, p.conflicts) for p in self.projects))
         if keep_scroll and seen == self.tree_seen:
             return False
         self.tree_seen = seen
@@ -685,8 +687,11 @@ class Projects(View):
         for show, text_, cls, tip in (
                 (p.dirty, f"● {p.dirty}", "amber", f"{p.dirty} uncommitted change{s(p.dirty)}"),
                 (p.unpushed, f"↑{p.unpushed}", "amber", f"{p.unpushed} commit{s(p.unpushed)} on no remote: push"),
-                (p.out_of_date, f"↓{p.out_of_date}", "cyan",
-                 f"{p.out_of_date} branch{'es' * (p.out_of_date > 1)} behind GitHub or new there: Sync"),
+                # ↓ counts commits, as everywhere else (the page's "main ↓3"); new branches are their own badge
+                (p.to_sync, f"↓{p.to_sync}", "cyan", "behind GitHub: " + ", ".join(
+                    f"{b} ↓{n}" for b, n in sorted(p.behind_branches.items())) + " (Sync brings them down)"),
+                (p.new_branches, f"+{p.new_branches} new", "cyan",
+                 f"{p.new_branches} branch{'es' * (p.new_branches > 1)} on GitHub not here yet (Sync makes them)"),
                 (p.conflicts, f"⚠ {p.conflicts}", "red", "needs merging by hand: see its Conflicts tab")):
             if show:
                 badge = label(text_, cls)

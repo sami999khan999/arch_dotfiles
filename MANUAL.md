@@ -336,7 +336,8 @@ them, then sync"). A branch where you and GitHub both have new commits is left a
 **Conflicts**. From a shell: `projects sync [path…] [-n]` (`-n`: only say what it would do).
 
 **The sections** on the left: Pinned · Changes (uncommitted `● N`, unpushed `↑N`) · **Out of date**
-(`↓N`: branches behind GitHub or new there; *Sync all*) · **Conflicts** (`⚠ N`) · All projects.
+(`↓N`: commits behind GitHub, all branches together, as `main ↓N` on the page; `+N new`: branches on
+GitHub not here yet; *Sync all*) · **Conflicts** (`⚠ N`) · All projects.
 
 **Conflicts tab** (in a project's page, beside Changes): files left with conflicts in the folder (from a
 merge or pull you started: resolve them in VS Code, then commit), and every diverged branch: how many

@@ -50,10 +50,13 @@ NEW_FOLDER = "New folder…"
 CSS = """
 .tree > row { padding: 3px 10px; }
 .tree > row.group-row { padding-top: 6px; }
-.tree > row.section-row { padding: 10px 10px 4px; }
-.tree > row.section-row:not(:first-child) { margin-top: 6px; border-top: 1px solid alpha(#3b4261, .5); }
+/* a section's header: the same space above and below its title, the divider on its top edge, every
+   header the same height (Sync all is fitted into it) */
+.tree > row.section-row { padding: 8px 10px; min-height: 0; }
+.tree > row.section-row:not(:first-child) { border-top: 1px solid alpha(#3b4261, .5); }
 .section-title { font-weight: 700; color: #a9b1d6; }
-.tree > row.hint-row { padding: 2px 10px 4px 36px; }
+button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
+.tree > row.hint-row { padding: 0 10px 8px 36px; }
 .pj-glyph { min-width: 18px; }
 .graph > row { padding: 0 10px 0 0; min-height: 24px; }
 .graph > row:hover, .branch-list > row:hover { background: alpha(#292e42, .45); }
@@ -608,7 +611,7 @@ class Projects(View):
                            label(titles[key], "section-title"), label(str(extra), "dim"))
                 if key == "§outdated":   # Sync all, at the right of its header
                     line.get_last_child().set_hexpand(True)
-                    sync = button("Syncing…" if self.syncing else "Sync all", self.sync_all, "flat", "branch-chip",
+                    sync = button("Syncing…" if self.syncing else "Sync all", self.sync_all, "flat", "section-btn",
                                   tooltip="every project: GitHub's changes down, every branch (never merges, "
                                           "pushes or touches uncommitted work)")
                     sync.set_sensitive(not self.syncing)

@@ -137,7 +137,7 @@ def screen_width():
 
 
 state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "indicators": 0,
-         "clock": CLOCK_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15, "lead": 0, "playing": False}
+         "clock": CLOCK_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15, "lead": 0, "trail": 0, "playing": False}
 
 _layout = None
 
@@ -222,13 +222,15 @@ def _recount():
         n = int((room + MIN_GAP_PX) / (GLYPH_PX + MIN_GAP_PX))
         n = n if n >= 2 else 0
         spare = max(int(room - n * GLYPH_PX), 0)
-        s["shown"], s["lead"] = n, 0
+        s["shown"], s["lead"], s["trail"] = n, 0, 0
         s["gaps"] = [spare * (i + 1) // max(n - 1, 1) - spare * i // max(n - 1, 1) for i in range(max(n - 1, 0))]
     else:
-        # side by side ("solid", "dots", "wave"): what the whole characters leave goes before them, so the
-        # strip ends at the right section's divider
+        # side by side ("solid", "dots", "wave"): what the whole characters leave is shared out before
+        # and after them (hair spaces), so both ends have the same padding (all of it before made the
+        # left 3 px wider than the right)
         n = int(room // GLYPH_PX)
-        s["shown"], s["gaps"], s["lead"] = (n if n >= 2 else 0), [], max(int(room - n * GLYPH_PX), 0)
+        spare = max(int(room - n * GLYPH_PX), 0)
+        s["shown"], s["gaps"], s["lead"], s["trail"] = (n if n >= 2 else 0), [], spare // 2, spare - spare // 2
     try:   # what it thinks the bar looks like, for debugging (cat $XDG_RUNTIME_DIR/waybar-visualizer.state)
         with open(STATE_FILE, "w") as f:
             json.dump({**s, "gap": round(gap, 1), "room": round(room, 1)}, f, ensure_ascii=False)
@@ -252,9 +254,9 @@ def draw(levels):
         half = shares(levels, (n + 1) // 2)   # bass first: it goes in the middle
         chars = [block(v) for v in list(reversed(half))[:n // 2] + half]
     elif s["style"] == "wave":
-        return HAIR * s["lead"] + wave(levels, n)
+        return HAIR * s["lead"] + wave(levels, n) + HAIR * s["trail"]
     elif s["style"] == "solid":
-        return HAIR * s["lead"] + "".join(BLOCKS[min(v, len(BLOCKS) - 1)] for v in shares(levels, n))
+        return HAIR * s["lead"] + "".join(BLOCKS[min(v, len(BLOCKS) - 1)] for v in shares(levels, n)) + HAIR * s["trail"]
     else:   # dots: two columns per character, 0-4 dots each
         cols = shares(levels, 2 * n)
         dots = lambda v: (v * 4 + len(BLOCKS) - 2) // (len(BLOCKS) - 1)   # 0..7 → 0..4, any sound shows
@@ -262,7 +264,7 @@ def draw(levels):
         for left, right in zip(cols[0::2], cols[1::2]):
             bits = sum(DOTS_LEFT[:dots(left)]) + sum(DOTS_RIGHT[:dots(right)])
             out += chr(0x2800 + bits) if bits else " "
-        return HAIR * s["lead"] + out
+        return HAIR * s["lead"] + out + HAIR * s["trail"]
     return chars[0] + "".join(HAIR * g + c for g, c in zip(s["gaps"], chars[1:]))
 
 

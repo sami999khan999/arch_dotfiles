@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from gtkkit import (Gdk, GLib, Gtk, Pango, View, box, button, clear, dropdown, label, recolor, rgbf, rule_heading,
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, box, button, clear, dropdown, label, recolor, rgbf, rule_heading,
                     run, scrolled, switch)
 from keys import fuzzy
 from keysgui import marked
@@ -76,7 +76,6 @@ button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .form-label { color: #a9b1d6; min-width: 120px; }
 .tabs.inner { padding: 0; margin-top: 14px; }
 /* the panel's own popups (Move, Delete…): a dimmed panel, a bordered card in the middle */
-.dialog-dim { background: alpha(#16161e, .72); }
 .dialog { background: #1a1b26; border: 1px solid alpha(#3b4261, .7); padding: 20px 22px; }
 .dialog-title { font-weight: 700; font-size: 12pt; }
 .folders { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
@@ -408,8 +407,16 @@ class Projects(View):
         self.card.set_size_request(560, -1)
         self.dim = box(True, 0, self.card, classes=("dialog-dim",))
         self.dim.set_visible(False)
-        overlay = Gtk.Overlay(child=box(False, 0, left, self.pages))
+        self.content = box(False, 0, left, self.pages)
+        overlay = Gtk.Overlay(child=self.content)
         overlay.add_overlay(self.dim)
+        # behind a popup the panel is blurred and darkened like the screen behind every other popup, by
+        # the same setting (System Settings → Appearance → Panels)
+        on, blur, dark = backdrop_setting()
+        css = Gtk.CssProvider()
+        css.load_from_string(recolor(f".blurred {{ filter: blur({max(blur // 2, 1) if on else 0}px); }}\n"
+                                     f".dialog-dim {{ background: alpha(#16161e, {min(dark + 0.3, 0.9) if on else 0.72}); }}"))
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 2)
         return overlay
 
     def build_detail(self):
@@ -1175,7 +1182,9 @@ class Projects(View):
         half-destroyed list (SIGSEGV in gtk_list_box_remove_all)."""
         self.drop_handlers()
         self.handlers = list(handlers)
-        self.card.set_size_request(width, -1)
+        win_w = self.window.get_width() if self.host and self.window else 1180
+        self.card.set_size_request(min(width, max(win_w - 80, 360)), -1)   # never wider than the panel
+        self.content.add_css_class("blurred")
         clear(self.card)
         self.card.append(para(title, "dialog-title"))
         for w in widgets:
@@ -1186,6 +1195,7 @@ class Projects(View):
     def close_dialog(self):
         self.drop_handlers()
         self.dim.set_visible(False)
+        self.content.remove_css_class("blurred")
         self.focus_list()
 
     def drop_handlers(self):
@@ -1234,8 +1244,9 @@ class Projects(View):
             row = Gtk.ListBoxRow(child=line)
             row.rel = g
             tree.append(row)
-        scroll = scrolled(tree)
-        scroll.set_size_request(-1, 260)
+        scroll = scrolled(tree, vexpand=False)   # the folder tree: up to 260 px, less on a small window
+        scroll.set_propagate_natural_height(True)
+        scroll.set_max_content_height(max(min(260, (self.window.get_height() if self.host and self.window else 680) - 460), 120))
         new_dir = Gtk.Entry(placeholder_text="new folder inside it (optional)", hexpand=True)
         name = Gtk.Entry(text=p.name, hexpand=True)
         where = para("", "sub")
@@ -1306,9 +1317,11 @@ class Projects(View):
             files.append(Gtk.ListBoxRow(child=box(False, 8, tick, label(code.replace("??", "+"), "st", "amber"), name),
                                         activatable=False))
             ticks.append((tick, path))
-        scroll = scrolled(files)
-        room = (self.window.get_height() if self.host and self.window else 680) - 380   # the rest of the popup
-        scroll.set_size_request(-1, min(32 + 26 * len(changed), max(room, 160)))
+        # the list is as tall as its files, up to what the window leaves for it: the popup fits any screen
+        scroll = scrolled(files, vexpand=False)
+        win_h = self.window.get_height() if self.host and self.window else 680
+        scroll.set_propagate_natural_height(True)
+        scroll.set_max_content_height(max(win_h - 400, 120))
         has_up = pj.git(p.path, "rev-parse", "--abbrev-ref", "@{u}")[0]
         push = Gtk.CheckButton(label="Push it to GitHub after" + ("" if has_up else " (publishes the branch)"),
                                active=bool(has_up))

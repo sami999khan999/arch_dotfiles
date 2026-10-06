@@ -299,10 +299,19 @@ It's recorded in the list, which is pushed.
 
 **On a new PC** the panel opens on a setup page when there's no list: the list's URL (your `code-projects`
 repo, filled in when `gh` finds it; or paste any) and **Restore**, which clones it, then every project in it,
-with a progress list (4 at a time, ✓ / ✗ per project, Stop skips the rest). If `gh` isn't logged in, a
+with a progress list (4 at a time, ✓ / ✗ per project, Stop skips the rest). The folder structure is the
+list's: before cloning, what's already in `~/code` is matched by remote URL (`git@host:o/r` and
+`https://host/o/r.git` count as the same). A listed repo moves to its listed folder; a project the list
+doesn't have (an unlisted repo, a folder without git) moves to `~/code/unsorted/` and is added to the list;
+a listed folder already taken stays put. `projects arrange` (`-n`: just show) does the same any time. If `gh` isn't logged in, a
 button above opens `gh auth login`. *Start a new list instead* creates the private repo from what's in `~/code`; then build the structure with + New
 (*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
 header shows **Clone missing (N)**, which uses the same progress list.
+
+The list syncs by itself: every change is committed and pushed, after pulling what the other PC pushed
+(a scan, at login and whenever the panel opens, pulls first, and pushes a commit a failed push left
+behind). If both PCs changed it at once and the two can't be put together, it says so and leaves the
+merge to you in `~/code/.projects`.
 
 The program is `local/bin/projects`.
 

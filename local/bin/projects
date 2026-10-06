@@ -5,8 +5,13 @@
   projects clone [<list url>] [path…]
                        the one command on a new PC: fetch the list if it isn't here yet (from <list url>,
                        else <your GitHub user>/code-projects), then clone every listed project that's
-                       missing, into its folder, with a local branch for each remote branch. Projects
-                       already on disk are left alone.
+                       missing, into its folder, with a local branch for each remote branch. When it
+                       fetches the list it first arranges what's already in ~/code (see arrange).
+  projects arrange [-n]
+                       put what's in ~/code where the list says: a repo whose remote is listed moves to
+                       that entry's folder; any other project (a repo the list doesn't have, a local-only
+                       folder it doesn't name) moves to unsorted/, and the scan after it records them.
+                       A folder already taken stays put (reported). -n: only show what would move.
   projects scan [-n]   record what's in ~/code now (commit + push the list if it changed); -n: only show
                        what would change. Runs at login and whenever the Projects panel opens.
   projects new <folder>/<name> [--template <t>] [--github <owner>] [--public]
@@ -28,6 +33,10 @@ own and no git is a "local only" project (no remote: only the SSD and the HDD ha
 only folders in it is a group (active/, archive/exercises/…) and is searched. A listed project whose
 folder is gone stays listed (maybe just not cloned on this PC), unless its URL turned up somewhere
 else: then it moved. inbox/ is scratch and isn't recorded.
+
+The list repo syncs by itself: every change is committed and pushed, after pulling what the other PC
+pushed; a scan with nothing to record still pulls, and pushes a commit an earlier push left behind
+(offline).
 PROJECTS_ROOT / PROJECTS_DIR point it somewhere else (tests).
 """
 import json, os, re, shutil, subprocess, sys, threading, time
@@ -42,6 +51,7 @@ SKIP = {"node_modules", "dist", "build", ".next", "target", ".venv", "venv", "ve
 TEMPLATE_SKIP = SKIP | {".git", ".turbo", ".output", ".svelte-kit", ".expo", ".wrangler", ".vercel",
                         ".pnpm-store", ".nuxt", ".parcel-cache"}
 NOT_RECORDED = {"inbox"}      # top-level folders that are scratch
+UNSORTED = "unsorted"         # arrange: projects the list doesn't have go here (and get recorded)
 MAX_DEPTH = 4
 JOBS = 4                      # clones / status checks at once
 
@@ -91,10 +101,42 @@ def commit(message):
     ok, out = git(DIR, "commit", "-q", "-m", message)
     if not ok and "nothing to commit" not in out:
         return out
+    return list_push()
+
+
+def list_pull():
+    """What the other PC pushed, before this one changes the list (a scan's first step). Returns a
+    problem, or "". Both PCs editing the list at once can clash: the rebase is undone and said so."""
+    if not os.path.isdir(f"{DIR}/.git") or not git(DIR, "remote")[1]:
+        return ""
+    ok, out = git(DIR, "pull", "-q", "--rebase", timeout=60)
+    if ok:
+        return ""
+    if os.path.isdir(f"{DIR}/.git/rebase-merge") or os.path.isdir(f"{DIR}/.git/rebase-apply"):
+        git(DIR, "rebase", "--abort")
+        return f"the list changed on both PCs: merge it by hand in {DIR}"
+    return "not pulled (offline?)" + (": " + last_line(out) if out else "")
+
+
+def list_push():
+    """Push the list's commits, pulling first if the other PC pushed in between."""
+    if not git(DIR, "remote")[1]:
+        return ""
     ok, out = git(DIR, "push", "-q", timeout=60)
+    if not ok and ("rejected" in out or "fetch first" in out or "non-fast-forward" in out):
+        problem = list_pull()
+        if problem:
+            return problem
+        ok, out = git(DIR, "push", "-q", timeout=60)
     if ok:
         return ""
     return "not pushed (offline?)" + (": " + last_line(out) if out else "")
+
+
+def list_unpushed():
+    """True if the list has commits its remote doesn't (a push that failed earlier)."""
+    ok, out = git(DIR, "rev-list", "--count", "@{u}..HEAD")
+    return ok and out.strip() not in ("", "0")
 
 
 def gh_login():
@@ -295,6 +337,9 @@ def scan(dry=False, quiet=False):
         if not quiet:
             print("no list here yet: projects clone (fetch yours) or projects init (start one)")
         return []
+    problem = "" if dry else list_pull()
+    if problem and not quiet:
+        print(f"{AMBER}{problem}{RESET}")
     old = load()
     repos, local = walk()
     found = {}
@@ -333,7 +378,13 @@ def scan(dry=False, quiet=False):
         print("\n".join(lines) if lines else "no changes")
         print(f"{DIM}{len(new['projects'])} projects listed ({len(kept)} not on this PC), "
               f"{len(new['local_only'])} local only{RESET}")
-    if dry or not lines:
+    if dry:
+        return lines
+    if not lines:
+        if list_unpushed():   # an earlier push didn't go through: now it does
+            problem = list_push()
+            if problem and not quiet:
+                print(f"{AMBER}{problem}{RESET}")
         return lines
     save(new)
     parts = [f"+{len(added)}" if added else "", f"→{len(moved)}" if moved else "",
@@ -399,15 +450,94 @@ def clone_all(todo, report, stop=None):
     return fails[0]
 
 
+def norm_url(url):
+    """A remote URL in one spelling, to compare: git@host:o/r, ssh://git@host/o/r, https://host/o/r(.git)
+    are the same repo."""
+    u = url.strip().rstrip("/")
+    u = re.sub(r"\.git$", "", u)
+    m = re.match(r"^(?:ssh://)?git@([^:/]+)[:/](.+)$", u)
+    if m:
+        u = f"https://{m[1]}/{m[2]}"
+    u = re.sub(r"^https?://[^@/]+@", "https://", u)   # credentials in the URL
+    return u.lower()
+
+
+def free_path(rel):
+    """rel, or rel-2, rel-3… if that's taken."""
+    out, n = rel, 2
+    while os.path.exists(f"{ROOT}/{out}"):
+        out, n = f"{rel}-{n}", n + 1
+    return out
+
+
+def move_project(src, dst):
+    """ROOT/src to ROOT/dst; the groups src leaves empty go too."""
+    os.makedirs(os.path.dirname(f"{ROOT}/{dst}"), exist_ok=True)
+    shutil.move(f"{ROOT}/{src}", f"{ROOT}/{dst}")
+    parent = os.path.dirname(f"{ROOT}/{src}")
+    while parent != ROOT and parent.startswith(ROOT + "/"):
+        try:
+            os.rmdir(parent)   # only if empty
+        except OSError:
+            break
+        parent = os.path.dirname(parent)
+
+
+def arrange(dry=False, report=print):
+    """The folder structure is the list's: what's already in ROOT goes where the list says (the restore's
+    first step, before the missing projects are cloned). A repo with a listed remote moves to that
+    entry's path; a project the list doesn't have moves to unsorted/<name> (the scan after the restore
+    records it there). A listed path that's taken by a listed project stays as it is and is reported.
+    Returns [(from, to)] of the moves."""
+    data = load()
+    by_url = {}
+    for e in data["projects"]:
+        for url in [e["url"], *e.get("remotes", {}).values()]:
+            by_url.setdefault(norm_url(url), e["path"])
+    listed = {e["path"] for e in data["projects"]} | {e["path"] for e in data["local_only"]}
+    repos, local = walk()
+    want = {}   # rel -> where it belongs
+    for rel in repos:
+        home = next((by_url[norm_url(u)] for u in remotes(f"{ROOT}/{rel}").values() if norm_url(u) in by_url), None)
+        if home:
+            want[rel] = home
+        elif not rel.startswith(UNSORTED + "/"):
+            want[rel] = None   # not in the list
+    for rel in local:
+        if rel not in listed and not rel.startswith(UNSORTED + "/"):
+            want[rel] = None
+    moves = []
+    # the unlisted first: one may sit at a listed project's path, which the listed one then gets
+    for rel in sorted((r for r, h in want.items() if h is None), key=len, reverse=True):
+        dst = free_path(f"{UNSORTED}/{os.path.basename(rel)}")
+        moves.append((rel, dst))
+        if not dry:
+            move_project(rel, dst)
+        report(f"{rel} → {dst}  (not in the list)")
+    for rel, home in sorted(want.items()):
+        if not home or rel == home:
+            continue
+        if os.path.exists(f"{ROOT}/{home}") and (not dry or home not in {src for src, _ in moves}):
+            report(f"{rel} stays: {home} is taken")
+            continue
+        moves.append((rel, home))
+        if not dry:
+            move_project(rel, home)
+        report(f"{rel} → {home}")
+    return moves
+
+
 def clone(args):
-    url = args.pop(0) if args and re.match(r"^(https?://|git@|ssh://)", args[0]) else ""
+    url = args.pop(0) if args and re.match(r"^(https?://|git@|ssh://|file://)", args[0]) else ""
     if not os.path.exists(LIST):
         print("getting the list" + (f" from {url}" if url else "") + f" → {DIR}")
         problem = get_list(url)
         if problem:
             sys.exit(problem)
+        arrange()          # what's already here goes where the list says first,
+        scan(quiet=True)   # and what the list doesn't have is recorded (unsorted/) and pushed
     else:
-        git(DIR, "pull", "-q", "--rebase")
+        list_pull()
     todo = missing([a.strip("/") for a in args])
     if not todo:
         print("every listed project is already here")
@@ -562,6 +692,13 @@ def main():
         scan(dry="-n" in args)
     elif cmd in ("clone", "pull"):
         clone(args)
+    elif cmd == "arrange":
+        if not os.path.exists(LIST):
+            sys.exit("no list here yet: projects clone (fetch yours) or projects init (start one)")
+        if not arrange(dry="-n" in args):
+            print("everything is where the list says")
+        elif "-n" not in args:
+            scan()
     elif cmd == "new" and args:
         rel, opts = args[0], args[1:]
 

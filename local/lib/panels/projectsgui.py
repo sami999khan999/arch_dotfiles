@@ -1035,12 +1035,29 @@ class Projects(View):
         threading.Thread(target=lambda: GLib.idle_add(self.restored, pj.get_list(url)), daemon=True).start()
 
     def restored(self, problem):
-        self.busy = False
         if problem:
+            self.busy = False
             self.say(problem, "bad", seconds=10)
             return False
+        self.say("putting what's already in ~/code where the list says…", seconds=300)
+
+        def work():
+            # the list's folder structure: what's here moves to its listed folder, the rest to
+            # unsorted/ and into the list (the scan records it and pushes)
+            moves = pj.arrange(report=lambda line: None)
+            pj.scan(quiet=True)
+            GLib.idle_add(self.arranged, moves)
+        threading.Thread(target=work, daemon=True).start()
+        return False
+
+    def arranged(self, moves):
+        self.busy = False
         self.reload()
         self.clone_missing()
+        if moves:
+            unsorted = sum(dst.startswith(pj.UNSORTED + "/") for _, dst in moves)
+            self.say(f"moved {len(moves) - unsorted} project(s) to their listed folders, "
+                     f"{unsorted} not in the list to {pj.UNSORTED}/ (now listed)", seconds=12)
         return False
 
     def create_list(self):

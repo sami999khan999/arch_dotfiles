@@ -7,7 +7,7 @@
 # closes it too; Hyprland floats, sizes and centres every "panels.*" window (modules/windowrules.lua).
 # Style: the Control Center cards' look everywhere (icon + title, blue underline, blue rule headings,
 # amber keys / classes, green-amber-red levels, key hints) on translucent #16161e.
-import os
+import gc, os
 # GTK's default Vulkan renderer runs on Mesa's hasvk here (Haswell iGPU), which drew flickering white
 # dots over re-filled text (the shortcut search). The GL renderer draws it cleanly. Must be set
 # before GTK starts; an explicit GSK_RENDERER in the environment still wins.
@@ -663,4 +663,11 @@ class PanelApp(Gtk.Application):
 
 
 def run(view, app_id, size=(900, 560), toggle=True):
+    # Python's cyclic garbage collector runs on whichever thread happens to allocate, and the panels do
+    # their slow work (git, docker, nvidia-smi) in threads: a closed popup's widgets (a cycle through
+    # their own signal handlers) were once collected on a git thread, and GTK, which is main-thread
+    # only, crashed (the Projects panel, SIGSEGV in gtk_list_box_remove_all). So the collector runs
+    # only here, on the main loop, every few seconds; plain reference counting still frees the rest.
+    gc.disable()
+    GLib.timeout_add_seconds(5, lambda: gc.collect() is not None)
     PanelApp(view, app_id, size, toggle).run([])

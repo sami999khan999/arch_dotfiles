@@ -905,7 +905,12 @@ class Projects(View):
             subprocess.Popen(["xdg-open", web_url(p.entry["url"])], start_new_session=True)
 
     # ---- the popups: move, delete, delete on GitHub, forget ------------------------------------------
-    def open_dialog(self, title, *widgets, focus=None):
+    def open_dialog(self, title, *widgets, focus=None, handlers=()):
+        """handlers: (widget, handler id) pairs, disconnected when the popup goes: a list being
+        destroyed emits row-selected for its rows, and a handler still connected then reached into the
+        half-destroyed list (SIGSEGV in gtk_list_box_remove_all)."""
+        self.drop_handlers()
+        self.handlers = list(handlers)
         clear(self.card)
         self.card.append(para(title, "dialog-title"))
         for w in widgets:
@@ -914,8 +919,14 @@ class Projects(View):
         GLib.idle_add(lambda: (focus or self.card).grab_focus() and False)
 
     def close_dialog(self):
+        self.drop_handlers()
         self.dim.set_visible(False)
         self.focus_list()
+
+    def drop_handlers(self):
+        for widget, hid in getattr(self, "handlers", []):
+            widget.disconnect(hid)
+        self.handlers = []
 
     def dialog_buttons(self, *buttons):
         row = box(False, 8, label(""), button("Cancel", self.close_dialog, "flat", tooltip="Esc"), *buttons)
@@ -982,10 +993,9 @@ class Projects(View):
                 t = target()
                 self.run_job(f"moving {p.name}…", lambda: pj.move(p.rel, t),
                              lambda ok: self.reload(select=t if ok else p.rel))
-        tree.connect("row-selected", update)
+        handlers = [(tree, tree.connect("row-selected", update))]
         for e in (new_dir, name):
-            e.connect("changed", update)
-            e.connect("activate", lambda *_: go())
+            handlers += [(e, e.connect("changed", update)), (e, e.connect("activate", lambda *_: go()))]
         busy = self.busy_note(p)
         here = folders.index(os.path.dirname(p.rel)) if os.path.dirname(p.rel) in folders else 0
         tree.select_row(tree.get_row_at_index(here))
@@ -996,7 +1006,7 @@ class Projects(View):
                          box(False, 10, label("Goes to", "form-label"), where),
                          *([busy] if busy else []),
                          para("Its HDD backup copy moves with it (codesync), and the list records it.", "dim"),
-                         self.dialog_buttons(move_btn), focus=tree)
+                         self.dialog_buttons(move_btn), focus=tree, handlers=handlers)
 
     def ask_delete(self):
         p = self.current()
@@ -1024,8 +1034,8 @@ class Projects(View):
         confirm = Gtk.Entry(placeholder_text=f"type {short} to confirm", hexpand=True)
         go = button("Delete on GitHub", lambda: start(), "danger-fill")
         go.set_sensitive(False)
-        confirm.connect("changed", lambda e: go.set_sensitive(e.get_text().strip() == short))
-        confirm.connect("activate", lambda *_: go.get_sensitive() and start())
+        handlers = [(confirm, confirm.connect("changed", lambda e: go.set_sensitive(e.get_text().strip() == short))),
+                    (confirm, confirm.connect("activate", lambda *_: go.get_sensitive() and start()))]
 
         def start():
             self.close_dialog()
@@ -1040,7 +1050,7 @@ class Projects(View):
         self.open_dialog(f"Delete {repo} on GitHub?",
                          para("The repository goes with its issues, pull requests, releases and wiki. GitHub can "
                                "restore it for 90 days (Settings → Repositories → Deleted repositories).", "sub"),
-                         para(here, "dim"), confirm, self.dialog_buttons(go), focus=confirm)
+                         para(here, "dim"), confirm, self.dialog_buttons(go), focus=confirm, handlers=handlers)
 
     def delete_missing_on_github(self, repo):
         r = subprocess.run(["gh", "repo", "delete", repo, "--yes"], capture_output=True, text=True, timeout=60)

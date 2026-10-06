@@ -343,8 +343,13 @@ commits each side has, and the files that would clash (or "would merge cleanly")
 do, in VS Code; the panel only shows where things stand. The branch table's **main** column says
 whether each branch is in main (`merged` / `N not merged`).
 
-**Commit…** (`c`, when there are changes): a message, the changed files (untick what stays out),
-*Push it to GitHub after*. A normal `git commit`: the project's hooks run.
+**Commit…** (`c`, when there are changes): a message (subject line, then a body if it needs one;
+`Ctrl+Enter` commits), the changed files (untick what stays out), *Push it to GitHub after*. A normal
+`git commit`: the project's hooks run. **Write it for me** has a free model write the message from the
+ticked files' changes, in the style of the repo's recent commits (`opencode/mimo-v2.6-flash-free`, through
+`opencode run`: the free tier only works from inside opencode; `PROJECTS_AI_MODEL` picks another). Only
+the diff is sent, from an empty temporary folder, and the opencode session it makes is deleted after;
+free models may keep what they're sent, so don't use it on secrets.
 
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While

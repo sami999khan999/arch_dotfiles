@@ -63,6 +63,8 @@ CSS = """
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
 .commit-files { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
+textview.commit-message, textview.commit-message text { background: #16161e; color: #c0caf5; }
+textview.commit-message { border: 1px solid alpha(#3b4261, .7); padding: 6px 8px; min-height: 64px; }
 .commit-files > row { padding: 2px 8px; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 .chip-local { background: alpha(#6b8fe0, .2); color: #7aa2f7; }
@@ -1280,7 +1282,16 @@ class Projects(View):
         if not changed:
             self.say("nothing to commit")
             return
-        message = Gtk.Entry(placeholder_text=f"what changed (on {p.branch or 'this branch'})", hexpand=True)
+        # the message: a subject line, then a body if it needs one (Ctrl+Enter commits)
+        message = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, hexpand=True)
+        message.add_css_class("commit-message")
+        buf = message.get_buffer()
+        text = lambda: buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
+        write = button("Write it for me", lambda: ai(), "flat",
+                       tooltip=f"a free model writes it from the ticked files' changes ({pj.AI_MODEL.split('/')[-1]}, "
+                               "through opencode: the diff is sent to it)")
+        top = box(False, 8, label(f"Message (on {p.branch or 'this branch'})", "dim"), label(""), write)
+        top.get_first_child().get_next_sibling().set_hexpand(True)
         files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         files.add_css_class("commit-files")
         ticks = []
@@ -1300,19 +1311,46 @@ class Projects(View):
         go.set_sensitive(False)
 
         def update(*_):
-            go.set_sensitive(bool(message.get_text().strip()) and any(t.get_active() for t, _ in ticks))
+            go.set_sensitive(bool(text()) and any(t.get_active() for t, _ in ticks))
+
+        def chosen():
+            picked = [path for t, path in ticks if t.get_active()]
+            return None if len(picked) == len(ticks) else picked
 
         def commit():
             if not go.get_sensitive():
                 return
-            chosen = [path for t, path in ticks if t.get_active()]
-            every = len(chosen) == len(ticks)
-            self.run_job("committing…", lambda: pj.commit_changes(p.rel, message.get_text().strip(),
-                                                                  None if every else chosen, push.get_active()),
+            files_ = chosen()
+            self.run_job("committing…", lambda: pj.commit_changes(p.rel, text(), files_, push.get_active()),
                          lambda ok: self.show_detail(fetch=False))
-        handlers = [(message, message.connect("changed", update)), (message, message.connect("activate", lambda *_: commit()))]
+
+        def ai():
+            files_ = chosen()
+            write.set_sensitive(False)
+            write.set_label("Writing…")
+
+            def go_ai():
+                ok, msg = pj.ai_message(p.rel, files_)
+                GLib.idle_add(lambda: done(ok, msg) and False)
+            threading.Thread(target=go_ai, daemon=True).start()
+
+        def done(ok, msg):
+            write.set_sensitive(True)
+            write.set_label("Write it again" if ok else "Write it for me")
+            if not self.dim.get_visible():
+                return
+            if ok:
+                buf.set_text(msg)
+            else:
+                self.say(f"no message: {msg}", "bad")
+
+        keys = Gtk.EventControllerKey()   # Ctrl+Enter in the message: commit
+        keys.connect("key-pressed", lambda _c, k, _code, st: (k in (Gdk.KEY_Return, Gdk.KEY_KP_Enter)
+                                                               and st & Gdk.ModifierType.CONTROL_MASK and (commit() or True)))
+        message.add_controller(keys)
+        handlers = [(buf, buf.connect("changed", update))]
         handlers += [(t, t.connect("toggled", update)) for t, _ in ticks]
-        self.open_dialog(f"Commit to {p.branch or 'HEAD'}", message,
+        self.open_dialog(f"Commit to {p.branch or 'HEAD'}", top, message,
                          label(f"{len(changed)} changed file{'s' * (len(changed) > 1)} (untick what stays out)", "dim"),
                          scroll, push, self.dialog_buttons(go), focus=message, handlers=handlers)
 

@@ -315,13 +315,15 @@ class Docker(View):
             self.kv.attach(label(k, "kv-key"), 0, i, 1, 1)
             self.kv.attach(label(v, ellipsize=True, wrap=False), 1, i, 1, 1)
 
-    def set_actions(self, sig, buttons):
-        """Rebuilt only when what you can do changes, so an open Exec popover survives refreshes."""
+    def set_actions(self, sig, make):
+        """The buttons, from make(): built only when what you can do changes, so an open Exec popover
+        survives refreshes. Built every refresh and thrown away, the Exec popovers piled up (about
+        7 MB a minute, 1 GB after a couple of hours) and each one ran a docker exec to find the shell."""
         if sig == self.actions_sig:
             return
         self.actions_sig = sig
         clear(self.actions)
-        for b in buttons:
+        for b in make():
             self.actions.append(b)
 
     def set_text(self, segments, key=None, follow=False):
@@ -366,15 +368,17 @@ class Docker(View):
             pairs.append(("Project", c["workdir"].replace(dp.HOME, "~")))
         self.kv_rows(pairs)
 
-        buttons = [self.act_button("Stop" if running else "Start", lambda: self.container_action("s", c),
-                                   "primary", tooltip="s", busy=busy),
-                   self.act_button("Restart", lambda: self.container_action("r", c), tooltip="r", busy=busy),
-                   button("Logs", lambda: self.full_logs(c), tooltip="Full screen, following (l)")]
-        if running:
-            buttons.append(self.exec_button(c))
-        if pp:
-            buttons.append(button("Open port", lambda: self.container_action("o", c), tooltip="o"))
-        self.set_actions((c["ID"], running, busy, bool(pp)), buttons)
+        def make():
+            buttons = [self.act_button("Stop" if running else "Start", lambda: self.container_action("s", c),
+                                       "primary", tooltip="s", busy=busy),
+                       self.act_button("Restart", lambda: self.container_action("r", c), tooltip="r", busy=busy),
+                       button("Logs", lambda: self.full_logs(c), tooltip="Full screen, following (l)")]
+            if running:
+                buttons.append(self.exec_button(c))
+            if pp:
+                buttons.append(button("Open port", lambda: self.container_action("o", c), tooltip="o"))
+            return buttons
+        self.set_actions((c["ID"], running, busy, bool(pp)), make)
 
         self.lower_title.set_text("Logs")
         if m.logs_for != c["ID"]:
@@ -418,7 +422,7 @@ class Docker(View):
             pairs.append(("Ports", "  ".join(pp)))
         self.kv_rows(pairs)
         folded = p["project"] in self.folded
-        self.set_actions((p["ID"], bool(up), busy, folded), [
+        self.set_actions((p["ID"], bool(up), busy, folded), lambda: [
             self.act_button("Stop all" if up else "Start all", lambda: self.project_action("s", p), "primary",
                             tooltip="s", busy=busy),
             self.act_button("Restart all", lambda: self.project_action("r", p), tooltip="r", busy=busy),
@@ -443,9 +447,10 @@ class Docker(View):
                             "dangling" if i["dangling"] else "unused")
         self.kv_rows([("ID", i["ID"]), ("Size", i["size"]), ("Created", i["created"]),
                       ("Used by", ", ".join(i["used"]) or "no containers")])
-        pull = self.act_button("Pull", lambda: self.key_action("u"), "primary", tooltip="Pull a newer version (u)",
-                               busy=busy or i["dangling"])
-        self.set_actions((i["ID"], busy), [pull, self.remove_button(i, busy)])
+        self.set_actions((i["ID"], busy), lambda: [
+            self.act_button("Pull", lambda: self.key_action("u"), "primary", tooltip="Pull a newer version (u)",
+                            busy=busy or i["dangling"]),
+            self.remove_button(i, busy)])
         self.lower_title.set_text("Layers")
         layers = m.history.get(i["ID"])
         if layers is None:
@@ -464,7 +469,7 @@ class Docker(View):
         self.state.set_text(m.busy[v["ID"]] if busy else "in use" if v["used"] else "unused")
         self.kv_rows([("Name", v["ID"]), ("Size", v["size"]), ("Driver", v["driver"]),
                       ("Project", v["project"] or "—"), ("Mountpoint", v["mount"])])
-        self.set_actions((v["ID"], busy), [self.remove_button(v, busy)])
+        self.set_actions((v["ID"], busy), lambda: [self.remove_button(v, busy)])
         self.lower_title.set_text(f"Used by ({len(v['used'])})")
         self.set_text([(n + "\n", None) for n in v["used"]] or [("no containers", "dim")])
 
@@ -477,7 +482,7 @@ class Docker(View):
                       ("Internal", "yes" if n["internal"] else "no"), ("Project", n["project"] or "—"),
                       ("Created", n["created"])])
         builtin = n["name"] in dp.BUILTIN_NETWORKS
-        self.set_actions((n["ID"], busy), [] if builtin else [self.remove_button(n, busy)])
+        self.set_actions((n["ID"], busy), lambda: [] if builtin else [self.remove_button(n, busy)])
         self.lower_title.set_text(f"Containers ({len(n['members'])})")
         seg = []
         for name, ip in n["members"]:

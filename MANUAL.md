@@ -346,6 +346,10 @@ layout and the Control Center follow their apps), and, with more than one screen
 each workspace lives on (saved per PC in `settings.local.json`, since screens differ). The bar
 icon is the 6th column of `workspaces.conf`.
 
+With two screens, the focused screen (the one the keys act on) changes only with a click or a
+shortcut, not when the cursor crosses over: point at one screen and `Super + N` still switches the
+other.
+
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
 A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `Alt + Tab`,
 and is fullscreen again when you come back (a mouse click on another window exits it).

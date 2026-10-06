@@ -27,6 +27,7 @@ SUB = ("#{S:#{?#{m:*" + lib.SEP + "terms,#{session_name}},#{W:#{P:" + FS.join(
     ["#{session_name}", "#{window_index}", "#{window_active}", "#{pane_id}", "#{pane_active}",
      "#{pane_current_command}", "#{window_panes}"]) + RS + "}},}}")
 TERM_ICON, SPLIT_ICON, MINIMIZE = "\uf489", "\ueb56", "\ueaba"
+EDGE = "\U0001fb87"   # 🮇 right one-quarter block: as thick as the sidebars' left ▎ (▕ is half that)
 COLLAPSE, EXPAND = "\ueab6", "\ueab5"   # chevrons: › folds the list to its icons, ‹ opens it
 # the header's buttons, left to right: (text, colour, what it runs). Too narrow for all of them, the
 # split goes first, then minimize (Ctrl+Alt+D, Ctrl+Alt+3 still do it).
@@ -162,7 +163,7 @@ class TermList(App):
             if narrow:   # only the icon, centred, on the band
                 l = Line("overlay" if on else ("hover" if hov else None)).pad(mid).add(*icon)
                 if on:
-                    l.pad(w - 1 - l.w).add("▕", "accent")
+                    l.pad(w - 1 - l.w).add(EDGE, "accent")
             else:
                 l = Line(bg).add(" ").add(tree, "line").add(*icon)
             if not narrow:
@@ -183,7 +184,7 @@ class TermList(App):
                     l.pad(x0 - l.w).add(text, "muted")
                 self.row_buttons[len(lines)] = [(x0, x0 + width(text), cmd) for x0, text, cmd in spots]
                 if on:
-                    l.pad(w - 1 - l.w).add("▕", "accent")
+                    l.pad(w - 1 - l.w).add(EDGE, "accent")
             self.ys[len(lines)] = p["pane"]
             lines.append(l)
         if self.scroll > 0:

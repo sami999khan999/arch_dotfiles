@@ -1,8 +1,8 @@
-/* gcr's password prompt (keyring unlock, SSH / GPG passphrases: /usr/lib/gcr-prompter, GTK 3),
-   styled like the panels: square corners, Tokyo Night, the accent on the one button that matters.
-   Scoped to GTK 3 dialogs: GTK 3 can't select the prompt by its type name (gcr sets no widget name or
-   class), and the only other GTK 3 dialogs here are the occasional message box, which should look
-   the same anyway. Imported by gtk.css. */
+/* GTK 3 dialogs styled like the panels: square corners, Tokyo Night, the accent on the one button that matters.
+   First gcr's password prompt (keyring unlock, SSH / GPG passphrases: /usr/lib/gcr-prompter), as "dialog":
+   GTK 3 can't select it by its type name (gcr sets no widget name or class). Then message boxes
+   ("messagedialog": VS Code's / Electron's questions, other apps'). Imported by gtk.css; theme apply makes a
+   recoloured copy for the other colour themes. */
 
 dialog {
   background: #1a1b26;
@@ -80,4 +80,146 @@ dialog .dialog-action-area button.default:hover {
 
 dialog .dialog-action-area button.default label {
   color: #1a1b26;
+}
+
+/* GTK 3 message boxes (GtkMessageDialog is "messagedialog", not "dialog": VS Code's / Electron's "Are you
+   sure…?", other apps' questions): the panels' look too. A square window with the panels' 1px border, the
+   panels' font, the app's name as a quiet heading, the same flat buttons as above (the default one in the
+   accent), a square check box. */
+messagedialog,
+messagedialog.background,
+messagedialog.csd,
+messagedialog .dialog-action-box {
+  border-radius: 0;
+}
+
+messagedialog,
+messagedialog.background {
+  background: #1a1b26;
+  color: #c0caf5;
+  font-family: "JetBrainsMono Nerd Font";
+  font-size: 10pt;
+}
+
+messagedialog decoration,
+messagedialog.csd decoration {
+  border-radius: 0;
+  border: 1px solid alpha(#3b4261, 0.7);
+  box-shadow: 0 6px 24px alpha(#000000, 0.5);
+}
+
+messagedialog .titlebar,
+messagedialog headerbar {
+  background: #1a1b26;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+messagedialog .titlebar .title,
+messagedialog headerbar .title {
+  color: #6b8fe0;
+  font-weight: bold;
+}
+
+messagedialog .titlebar button,
+messagedialog headerbar button {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  color: #565f89;
+}
+
+messagedialog .titlebar button:hover,
+messagedialog headerbar button:hover {
+  background: alpha(#c0caf5, 0.08);
+  color: #c0caf5;
+}
+
+messagedialog .dialog-vbox > box {
+  margin: 14px 26px 6px 26px;
+}
+
+messagedialog .dialog-vbox label,
+messagedialog .dialog-vbox label.title {
+  color: #c0caf5;
+}
+
+messagedialog label.secondary,
+messagedialog .dialog-vbox label + label {
+  color: #a9b1d6;
+}
+
+messagedialog checkbutton,
+messagedialog checkbutton label {
+  color: #a9b1d6;
+}
+
+messagedialog check {
+  border-radius: 0;
+  min-width: 14px;
+  min-height: 14px;
+  background: #1a1b26;
+  border: 1px solid alpha(#3b4261, 0.9);
+  box-shadow: none;
+  -gtk-icon-shadow: none;
+}
+
+messagedialog check:checked {
+  background: #6b8fe0;
+  border-color: #6b8fe0;
+  color: #1a1b26;
+}
+
+messagedialog .dialog-action-box {
+  margin: 10px 26px 22px 26px;
+}
+
+messagedialog .dialog-action-area {
+  border-spacing: 8px;
+}
+
+messagedialog .dialog-action-area button {
+  min-height: 32px;
+  min-width: 90px;
+  padding: 0 20px;
+  margin: 0 0 0 8px;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  background: #292e42;
+  color: #c0caf5;
+}
+
+messagedialog .dialog-action-area button:first-child {
+  margin-left: 0;
+}
+
+messagedialog .dialog-action-area button:hover {
+  background: #3b4261;
+}
+
+messagedialog .dialog-action-area button.default,
+messagedialog .dialog-action-area button.suggested-action {
+  background: #6b8fe0;
+  color: #1a1b26;
+  font-weight: bold;
+}
+
+messagedialog .dialog-action-area button.default:hover,
+messagedialog .dialog-action-area button.suggested-action:hover {
+  background: shade(#6b8fe0, 1.12);
+}
+
+messagedialog .dialog-action-area button.default label,
+messagedialog .dialog-action-area button.suggested-action label {
+  color: #1a1b26;
+}
+
+messagedialog .dialog-action-area button.destructive-action {
+  background: alpha(#f7768e, 0.16);
+  color: #f7768e;
 }

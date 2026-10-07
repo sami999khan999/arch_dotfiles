@@ -50,3 +50,8 @@ end
 
 # Added by Antigravity CLI installer
 set -gx PATH "/home/sami/.local/bin" $PATH
+
+# >>> railway initialize >>>
+# only where the Railway CLI is installed: another PC without it would print an error in every shell
+test -f "$HOME/.railway/env.fish"; and source "$HOME/.railway/env.fish"
+# <<< railway initialize <<<

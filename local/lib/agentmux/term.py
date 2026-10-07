@@ -121,8 +121,11 @@ def header(icon, title, detail, total, closable=False, fold=""):
     grey after (as on every GTK panel and Control Center card). Click the × = column total - PAD - 1 on
     row 0, fold two columns left of it (is_fold)."""
     lead = (f"{icon}  " if icon else "") + title
-    top = Line().pad(PAD).add(f"{icon}  " if icon else "", "accent").add(title, "text", bold=True)
     end = (fold + " " if fold else "") + (CLOSE if closable else "")
+    # narrow: the detail goes rather than run into the title (it needs two cells of air either side)
+    if detail and PAD + width(lead) + 2 + width(detail) + (2 if end else 0) + width(end) + PAD > total:
+        detail = ""
+    top = Line().pad(PAD).add(f"{icon}  " if icon else "", "accent").add(title, "text", bold=True)
     if detail or end:
         top.right(detail + ("  " if detail and end else ""), "muted", total,
                   margin=PAD + width(end)) if detail else top.pad(total - top.w - PAD - width(end))

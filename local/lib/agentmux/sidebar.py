@@ -54,6 +54,17 @@ class Row:
         self.detail = ([detail] if detail and isinstance(detail[0], tuple) else detail) or []
 
 
+def wrap_name(text, room, room2):
+    """A name too long for room on two lines, broken after a - _ . or space where there's one; the second
+    line has room2 (no × beside it), cut with … if it's still too long. One that fits, as it is."""
+    if width(text) <= room or room < 4:
+        return [text]
+    head = fit(text, room + 1)[:-1]   # the most that fits, without the …
+    cut = max(head.rfind(c) for c in "-_. ")
+    first = head[:cut + 1] if cut >= room // 3 else head
+    return [first.rstrip(), fit(text[len(first):].lstrip(), room2)]
+
+
 def where_is(path):
     """A project's parent folder, short: relative to the projects root if it's inside it, else ~/…"""
     parent, root = os.path.dirname(path), lib.projects_root()
@@ -326,10 +337,15 @@ class Sidebar(App):
             bg = "overlay" if sel else ("hover" if i == self.hover else None)
             closable = (sel or i == self.hover) and r.action and r.action[0] in ("project", "show")
             right, rfg = (CLOSE, "muted") if closable else (r.right, r.rfg)   # the selected one: × closes it
+            # narrow: the state at the right (idle, 2m…) gives way before the name is cut; the × stays
+            if right and not closable and width(r.text) + 1 + width(right) > w - (PAD + 2) - PAD:
+                right = ""
             bar = ("▎", "accent") if sel else (" ", None)   # a blue edge marks the selected row
             l = Line(bg).add(*bar).pad(PAD - 1).add(r.glyph or " ", r.gfg).add(" ")
             room = w - (PAD + 2) - PAD - (width(right) + 1 if right else 0)
-            l.add(fit(r.text, room), r.fg if not sel else "text", bold=r.bold)
+            # a long name wraps to a second line (a narrow sidebar), rather than ending in … at a few letters
+            names = [r.text] if r.action in (("open",), ("new",)) else wrap_name(r.text, room, w - (PAD + 2) - PAD)
+            l.add(fit(names[0], room), r.fg if not sel else "text", bold=r.bold)
             if right:
                 l.right(right, rfg, w)
             if r.action in (("open",), ("new",)):
@@ -338,6 +354,9 @@ class Sidebar(App):
             if closable:
                 close_at[len(body)] = i
             body.append(l); owner.append(i)
+            for more in names[1:]:   # under the first, where the name starts
+                body.append(Line(bg).add(*bar).pad(PAD + 1).add(more, r.fg if not sel else "text", bold=r.bold))
+                owner.append(i)
             for detail in r.detail:   # the dim lines under the name
                 d = Line(bg).add(*bar).pad(PAD + 1)
                 for text, fg in detail:

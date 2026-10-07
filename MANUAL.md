@@ -84,7 +84,7 @@ any other file: `dotsync` on the other PC applies it there).
 | Theme | |
 |---|---|
 | Tokyo Night | the original: deep blue-black, a soft blue accent (`#6b8fe0`, a bit darker than stock) |
-| Crimson | oxblood almost black (base `#140b0d`) with a quiet silver accent (`#b3a7a5`); red (`#e4656b`) only where something needs you (errors, alerts, critical levels), so the bloodborne wallpaper carries the red. Meets WCAG AA: every text colour is at least 4.5:1 on the background, a panel and a selected row (body text 13:1), dim icons 3:1, dark text on a red or silver button 6:1 and up |
+| Crimson | oxblood almost black (base `#140b0d`) with a quiet silver accent (`#a0918f`); red (`#e4656b`) only where something needs you (errors, alerts, critical levels), so the bloodborne wallpaper carries the red. Meets WCAG AA: every text colour is at least 4.5:1 on the background, a panel and a selected row (body text 13:1), dim icons 3:1, dark text on a red or silver button 6:1 and up |
 
 **How it works.** Every file in this repo is written in Tokyo Night's colours, by hand, as before.
 A theme is `config/themes/<id>/theme.json`: one colour for each of Tokyo Night's 32 roles (base,

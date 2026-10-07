@@ -128,6 +128,8 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproj
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.quitagentmux)$" }, size = { 560, 300 } })
 -- Commit, from the Projects panel (commitgui.py): the message and the changed files
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$" }, size = { 900, 640 } })
+-- Ask, from the Projects panel (askgui.py): large, by the screen's size (1440×886 on 1920×1080, 1024×630 on 1366×768)
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.ask)$" }, size = { "monitor_w*0.75", "monitor_h*0.82" } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
 hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 

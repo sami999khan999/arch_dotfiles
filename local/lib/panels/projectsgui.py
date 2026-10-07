@@ -65,8 +65,10 @@ button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
 .chip { padding: 0 5px; font-size: 9pt; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
-/* main as the heading, the other branches under it, set off by a rule */
-.branch-block { border-left: 2px solid alpha(#3b4261, .7); padding: 2px 0 2px 10px; }
+/* the header's two cards, Status and Branches: side by side, the same width and height */
+.card { background: alpha(#1a1b26, .55); border: 1px solid alpha(#3b4261, .7); padding: 10px 14px; }
+.card-title { color: #a9b1d6; font-weight: 700; }
+/* main heads the branch card, the other branches under it, set off by a rule */
 separator.branch-rule { background: alpha(#3b4261, .5); min-height: 1px; margin: 3px 0; }
 .dot-col { min-width: 10px; }
 button.branch-chip:hover { background: alpha(#c0caf5, .1); }
@@ -430,21 +432,25 @@ class Projects(View):
     def build_detail(self):
         self.heading = label("", "heading", ellipsize=True)
         self.where = label("", "dim", ellipsize=True)
+        # the name row: Pin, Move… and the deletes at its right end, away from the everyday buttons
+        self.manage = box(False, 4)
+        self.manage.set_valign(Gtk.Align.START)
+        self.title_col = box(True, 0, self.heading, self.where)
+        self.title_col.set_hexpand(True)
+        # two cards across the page's width: Status (the checked-out branch's state, the remotes) and
+        # Branches (every local branch against main; a click on one shows its history, Graph)
         self.chips = box(False, 8)
-        self.chips.set_margin_top(10)
-        # the branches against main, beside the project's name and state rather than under them: the page
-        # is wide and the header short; a click on a branch shows its history (Graph)
-        self.others = box(False, 6)
-        self.others.set_valign(Gtk.Align.START)
+        self.fetched_lbl = label("", "dim")
         self.urls = box(True, 2)
-        self.urls.set_margin_top(4)
-        info = box(True, 0, self.heading, self.where, self.urls, self.chips)
-        info.set_hexpand(False)
-        self.top = box(False, 40, info, self.others)
+        self.note = label("", "amber", wrap=True)
+        self.status = box(True, 8, self.card_head("Status", self.fetched_lbl), self.chips, self.urls, self.note,
+                          classes=("card",))
+        self.others = box(True, 8, classes=("card",))
+        self.cards = box(False, 12, self.status, self.others)
+        self.cards.set_homogeneous(True)
+        self.cards.set_margin_top(14)
         self.actions = box(False, 8)
         self.actions.set_margin_top(14)
-        self.note = label("", "amber", wrap=True)
-        self.note.set_margin_top(12)
 
         self.tab_btns = {}
         bar = box(False, 0, classes=("tabs", "inner"))
@@ -476,7 +482,14 @@ class Projects(View):
         self.live = None   # the shown project's (status, HEAD, refs) at the last look: refresh() redraws on a change
         self.live_busy = False
         self.switch_tab("changes")
-        return box(True, 0, self.top, self.actions, self.note, self.tabs_bar, self.tab_pages)
+        return box(True, 0, box(False, 12, self.title_col, self.manage), self.cards, self.actions, self.tabs_bar,
+                   self.tab_pages)
+
+    def card_head(self, title, right):
+        """A card's title line: its name, dim text at the right end."""
+        right.set_hexpand(True)
+        right.set_xalign(1.0)
+        return box(False, 8, label(title, "card-title"), right)
 
     def switch_tab(self, name):
         self.tab = name
@@ -762,6 +775,7 @@ class Projects(View):
         self.where.set_text(tilde(p.path))
         if not same:
             clear(self.chips)
+            self.fetched_lbl.set_text("")
             clear(self.others)
             self.others.set_visible(False)
             clear(self.change_list)
@@ -769,9 +783,13 @@ class Projects(View):
         clear(self.urls)
         e = p.entry
         if p.kind != "local":
-            self.urls.append(label(e["url"], "sub", ellipsize=True))
+            def bare(url):   # the card is half the page: no scheme or .git (the tooltip has it all)
+                return url.removeprefix("https://").removeprefix("http://").removesuffix(".git")
+            self.urls.append(label(bare(e["url"]), "sub", ellipsize=True))
             for name, url in e.get("remotes", {}).items():
-                self.urls.append(label(f"{name}  {url}", "dim", ellipsize=True))
+                self.urls.append(label(f"{name}  {bare(url)}", "dim", ellipsize=True))
+            for w in children(self.urls):
+                w.set_tooltip_text(e["url"] if w is self.urls.get_first_child() else None)
         self.paint_actions(p)
         notes = {"missing": "Listed, but not cloned on this PC. Clone gets it with every branch.",
                  "local": "No git remote: only this SSD and the HDD backup have it. "
@@ -811,6 +829,7 @@ class Projects(View):
     def paint_actions(self, p):
         """The project's buttons: what you do with it on the left; Move… and the deletes at the right."""
         clear(self.actions)
+        clear(self.manage)
         self.push_btn = self.commit_btn = None
         if p.kind == "missing":
             self.actions.append(button("Clone", self.clone, "primary", tooltip="every branch, into its folder"))
@@ -829,21 +848,18 @@ class Projects(View):
                 self.actions.append(self.push_btn)
         if p.kind != "local" and web_url(p.entry["url"]):
             self.actions.append(button("GitHub", self.open_web, "flat", tooltip="g"))
-        spacer = label("")
-        spacer.set_hexpand(True)
-        self.actions.append(spacer)
         if p.kind == "missing":   # nothing here: only the list entry (a repo that's gone, say)
-            self.actions.append(button("Forget", self.ask_forget, "flat", "danger", tooltip="drop it from the list"))
+            self.manage.append(button("Forget", self.ask_forget, "flat", "danger", tooltip="drop it from the list"))
         else:
             pinned = p.rel in self.pinned
-            self.actions.append(button("Unpin" if pinned else "Pin", self.toggle_pin, "flat",
-                                       tooltip="p: " + ("off the Pinned section" if pinned else "first in the list, on every PC")))
-            self.actions.append(button("Move…", self.ask_move, "flat", tooltip="m: to another folder in ~/code"))
-            self.actions.append(button("Delete", self.ask_delete, "flat", "danger", tooltip="Delete: the folder"))
+            self.manage.append(button("Unpin" if pinned else "Pin", self.toggle_pin, "flat",
+                                      tooltip="p: " + ("off the Pinned section" if pinned else "first in the list, on every PC")))
+            self.manage.append(button("Move…", self.ask_move, "flat", tooltip="m: to another folder in ~/code"))
+            self.manage.append(button("Delete", self.ask_delete, "flat", "danger", tooltip="Delete: the folder"))
         # Delete on GitHub: only once GitHub says this account may (admin on the repo); asked in a thread
         self.gh_btn = button("Delete on GitHub", self.ask_delete_github, "flat", "danger")
         self.gh_btn.set_visible(False)
-        self.actions.append(self.gh_btn)
+        self.manage.append(self.gh_btn)
         repo = pj.github_repo(p.entry.get("url", "")) if p.kind != "local" else None
         if repo:
             if repo in self.gh_admin:
@@ -1007,10 +1023,11 @@ class Projects(View):
         local = [b for b in branches if b["local"]]
         remote_only = sum(not b["local"] for b in branches)
         main = next((b["main"] for b in branches if b.get("main")), "")
-        if len(local) < 2 and not remote_only:   # only the branch shown above: nothing to add
-            self.others.set_visible(False)
+        # shown even for a lone main, so the Status card beside it keeps half the width, not all of it
+        self.others.set_visible(bool(local))
+        if not local:
             return
-        self.others.set_visible(True)
+        self.others.append(self.card_head("Branches", label(f"compared to {main}" if len(local) > 1 else "", "dim")))
 
         def on_github(b):
             if b["gone"]:
@@ -1034,20 +1051,20 @@ class Projects(View):
 
         base = next((b for b in local if b["name"] == main), None)
         others = sorted((b for b in local if b["name"] != main), key=lambda b: (not b["head"], -b["unix"]))
-        block = box(True, 4, classes=("branch-block",))
+        block = box(True, 4)
         grid = Gtk.Grid(column_spacing=18, row_spacing=1)   # one grid: main's row lines up with the others
         first = 0
         if base:   # the heading: main, its GitHub state, what the rows below are compared to; a rule under it
             text, cls = on_github(base)
-            hint = label("the base", "dim")   # short: the table sits beside the project's name, not under it
-            hint.set_tooltip_text(f"the branches below are compared to {main}")
+            hint = label("the only branch" if not others else "", "dim")
             for c, w in enumerate((label("●" if base["head"] else "", "accent", "dot-col"), name_button(base),
                                    label(text, cls), hint)):
                 w.set_valign(Gtk.Align.CENTER)
                 grid.attach(w, c, 0, 1, 1)
-            rule = Gtk.Separator()
-            rule.add_css_class("branch-rule")
-            grid.attach(rule, 0, 1, 4, 1)
+            if others:
+                rule = Gtk.Separator()
+                rule.add_css_class("branch-rule")
+                grid.attach(rule, 0, 1, 4, 1)
             first = 2
         for r, b in enumerate(others[:MAX_BRANCH_ROWS], first):
             gh, gcls = on_github(b)
@@ -1102,7 +1119,7 @@ class Projects(View):
         chip(f"{dirty} changed" if dirty else "clean", "amber" if dirty else "dim")
         if p.behind and (not cur or cur["name"] != p.main or not behind):   # main behind, the branch shown or not
             chip(f"{p.main} ↓{p.behind} behind GitHub", "cyan")
-        chip("fetching…" if p.rel in self.fetching else ago(pj.fetched_ago(p.path)), "dim")
+        self.fetched_lbl.set_text("fetching…" if p.rel in self.fetching else ago(pj.fetched_ago(p.path)))
         if self.push_btn:
             self.push_btn.set_sensitive(bool(ahead) or (ahead is None and has_origin))
         self.paint_branches(branches)

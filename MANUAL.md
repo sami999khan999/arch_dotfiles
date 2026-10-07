@@ -317,8 +317,9 @@ GitHub (just `↓4` when main is the branch checked out), then the branch checke
 opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
 current.
 
-**Branches against main.** Beside a project's name and chips, main (the repo's main branch, whatever it's
-called) heads a short list, with its own state on GitHub: it's the base the branches under it are compared to. Each
+**Branches against main.** A project's page opens with two cards: **Status** (the checked-out branch's
+state, its remotes, when it was last fetched) and **Branches**, where main (the repo's main branch, whatever
+it's called) heads a short list with its own state on GitHub: the branches under it are compared to it. Each
 other local branch is a row (the checked-out one has the dot): its state on **GitHub** (`✓ pushed`,
 `↑2 to push`, `↓1 to sync`, `↑1 ↓3 diverged`, `• never pushed`, `✗ deleted on GitHub`), then how it stands
 **against main**: `same as main`, `in main` (all of it is in main, which has moved on since), or

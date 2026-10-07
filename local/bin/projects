@@ -393,9 +393,11 @@ def conflicts(rel):
     return out
 
 
-# A commit message written by a free model, through opencode (its free tier only works from within
-# opencode, so `opencode run`): the diff of the chosen files goes to it, nothing else. It runs in an
-# empty temporary folder with only that file, so the agent has nothing else to read or change.
+# The free models, through opencode (its free tier only works from within opencode, so `opencode run`):
+# a commit message from a diff, and the Ask chat (asklib.py). opencode is an agent with tools, so it runs
+# in a bubblewrap sandbox: the system read-only, a throwaway empty home, only the prompt's files mounted
+# (read-only), network for the model, nothing else of this PC. Whatever the model tries, it can't read
+# ~/code or a credential, or change anything; its own server is private (--standalone) and dies with it.
 # The model is picked in the Commit popup and kept in the list (every PC the same); PROJECTS_AI_MODEL wins.
 AI_MODEL = "opencode/mimo-v2.6-flash-free"
 AI_DIFF_MAX = 24000   # characters of diff sent at most (the rest is summarised as file names)
@@ -431,13 +433,49 @@ def set_ai_model(model):
     return commit(f"commit messages by {model}")
 
 
+def ask_model(prompt, files, model=None, timeout=120):
+    """One answer from model (default ai_model()) to prompt, with files ({name: text}) attached, from
+    opencode in the sandbox. (ok, the reply's text or what went wrong)."""
+    if not shutil.which("opencode") or not shutil.which("bwrap"):
+        return False, "opencode or bubblewrap isn't installed (setup/packages.txt)"
+    tmp = tempfile.mkdtemp(prefix="projects-ai-")
+    box = "/home/sandbox"
+    try:
+        for name, text in files.items():
+            with open(os.path.join(tmp, name), "w") as f:
+                f.write(text)
+        etc = [a for f in ("resolv.conf", "hosts", "nsswitch.conf", "passwd", "ssl", "ca-certificates", "localtime")
+               for a in ("--ro-bind-try", f"/etc/{f}", f"/etc/{f}")]
+        argv = ["bwrap", "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+                "--symlink", "usr/bin", "/bin", "--symlink", "usr/sbin", "/sbin", *etc,
+                "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", box, "--ro-bind", tmp, f"{box}/in",
+                "--chdir", box, "--unshare-all", "--share-net", "--die-with-parent", "--new-session", "--clearenv",
+                "--setenv", "HOME", box, "--setenv", "PWD", box, "--setenv", "PATH", "/usr/bin",
+                "opencode", "run", "--standalone", "--format", "json", "-m", model or ai_model(),
+                *[a for name in files for a in ("-f", f"{box}/in/{name}")], prompt]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return False, f"the model didn't answer in {timeout // 60} minutes"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    texts = []
+    for line in r.stdout.splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("type") == "text" and e.get("part", {}).get("text"):
+            texts.append(e["part"]["text"])
+    if not texts:
+        return False, last_line(r.stderr, "no answer from the model")
+    return True, texts[-1].strip()
+
+
 def ai_message(rel, paths=None, model=None):
     """A commit message for the project's changes (paths: only those) from model (default ai_model()).
     (ok, message or what went wrong)."""
-    model = model or ai_model()
     path = f"{ROOT}/{rel.strip('/')}"
-    if not shutil.which("opencode"):
-        return False, "opencode isn't installed (setup/packages)"
     which = ["--", *paths] if paths else []
     ok, diff = git(path, "diff", "HEAD", "--stat", "--patch", *which)
     ok2, new = git(path, "ls-files", "--others", "--exclude-standard", *which)
@@ -452,37 +490,12 @@ def ai_message(rel, paths=None, model=None):
     if len(diff) > AI_DIFF_MAX:
         diff = diff[:AI_DIFF_MAX] + "\n\n[cut: the rest of the diff is longer]"
     _, log = git(path, "log", "--format=%s", "-12")
-    tmp = tempfile.mkdtemp(prefix="projects-ai-")
-    try:
-        with open(os.path.join(tmp, "changes.txt"), "w") as f:
-            f.write(f"Recent commit subjects (match their style):\n{log}\n\nThe changes:\n{diff}")
-        # opencode goes by $PWD, not the folder it's started in, and reads stdin when it isn't closed
-        env = dict(os.environ, PWD=tmp)
-        try:
-            r = subprocess.run(["opencode", "run", "--format", "json", "-m", model, "--title", "commit message",
-                                "-f", os.path.join(tmp, "changes.txt"), AI_PROMPT], cwd=tmp, env=env,
-                               capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
-        except subprocess.TimeoutExpired:
-            return False, "the model didn't answer in 2 minutes"
-        texts, sessions = [], set()
-        for line in r.stdout.splitlines():
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            sessions.add(e.get("sessionID"))
-            if e.get("type") == "text" and e.get("part", {}).get("text"):
-                texts.append(e["part"]["text"])
-        for sid in sessions - {None}:   # not left behind in opencode's history
-            subprocess.run(["opencode", "session", "delete", sid], cwd=tmp, env=env, capture_output=True,
-                           stdin=subprocess.DEVNULL, timeout=30)
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-    message = (texts[-1] if texts else "").strip().strip("`").strip()
-    message = re.sub(r"^(text|markdown)?\n", "", message).strip().strip('"').strip()
-    if not message:
-        return False, last_line(r.stderr, "no answer from the model")
-    return True, message
+    ok, message = ask_model(AI_PROMPT, {"changes.txt": f"Recent commit subjects (match their style):\n{log}\n\n"
+                                                       f"The changes:\n{diff}"}, model)
+    if not ok:
+        return False, message
+    message = re.sub(r"^(text|markdown)?\n", "", message.strip("`").strip()).strip().strip('"').strip()
+    return (True, message) if message else (False, "an empty answer from the model")
 
 
 def commit_changes(rel, message, paths=None, push_after=False):

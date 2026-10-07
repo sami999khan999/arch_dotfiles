@@ -20,6 +20,7 @@ brightnessctl
 btop
 btrfs-assistant
 btrfs-progs
+bubblewrap
 cachyos-fish-config
 cachyos-grub-theme
 cachyos-hello

@@ -356,6 +356,23 @@ works from inside opencode). The dropdown beside it picks the model from opencod
 the diff is sent, from an empty temporary folder, and the opencode session it makes is deleted after;
 free models may keep what they're sent, so don't use it on secrets.
 
+**Ask** (`?`, or *Ask* in the header) is a chat about your projects (`askgui.py`): when a branch was last
+pushed and by whom, what isn't pushed, what's behind GitHub, what changed lately… It starts on the project
+selected in the panel ("this project"). The model dropdown is the same as Commit's. It is **read-only**, by
+construction rather than by instruction (`asklib.py`):
+- the model (opencode, `--standalone`) runs in a **bubblewrap sandbox**: the system read-only, a throwaway
+  empty home, network only; `~/code`, `~/.ssh`, git's and `gh`'s credentials aren't there at all. It only
+  sees the text the panel writes for it, and can only answer.
+- to look further it asks for queries from a fixed list (branches, log, one commit, status, pushes); the
+  panel checks every argument against the project list and git and runs fixed read-only commands (no
+  shell). *Pushes* are this PC's reflog of the remote branches (pushed from here / fetched) and GitHub's
+  push events of the last 90 days (`gh api -X GET`, with who pushed). Each query shows as *looked at: …*.
+- what it suggests doing (Sync, Sync every project, Check out, Push, Commit…) comes back as **buttons**,
+  checked against the real projects and branches; only a click runs one, through the panel's own code.
+  Commit… opens the Commit popup, where you write or check the message and the files.
+It's sent the project list, branches, commit messages and authors and changed files' names, never a file's
+contents; free models may keep what they're sent. Commit's *Write it for me* runs in the same sandbox.
+
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
 deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While
 the panel shows, the project's git status is looked at every 2 s (read-only: no index lock), so an edit,

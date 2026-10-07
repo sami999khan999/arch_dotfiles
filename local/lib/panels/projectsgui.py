@@ -337,7 +337,7 @@ class Projects(View):
     interval = 2   # refresh(): the shown project's git status, live
     css = CSS
     hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("c", "commit"), ("s", "sync"), ("p", "pin"), ("m", "move"), ("n", "new"),
-             ("Tab", "changes / conflicts / graph / branches"), ("←→", "fold"), ("/", "search")]
+             ("Tab", "changes / conflicts / graph / branches"), ("←→", "fold"), ("/", "search"), ("?", "ask")]
 
     def __init__(self):
         super().__init__()
@@ -363,9 +363,10 @@ class Projects(View):
     # ---- layout ----------------------------------------------------------------------------------
     def header_extra(self):
         self.new_btn = button("+ New", self.show_new, "flat", tooltip="n: a new project")
+        ask = button("Ask", self.ask, "flat", tooltip="?: a read-only chat about your projects")
         self.missing_btn = button("", self.clone_missing, "flat", tooltip="clone the listed projects that aren't here")
         self.update_counts()
-        return [self.missing_btn, self.new_btn]
+        return [self.missing_btn, ask, self.new_btn]
 
     def build(self):
         self.search = Gtk.Entry(placeholder_text="/ search", hexpand=True)
@@ -1363,6 +1364,12 @@ class Projects(View):
         if p and p.kind == "repo":
             self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "commitgui.py"), p.rel)
 
+    def ask(self):
+        """Ask: a read-only chat about the projects, its own popup (askgui.py), about the selected one first."""
+        p = self.current()
+        self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "askgui.py"),
+                    *([p.rel] if p else []))
+
     def ask_delete(self):
         p = self.current()
         if not p or p.kind == "missing":
@@ -1908,6 +1915,8 @@ class Projects(View):
             return False
         if keyval == Gdk.KEY_slash:
             self.search.grab_focus()
+        elif keyval == Gdk.KEY_question:
+            self.ask()
         elif keyval == Gdk.KEY_Tab and page == "detail" and self.tabs_bar.get_visible():
             order = ["changes", "conflicts", "graph", "branches"]
             self.switch_tab(order[(order.index(self.tab) + 1) % 4])

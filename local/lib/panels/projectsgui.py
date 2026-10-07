@@ -66,7 +66,8 @@ button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
 /* the header's two cards, Status and Branches: side by side, the same width and height */
-.card { border: 1px solid alpha(#3b4261, .7); padding: 10px 14px; }   /* the page's own background */
+/* not ".card": GTK themes give that class a background of their own */
+.pj-card { border: 1px solid alpha(#3b4261, .7); padding: 10px 14px; }
 .card-title { color: #a9b1d6; font-weight: 700; }
 /* main heads the branch card, the other branches under it, set off by a rule */
 separator.branch-rule { background: alpha(#3b4261, .5); min-height: 1px; margin: 3px 0; }
@@ -444,8 +445,8 @@ class Projects(View):
         self.urls = box(True, 2)
         self.note = label("", "amber", wrap=True)
         self.status = box(True, 8, self.card_head("Status", self.fetched_lbl), self.chips, self.urls, self.note,
-                          classes=("card",))
-        self.others = box(True, 8, classes=("card",))
+                          classes=("pj-card",))
+        self.others = box(True, 8, classes=("pj-card",))
         self.cards = box(False, 12, self.status, self.others)
         self.cards.set_homogeneous(True)
         self.cards.set_margin_top(14)

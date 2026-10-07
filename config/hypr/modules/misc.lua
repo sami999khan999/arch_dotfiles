@@ -10,6 +10,12 @@ hl.config({
         col = {
             splash = THEME_ACCENT,
         },
+        -- behind the wallpaper: plain base, not Hyprland's own (an anime mascot, with its logo), which
+        -- flashed on shutdown once awww had quit before Hyprland
+        force_default_wallpaper = 0,
+        disable_hyprland_logo = true,
+        disable_splash_rendering = true,
+        background_color = THEME_BACKGROUND,
         -- wake a switched-off monitor (hypridle, 5.5 min idle) on any key or mouse move. hypridle's
         -- own on-resume command is the usual way back; this is the safety net if it doesn't fire,
         -- which once left the screen black until a power-button shutdown

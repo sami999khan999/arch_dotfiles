@@ -63,7 +63,8 @@ HERE = os.path.expanduser("~/.local/lib/agentmux")
 SELF = os.path.expanduser("~/.local/bin/agentmux")
 SESSION = "main"
 WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
-MIN = {"projects": 16, "agents": 20, "termlist": 4}                       # a sidebar is never narrower than this
+MIN = {"projects": 20, "agents": 24, "termlist": 4}   # narrower than this, a sidebar collapses to its strip
+MAX = {"projects": 40, "agents": 50}                  # and it's never dragged wider than this
 ICONS_ONLY = 9   # the terminal list narrower than this shows only icons (termlist.py)
 MIN_TERM = 20    # the terminal itself (left of its list) is never dragged narrower
 COLLAPSED = 5    # the collapsed list: its icons in the middle column; a collapsed sidebar is as wide
@@ -170,7 +171,7 @@ def build():
 def widths():
     w = {**WIDTHS, **lib.load_state().get("widths", {})}
     for role, low in MIN.items():
-        w[role] = max(int(w.get(role) or 0), low)
+        w[role] = min(max(int(w.get(role) or 0), low), MAX.get(role, 999))
     w["terms"] = min(max(float(w.get("terms") or WIDTHS["terms"]), 0.15), 0.6)
     return w
 
@@ -818,6 +819,7 @@ def reload():
     for role in ("projects", "agents"):
         if pane(role):
             lib.app("respawn-pane", "-k", "-t", pane(role), f"exec python3 {HERE}/sidebar.py {role}")
+            lib.app("resize-pane", "-t", pane(role), "-x", str(side_width(role)))   # within MIN and MAX
     s = lib.load_state()
     project = s.get("project", "")
     thread = s.get("threads", {}).get(project)
@@ -1398,14 +1400,29 @@ def save_widths():
     if pane("termlist") and size(pane("termlist")) < MIN["termlist"]:
         lib.app("resize-pane", "-t", pane("termlist"), "-x", str(list_width()))
         return
-    # A drag stops at a panel's minimum: each one is either its collapsed strip or at least MIN wide.
-    # Below MIN a sidebar goes back to MIN (to its strip if it's collapsed: dragged MIN wide it opens,
-    # below), the list dragged narrower than its names collapses, and the terminal keeps MIN_TERM.
+    # A sidebar is its collapsed strip or between MIN and MAX wide: dragged narrower than MIN it
+    # collapses (dragged MIN wide again it opens), wider than MAX it stops there. The list dragged
+    # narrower than its names collapses, and the terminal keeps MIN_TERM.
     want = {}
+    # Projects dragged wider takes its columns from Threads (the border they share): Threads gets its own
+    # width back (from the thread's), rather than collapsing as if it had been dragged narrow itself
+    was = lambda r: COLLAPSED if r in s.get("collapsed", []) else widths()[r]
+    if pane("projects") and pane("agents") and size(pane("projects")) > was("projects") \
+            and size(pane("agents")) < was("agents"):
+        want["agents"] = was("agents")
     for role in ("projects", "agents"):
         width = size(pane(role))
-        if pane(role) and width < MIN[role]:
-            want[role] = COLLAPSED if role in s.get("collapsed", []) else MIN[role]
+        if role in want:
+            continue
+        if pane(role) and width < MIN[role] and width != COLLAPSED:
+            if role not in s.get("collapsed", []):   # first: the resize below runs this again
+                s["collapsed"] = sorted(set(s.get("collapsed", [])) | {role})
+                lib.save_state(s)
+            want[role] = COLLAPSED
+            if role == "projects" and pane("agents"):   # as with its ‹: the columns go to the thread
+                want["agents"] = was("agents")
+        elif pane(role) and width > MAX[role]:
+            want[role] = MAX[role]
     width = size(pane("termlist"))
     if pane("termlist") and width < ICONS_ONLY and width != COLLAPSED:
         s["termlist_collapsed"] = True

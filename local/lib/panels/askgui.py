@@ -130,8 +130,9 @@ class Ask(View):
             busy = c["id"] == self.busy
             info = box(True, 2, title, label("answering…" if busy else when(c["updated"]), "chat-when"))
             info.set_hexpand(True)
-            delete = button(TRASH, lambda b, sid=c["id"]: self.delete_chat(b, sid), "flat", "chat-del",
-                            tooltip="delete this chat")
+            # its own clicked handler: gtkkit's button() calls on_click() without the button, which this needs
+            delete = Gtk.Button(label=TRASH, css_classes=["flat", "chat-del"], tooltip_text="delete this chat")
+            delete.connect("clicked", lambda b, sid=c["id"]: self.delete_chat(b, sid))
             delete.set_valign(Gtk.Align.CENTER)
             if busy:
                 delete.set_tooltip_text("delete this chat (stops its answer)")
@@ -212,7 +213,8 @@ class Ask(View):
             row = box(False, 8)
             row.set_margin_top(6)
             for a in acts:
-                b = button(a["label"], lambda b, a=a, m=m: self.act(b, a, m), tooltip="runs only when you click it")
+                b = Gtk.Button(label=a["label"], tooltip_text="runs only when you click it")
+                b.connect("clicked", lambda b, a=a, m=m: self.act(b, a, m))
                 if a["label"] in done:
                     ok, _ = done[a["label"]]
                     b.set_label(a["label"] + (" ✓" if ok else " ✗"))

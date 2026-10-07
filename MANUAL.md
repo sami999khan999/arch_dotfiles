@@ -427,7 +427,7 @@ workspace 7 too).
 **The file picker.** The Open / Save dialogs apps show (a browser's upload and Save as, VS Code's Open
 Folder, GTK apps…) are Files windows too (`pickergui.py`): the same places, path, table and theme, the
 app's file types as a filter, and for Save a name field (a click on a file takes its name; saving over one
-asks first). `Enter` or a double click chooses, `Esc` or Cancel cancels. It only picks: rename, trash and
+asks first). It opens like every panel popup: the screen blurred behind it, pinned above it. `Enter` or a double click chooses; `Esc`, Cancel, a click outside it or a workspace switch cancels. It only picks: rename, trash and
 paste are off (a new folder is allowed). It remembers its own last folder (`picker.json`).
 How it's wired: it's the FileChooser backend of xdg-desktop-portal, a D-Bus service started on the first
 dialog (`local/share/dbus-1/services/`), registered per user (`local/share/xdg-desktop-portal/portals/sami.portal`)

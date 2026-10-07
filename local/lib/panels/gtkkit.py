@@ -492,10 +492,12 @@ class Backdrop(Gtk.Widget):
 
 class ViewHost:
     """What hosts a view: its window (the header with the title, the view, the status line with its hints),
-    the keys, say() and typing(). PanelApp is one (a panel, one per process); the file picker
-    (pickergui.py) makes one per dialog. toggle: Esc and Close close the window."""
+    a popup's backdrop, the keys, say() and typing(). PanelApp is one (a panel, one per process); the file
+    picker (pickergui.py) makes one per dialog. app: the Gtk.Application the windows belong to. toggle: Esc
+    and Close close the window."""
     toggle = True
     status_timer = 0
+    backdrop = None
 
     def build_window(self, application, size):
         self.win = Gtk.ApplicationWindow(application=application, title=self.view.title, decorated=False)
@@ -535,6 +537,82 @@ class ViewHost:
         if self.view.interval:
             GLib.timeout_add(int(self.view.interval * 1000), self._tick)
         return self.win
+
+    def present(self):
+        """Show the window: a popup over its backdrop (the screen blurred and darkened, a click on it
+        closes the popup), pinned above it; without a backdrop, just the window."""
+        if self.backdrop:   # the popup goes up once the backdrop is there, so it's the one on top
+            self.win.connect("close-request", lambda *_: self.backdrop.destroy() or False)
+            self.backdrop.connect("map", lambda *_: GLib.idle_add(lambda: self.win.present() or False))
+            self.win.connect("map", lambda *_: GLib.timeout_add(30, self.pin_over_backdrop))
+            self.backdrop.present()
+        else:
+            self.win.present()
+
+    def make_backdrop(self):
+        """A window over the whole screen, under the popup, showing it blurred (Backdrop). Titled
+        "panels-backdrop": modules/windowrules.lua sizes it. A click on it closes the popup."""
+        on, blur, darken = backdrop_setting()
+        if not on:
+            return None
+        win = Gtk.ApplicationWindow(application=self.app, title="panels-backdrop", decorated=False)
+        win.add_css_class("backdrop")
+        backdrop = Backdrop(blur, darken)
+        if backdrop.screen:   # full size from its first frame: Hyprland stretches a smaller first
+            win.set_default_size(*backdrop.screen)   # frame to the rule's size (a zoomed-in corner)
+        win.set_child(backdrop)
+        click = Gtk.GestureClick()
+        click.connect("pressed", lambda *_: self.close_from_backdrop())
+        win.add_controller(click)
+        keys = Gtk.EventControllerKey()   # focused for a moment by that click: Esc there closes too
+        keys.connect("key-pressed", self._on_key)
+        win.add_controller(keys)
+        return win
+
+    def popup_address(self):
+        import json
+        try:
+            return next(c["address"] for c in json.loads(hypr_socket("j/clients") or "[]")
+                        if c["pid"] == os.getpid() and c["title"] == self.win.get_title() and c["floating"])
+        except (ValueError, StopIteration):
+            return None
+
+    def pin_over_backdrop(self):
+        """Pin the popup once Hyprland has it: a click on the backdrop focuses and raises the backdrop,
+        and a pinned window stays above it (no frame of the popup hidden, as the click closes it). Pinned
+        also means it would follow a workspace switch without its backdrop, so that closes it
+        (watch_workspace)."""
+        me = self.popup_address()
+        if me:
+            hypr_socket(f'dispatch hl.dsp.window.pin({{ window = "address:{me}" }})')
+            self.watch_workspace()
+            return False
+        self.pin_tries = getattr(self, "pin_tries", 0) + 1
+        return self.pin_tries < 30   # Hyprland lists a new window within a few tries of 30 ms
+
+    def watch_workspace(self):
+        import socket, threading
+        path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
+
+        def watch():
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                    sock.connect(path)
+                    buf = b""
+                    while chunk := sock.recv(4096):
+                        buf += chunk
+                        *events, buf = buf.split(b"\n")
+                        if any(e.startswith(b"workspace>>") for e in events):
+                            GLib.idle_add(lambda: self.win.close() or False)
+                            return
+            except OSError:
+                pass
+        threading.Thread(target=watch, daemon=True).start()
+
+    def close_from_backdrop(self):
+        """A click on the backdrop. The popup is pinned (pin_over_backdrop), so it stays above the
+        backdrop that click raised; both close, the popup fading out over the backdrop as with Esc."""
+        self.win.close()
 
     def _tick(self):
         if not self.win:
@@ -589,6 +667,7 @@ class PanelApp(ViewHost, Gtk.Application):
     def __init__(self, view, app_id, size=(900, 560), toggle=True):
         super().__init__(application_id=app_id, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.view, self.size, self.toggle = view, size, toggle
+        self.app = self
         view.host = self
         self.win = None
         self.status_timer = 0
@@ -600,78 +679,7 @@ class PanelApp(ViewHost, Gtk.Application):
         install_css(self.view.css)
         self.backdrop = self.make_backdrop() if self.toggle and self.view.backdrop else None
         self.build_window(self, self.size)
-        if self.backdrop:   # the popup goes up once the backdrop is there, so it's the one on top
-            self.win.connect("close-request", lambda *_: self.backdrop.destroy() or False)
-            self.backdrop.connect("map", lambda *_: GLib.idle_add(lambda: self.win.present() or False))
-            self.win.connect("map", lambda *_: GLib.timeout_add(30, self.pin_over_backdrop))
-            self.backdrop.present()
-        else:
-            self.win.present()
-
-    def make_backdrop(self):
-        """A window over the whole screen, under the popup, showing it blurred (Backdrop). Titled
-        "panels-backdrop": modules/windowrules.lua sizes it. A click on it closes the popup."""
-        on, blur, darken = backdrop_setting()
-        if not on:
-            return None
-        win = Gtk.ApplicationWindow(application=self, title="panels-backdrop", decorated=False)
-        win.add_css_class("backdrop")
-        backdrop = Backdrop(blur, darken)
-        if backdrop.screen:   # full size from its first frame: Hyprland stretches a smaller first
-            win.set_default_size(*backdrop.screen)   # frame to the rule's size (a zoomed-in corner)
-        win.set_child(backdrop)
-        click = Gtk.GestureClick()
-        click.connect("pressed", lambda *_: self.close_from_backdrop())
-        win.add_controller(click)
-        keys = Gtk.EventControllerKey()   # focused for a moment by that click: Esc there closes too
-        keys.connect("key-pressed", self._on_key)
-        win.add_controller(keys)
-        return win
-
-    def popup_address(self):
-        import json
-        try:
-            return next(c["address"] for c in json.loads(hypr_socket("j/clients") or "[]")
-                        if c["pid"] == os.getpid() and c["title"] != "panels-backdrop" and c["floating"])
-        except (ValueError, StopIteration):
-            return None
-
-    def pin_over_backdrop(self):
-        """Pin the popup once Hyprland has it: a click on the backdrop focuses and raises the backdrop,
-        and a pinned window stays above it (no frame of the popup hidden, as the click closes it). Pinned
-        also means it would follow a workspace switch without its backdrop, so that closes it
-        (watch_workspace)."""
-        me = self.popup_address()
-        if me:
-            hypr_socket(f'dispatch hl.dsp.window.pin({{ window = "address:{me}" }})')
-            self.watch_workspace()
-            return False
-        self.pin_tries = getattr(self, "pin_tries", 0) + 1
-        return self.pin_tries < 30   # Hyprland lists a new window within a few tries of 30 ms
-
-    def watch_workspace(self):
-        import socket, threading
-        path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
-
-        def watch():
-            try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                    sock.connect(path)
-                    buf = b""
-                    while chunk := sock.recv(4096):
-                        buf += chunk
-                        *events, buf = buf.split(b"\n")
-                        if any(e.startswith(b"workspace>>") for e in events):
-                            GLib.idle_add(lambda: self.win.close() or False)
-                            return
-            except OSError:
-                pass
-        threading.Thread(target=watch, daemon=True).start()
-
-    def close_from_backdrop(self):
-        """A click on the backdrop. The popup is pinned (pin_over_backdrop), so it stays above the
-        backdrop that click raised; both close, the popup fading out over the backdrop as with Esc."""
-        self.win.close()
+        self.present()
 
 
 def run(view, app_id, size=(900, 560), toggle=True):

@@ -185,10 +185,14 @@ class Picker(fg.Files):
         self.done(0, [Gio.File.new_for_path(p).get_uri() for p in paths], f)
         self.host.win.close()
 
-    def cancel(self):
+    def cancelled(self):
+        """Answer "cancelled", once (the window closing for any reason: Esc, Close, the backdrop)."""
         if not self.answered:
             self.answered = True
             self.done(1, [], None)
+
+    def cancel(self):
+        self.cancelled()
         self.host.win.close()
 
     # picking only: nothing here changes files except a new folder
@@ -237,12 +241,14 @@ class Picker(fg.Files):
 
 
 class Dialog(ViewHost):
-    """A picker's window: the panels' header and status line around it (gtkkit.ViewHost)."""
+    """A picker's window, a popup like every panel's (gtkkit.ViewHost): the screen blurred behind it, a click
+    there or a workspace switch cancels, as Esc and Close do."""
     def __init__(self, view, app):
-        self.view, view.host = view, self
+        self.view, self.app, view.host = view, app, self
+        self.backdrop = self.make_backdrop() if view.backdrop else None
         self.build_window(app, (1100, 700))
-        self.win.connect("close-request", lambda *_: (view.cancel() if not view.answered else None) and False)
-        self.win.present()
+        self.win.connect("close-request", lambda *_: view.cancelled() or False)
+        self.present()
 
 
 class Service(Gtk.Application):

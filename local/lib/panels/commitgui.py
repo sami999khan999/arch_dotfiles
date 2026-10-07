@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # commitgui.py — Commit, a popup like every other panel (the screen blurred behind it; Esc or a click
 # outside closes it). The Projects panel opens it (c, or Commit…):  commitgui.py <project, under ~/code>
-# The message (subject, then a body if it needs one; Write it for me: a free model through opencode),
+# The message (subject, then a body if it needs one; Write it for me: a free model through opencode,
+# picked in the dropdown beside it and kept for next time),
 # the changed files (all ticked: untick what stays out), Push it after. A normal git commit, so the
 # project's hooks run; the Projects panel sees the result by itself (its live look at git).
 import os, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, Pango, View, box, button, label, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, Pango, View, box, button, dropdown, label, run, scrolled
 import projectsgui as pg
 
 pj = pg.pj
@@ -17,6 +18,7 @@ CSS = """
 textview.commit-message, textview.commit-message text { background: #16161e; color: #c0caf5; }
 textview.commit-message { border: 1px solid alpha(#3b4261, .7); padding: 6px 8px; min-height: 72px; }
 .st { min-width: 22px; font-weight: 700; }
+dropdown.model > button { min-width: 0; padding: 3px 10px; }
 """
 
 
@@ -45,9 +47,14 @@ class Commit(View):
                                                                and (self.commit() or True)))
         self.message.add_controller(keys)
         self.write = button("Write it for me", self.ai, "flat",
-                            tooltip=f"a free model writes it from the ticked files' changes "
-                                    f"({pj.AI_MODEL.split('/')[-1]}, through opencode: the diff is sent to it)")
-        top = box(False, 8, label("Message", "dim"), label(""), self.write)
+                            tooltip="the model picked beside it writes it from the ticked files' changes "
+                                    "(through opencode: the diff is sent to it)")
+        # the model: the one kept until opencode's list is in (asking it takes a moment)
+        self.model = pj.ai_model()
+        self.models = box(False, 0)
+        self.paint_models([self.model])
+        threading.Thread(target=lambda: GLib.idle_add(self.paint_models, pj.ai_models()), daemon=True).start()
+        top = box(False, 8, label("Message", "dim"), label(""), self.models, self.write)
         top.get_first_child().get_next_sibling().set_hexpand(True)
 
         files = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
@@ -81,6 +88,26 @@ class Commit(View):
         GLib.idle_add(lambda: self.message.grab_focus() and False)
         return page
 
+    def paint_models(self, models):
+        if self.model not in models:
+            models = [self.model] + models
+        dd = dropdown([(m, m.split("/")[-1].removesuffix("-free")) for m in models], self.model, self.pick_model)
+        dd.add_css_class("model")
+        dd.set_tooltip_text("the model that writes the message (free, through opencode); kept for next time")
+        while self.models.get_first_child():
+            self.models.remove(self.models.get_first_child())
+        self.models.append(dd)
+        return False
+
+    def pick_model(self, model):
+        self.model = model
+
+        def save():
+            problem = pj.set_ai_model(model)
+            if problem:
+                GLib.idle_add(lambda: self.say(f"model not kept: {problem}", "bad") and False)
+        threading.Thread(target=save, daemon=True).start()
+
     def text(self):
         return self.buf.get_text(self.buf.get_start_iter(), self.buf.get_end_iter(), False).strip()
 
@@ -98,7 +125,7 @@ class Commit(View):
         self.write.set_label("Writing…")
 
         def go():
-            ok, msg = pj.ai_message(self.rel, files)
+            ok, msg = pj.ai_message(self.rel, files, self.model)
             GLib.idle_add(lambda: self.written(ok, msg) and False)
         threading.Thread(target=go, daemon=True).start()
 

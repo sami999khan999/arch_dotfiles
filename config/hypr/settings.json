@@ -8,13 +8,17 @@
   },
   "hypr": {
     "cursor:zoom_factor": 1.0,
+    "decoration:dim_special": 0.2,
     "input:accel_profile": "adaptive",
     "input:follow_mouse": 2,
     "input:natural_scroll": false,
     "input:sensitivity": -0.75
   },
+  "nightlight": {
+    "temp": 6500
+  },
   "panels": {
-    "blur": 19
+    "blur": 20
   },
   "wallpaper": {
     "mode": "fill"

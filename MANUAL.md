@@ -349,8 +349,10 @@ how each branch stands against main.
 **Commit…** (`c`, when there are changes) opens a popup like every other panel (`commitgui.py`: the screen blurred behind it, `Esc` or a click outside closes it): a message (subject line, then a body if it needs one;
 `Ctrl+Enter` commits), the changed files (untick what stays out), *Push it to GitHub after*. A normal
 `git commit`: the project's hooks run. **Write it for me** has a free model write the message from the
-ticked files' changes, in the style of the repo's recent commits (`opencode/mimo-v2.6-flash-free`, through
-`opencode run`: the free tier only works from inside opencode; `PROJECTS_AI_MODEL` picks another). Only
+ticked files' changes, in the style of the repo's recent commits, through `opencode run` (the free tier only
+works from inside opencode). The dropdown beside it picks the model from opencode's free ones
+(`mimo-v2.6-flash` at first); the choice is kept in the project list, so every PC uses it
+(`PROJECTS_AI_MODEL` overrides it). Only
 the diff is sent, from an empty temporary folder, and the opencode session it makes is deleted after;
 free models may keep what they're sent, so don't use it on secrets.
 

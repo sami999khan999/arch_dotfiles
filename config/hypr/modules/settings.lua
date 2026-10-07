@@ -6,6 +6,9 @@ hl.config({
     cursor = {
         zoom_factor = 1.0,
     },
+    decoration = {
+        dim_special = 0.2,
+    },
     input = {
         accel_profile = "adaptive",
         follow_mouse = 2,

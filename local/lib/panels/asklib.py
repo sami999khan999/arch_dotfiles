@@ -8,6 +8,7 @@
 #     real projects and branches; the window shows each as a button and only a click runs it, through
 #     the same code the panel's own buttons use.
 # Data from the repos (commit subjects, branch names) is quoted to the model as data, never as rules.
+# The chats are kept on this PC (SESSIONS, a JSON file each, only for you): they hold this PC's project data.
 import json, os, re, subprocess, time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -18,6 +19,7 @@ ROUNDS = 4            # model calls per question: up to 3 rounds of queries, the
 MAX_QUERIES = 6       # queries per round
 HISTORY_MAX = 40000   # characters of the conversation sent at most (the oldest data goes first)
 SEP = "\x1f"
+SESSIONS = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "projects", "ask")
 
 RULES = """You are the read-only assistant of the user's Projects panel: every git repository under ~/code.
 You can't run commands, use tools or change anything: you answer from the data given here. The panel,
@@ -319,3 +321,48 @@ def ask(question, history, overview_text, selected, model, looked=lambda what: N
         return True, answer, actions(reply.get("actions"))
     del history[start:]
     return False, "no answer after the queries", []
+
+
+# ---- the chats, kept ----------------------------------------------------------------------------
+def new_session(selected=""):
+    """A chat, not saved until its first question. history: what the model is sent; messages: what the
+    window shows ({"who": "you", "text"} or {"who": "ai", "model", "text", "ok", "looked", "actions", "done"})."""
+    return {"id": time.strftime("%Y%m%d-%H%M%S-") + os.urandom(3).hex(), "title": "", "selected": selected,
+            "updated": time.time(), "history": [], "messages": []}
+
+
+def session_file(sid):
+    if not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", sid or ""):
+        raise ValueError(f"not a chat id: {sid}")
+    return os.path.join(SESSIONS, f"{sid}.json")
+
+
+def save_session(chat):
+    os.makedirs(SESSIONS, mode=0o700, exist_ok=True)
+    path = session_file(chat["id"])
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(chat, f)
+    os.replace(path + ".tmp", path)
+
+
+def sessions():
+    """Every kept chat, the latest first."""
+    out = []
+    for name in os.listdir(SESSIONS) if os.path.isdir(SESSIONS) else []:
+        if name.endswith(".json"):
+            try:
+                with open(os.path.join(SESSIONS, name)) as f:
+                    chat = json.load(f)
+                session_file(chat.get("id"))
+                out.append(chat)
+            except (OSError, ValueError):
+                continue
+    return sorted(out, key=lambda c: -c.get("updated", 0))
+
+
+def delete_session(sid):
+    try:
+        os.remove(session_file(sid))
+    except FileNotFoundError:
+        pass

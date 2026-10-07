@@ -358,7 +358,10 @@ free models may keep what they're sent, so don't use it on secrets.
 
 **Ask** (`?`, or *Ask* in the header) is a chat about your projects (`askgui.py`): when a branch was last
 pushed and by whom, what isn't pushed, what's behind GitHub, what changed lately… It starts on the project
-selected in the panel ("this project"). The model dropdown is the same as Commit's. It is **read-only**, by
+selected in the panel ("this project"). The model dropdown is the same as Commit's. The chats are kept:
+the side list has them, newest first (*+ New chat* or `Ctrl+N` starts one); a chat's bin deletes it (click
+it again within 3 s). They stay on this PC, in `~/.local/share/projects/ask/` (only you can read them), since
+they hold this PC's project data. It is **read-only**, by
 construction rather than by instruction (`asklib.py`):
 - the model (opencode, `--standalone`) runs in a **bubblewrap sandbox**: the system read-only, a throwaway
   empty home, network only; `~/code`, `~/.ssh`, git's and `gh`'s credentials aren't there at all. It only

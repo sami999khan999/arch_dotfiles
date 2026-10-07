@@ -94,6 +94,20 @@ def nested(name, hint=True):
     return f"env -u TMUX -u TMUX_PANE {attach}" + (f"; {idle_cmd()}" if hint else "")
 
 
+def swap_client(role, session):
+    """Point the nested client in role's pane at session, without restarting it: the pane redraws once
+    with the new content (a respawn showed a blank pane, then the attach drawing it). False when the pane
+    has no client of the agents server (the home screen, say): then it's respawned."""
+    p = pane(role)
+    if not p:
+        return False
+    tty = lib.app("display-message", "-p", "-t", p, "#{pane_tty}")[1]
+    rc, ttys = lib.agents("list-clients", "-F", "#{client_tty}")
+    if rc != 0 or not tty or tty not in ttys.split():
+        return False
+    return lib.agents("switch-client", "-c", tty, "-t", f"={session}")[0] == 0
+
+
 def idle_cmd():
     """The middle pane with no thread: the home screen (prompt box, threads)."""
     return f"exec python3 {HERE}/home.py"
@@ -273,7 +287,8 @@ def show(name):
     main = pane("main")
     if main is None:
         return
-    lib.app("respawn-pane", "-k", "-t", main, nested(name))
+    if not swap_client("main", name):
+        lib.app("respawn-pane", "-k", "-t", main, nested(name))
     lib.app("set-option", "-p", "-t", main, "@label", f"{t['harness'] or 'shell'} · {name}")
     s = lib.load_state()
     s.setdefault("threads", {})[t["project"]] = name
@@ -298,16 +313,9 @@ def switch_project(path, build_only=False):
     target = last if last in mine else (mine[-1] if mine else None)
     if not build_only and lib.option("resume-on-open"):   # threads that should be running but aren't
         target = resume_project(path) or target
-    if target:
-        show(target)
-    elif pane("main"):
-        lib.app("respawn-pane", "-k", "-t", pane("main"), idle_cmd())
-        lib.app("set-option", "-p", "-t", pane("main"), "@label", "Thread")
-        if not build_only and not mine and not lib.project_agents(path):
-            # a new project: the home screen asks which agent (its Agents list), with the keyboard
-            lib.app("select-pane", "-t", pane("main"))
-    # the terminals column: this project's own, shown only if it was opened here (its shells ended
-    # by themselves since: it stays closed)
+    # the terminals column first: this project's own, shown only if it was opened here (its shells ended
+    # by themselves since: it stays closed). Then the thread: it's drawn once, at its final width, not
+    # drawn and then squeezed or stretched (the flicker between a project with terminals and one without)
     terms = pane("terms")
     show_terms = terms_shown(path) and terms_alive(path)
     if terms_shown(path) and not show_terms:
@@ -318,6 +326,14 @@ def switch_project(path, build_only=False):
         open_terms(path)
     elif terms:   # hidden here; that project's shells keep running
         close_terms_column()
+    if target:
+        show(target)
+    elif pane("main"):
+        lib.app("respawn-pane", "-k", "-t", pane("main"), idle_cmd())
+        lib.app("set-option", "-p", "-t", pane("main"), "@label", "Thread")
+        if not build_only and not mine and not lib.project_agents(path):
+            # a new project: the home screen asks which agent (its Agents list), with the keyboard
+            lib.app("select-pane", "-t", pane("main"))
     mark_closed()
     if not build_only:
         where()
@@ -456,7 +472,9 @@ def open_terms(project):
 
 def respawn_terms(project):
     """The column shows project's terminals (after a project switch, a reload)."""
-    lib.app("respawn-pane", "-k", "-t", pane("terms"), nested(lib.terms_session(project), hint=False))
+    session = lib.terms_session(project)
+    if not swap_client("terms", session):
+        lib.app("respawn-pane", "-k", "-t", pane("terms"), nested(session, hint=False))
     lib.app("set-option", "-p", "-t", pane("terms"), "@label", f"Terminals · {lib.project_name(project)}")
     if pane("termlist"):
         lib.app("respawn-pane", "-k", "-t", pane("termlist"), termlist_cmd(project))
@@ -469,9 +487,10 @@ def close_terms_column():
     if opt("@max") == "terms":   # its own window goes with it
         set_opt("@max", "")
     save_widths()
-    for role in ("terms", "termlist"):
-        if pane(role):
-            lib.app("kill-pane", "-t", pane(role))
+    # both panes in one tmux command: one redraw, and the thread is resized once, not twice
+    kill = [a for p in filter(None, (pane("terms"), pane("termlist"))) for a in (";", "kill-pane", "-t", p)][1:]
+    if kill:
+        lib.app(*kill)
 
 
 def terms_closed(project):

@@ -1,0 +1,4 @@
+# The file picker (local/lib/panels/pickergui.py) as an xdg-desktop-portal backend
+[portal]
+DBusName=org.freedesktop.impl.portal.desktop.sami
+Interfaces=org.freedesktop.impl.portal.FileChooser

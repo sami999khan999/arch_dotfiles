@@ -424,6 +424,17 @@ workspace 7 too).
   app copied paste here. A name that's taken gets " (2)". A drive without a trash (NTFS, `/tmp`) asks
   before deleting for good. It remembers the last folder and the hidden-files choice (`~/.local/state/files`).
 
+**The file picker.** The Open / Save dialogs apps show (a browser's upload and Save as, VS Code's Open
+Folder, GTK apps…) are Files windows too (`pickergui.py`): the same places, path, table and theme, the
+app's file types as a filter, and for Save a name field (a click on a file takes its name; saving over one
+asks first). `Enter` or a double click chooses, `Esc` or Cancel cancels. It only picks: rename, trash and
+paste are off (a new folder is allowed). It remembers its own last folder (`picker.json`).
+How it's wired: it's the FileChooser backend of xdg-desktop-portal, a D-Bus service started on the first
+dialog (`local/share/dbus-1/services/`), registered per user (`local/share/xdg-desktop-portal/portals/sami.portal`)
+and chosen for Hyprland in `config/xdg-desktop-portal/hyprland-portals.conf` (GTK's picker after it, if it's
+missing). `GTK_USE_PORTAL` / `GDK_DEBUG=portals` (`config/uwsm/env`) send GTK apps' dialogs there too. On a
+PC where it's new, log out and in once (or `systemctl --user restart xdg-desktop-portal`).
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:

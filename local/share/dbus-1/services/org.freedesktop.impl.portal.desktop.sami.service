@@ -1,0 +1,4 @@
+# The file picker (local/lib/panels/pickergui.py), started by D-Bus on the first Open / Save dialog
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.sami
+Exec=/usr/bin/python3 /home/sami/.local/lib/panels/pickergui.py

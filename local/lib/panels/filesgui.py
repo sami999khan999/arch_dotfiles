@@ -112,6 +112,7 @@ class Entry(GObject.Object):
 class Files(View):
     icon = G_FOLDER
     title = "Files"
+    state_file = STATE   # the file picker (pickergui.py) keeps its own
     interval = 0
     css = CSS
     hints = [("Enter", "open"), ("Bksp", "back"), ("F2", "rename"), ("Del", "trash"), ("Ctrl+C/X/V", "copy / cut / paste"),
@@ -120,7 +121,7 @@ class Files(View):
     def __init__(self, start=None):
         super().__init__()
         try:
-            with open(STATE) as f:
+            with open(self.state_file) as f:
                 self.state = json.load(f)
         except (OSError, ValueError):
             self.state = {}
@@ -148,18 +149,21 @@ class Files(View):
         self.nav_fwd = button("\uf061", self.go_forward, "flat", tooltip="forward (Alt+→)")
         up = button(G_UP, self.go_up, "flat", tooltip="the folder above (Alt+↑)")
         self.crumbs = box(False, 0, classes=("crumbs",))
-        self.crumbs.set_hexpand(True)
+        # a long path scrolls, its end in view, rather than widening the window past a small screen
+        self.crumb_scroll = Gtk.ScrolledWindow(child=self.crumbs, hexpand=True, vscrollbar_policy=Gtk.PolicyType.NEVER,
+                                               hscrollbar_policy=Gtk.PolicyType.EXTERNAL)
+        self.crumb_scroll.get_hadjustment().connect("changed", lambda a: a.set_value(a.get_upper()))   # laid out: the end
         self.path_entry = Gtk.Entry(hexpand=True)
         self.path_entry.connect("activate", lambda e: self.typed_path(e.get_text()))
         self.path_entry.set_visible(False)
         edit = Gtk.GestureClick()   # a click beside the crumbs: type a path (as Ctrl+L)
         edit.connect("released", lambda *_: self.edit_path())
-        self.crumbs.add_controller(edit)
+        self.crumb_scroll.add_controller(edit)
         self.filter = Gtk.SearchEntry(placeholder_text="/ filter")
         self.filter.set_size_request(220, -1)
         self.filter.connect("search-changed", lambda *_: self.refilter())
         self.filter.connect("activate", lambda *_: self.table.grab_focus())
-        bar = box(False, 4, self.nav_back, self.nav_fwd, up, self.crumbs, self.path_entry, self.filter)
+        bar = box(False, 4, self.nav_back, self.nav_fwd, up, self.crumb_scroll, self.path_entry, self.filter)
 
         self.store = Gio.ListStore(item_type=Entry)
         self.filt = Gtk.CustomFilter.new(self.visible)
@@ -210,6 +214,7 @@ class Files(View):
 
         main = box(True, 8, bar, self.list_scroll, self.empty_note, self.prompt, self.info)
         main.set_hexpand(True)
+        self.main = main
         for edge in ("start", "end", "top", "bottom"):
             getattr(main, f"set_margin_{edge}")(12)
         self.paint_places()
@@ -412,7 +417,7 @@ class Files(View):
     def paint_crumbs(self):
         clear(self.crumbs)
         self.path_entry.set_visible(False)
-        self.crumbs.set_visible(True)
+        self.crumb_scroll.set_visible(True)
         if self.cwd == HOME or self.cwd.startswith(HOME + "/"):
             parts, base = [("\uf015 home", HOME)], HOME
             rest = self.cwd[len(HOME):].strip("/")
@@ -431,7 +436,7 @@ class Files(View):
                 self.crumbs.append(label("\uf054", "crumb-sep"))
 
     def edit_path(self):
-        self.crumbs.set_visible(False)
+        self.crumb_scroll.set_visible(False)
         self.path_entry.set_visible(True)
         self.path_entry.set_text(self.cwd.replace(HOME, "~", 1) + ("/" if self.cwd != "/" else ""))
         self.path_entry.grab_focus()
@@ -474,9 +479,12 @@ class Files(View):
         items = [self.sorted.get_item(i) for i in range(n)]
         dirs = sum(e.is_dir for e in items)
         bits = [f"{dirs} folder{'s' * (dirs != 1)}", f"{n - dirs} file{'s' * (n - dirs != 1)}"]
-        hidden = self.store.get_n_items() - n
+        hidden = 0 if self.show_hidden else sum(1 for e in self.store if e.hidden)
         if hidden and not self.filter.get_text():
             bits.append(f"{hidden} hidden")
+        other = self.store.get_n_items() - n - hidden   # the picker's file-type filter
+        if other > 0 and not self.filter.get_text():
+            bits.append(f"{other} of other types")
         sel = self.selected()
         if sel:
             size = sum(e.size for e in sel if not e.is_dir)
@@ -494,8 +502,8 @@ class Files(View):
     def save_state(self):
         self.state.update(dir=self.cwd, hidden=self.show_hidden)
         try:
-            os.makedirs(os.path.dirname(STATE), exist_ok=True)
-            with open(STATE, "w") as f:
+            os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+            with open(self.state_file, "w") as f:
                 json.dump(self.state, f)
         except OSError:
             pass

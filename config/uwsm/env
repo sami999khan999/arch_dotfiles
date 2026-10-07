@@ -3,6 +3,10 @@ export TERM=xterm-kitty
 export QT_QPA_PLATFORM="wayland;xcb"
 export QT_QPA_PLATFORMTHEME="qt6ct"
 export ELECTRON_OZONE_PLATFORM_HINT=auto
+# Open / Save dialogs through the desktop portal, so GTK apps get Files' picker too (local/lib/panels/pickergui.py;
+# Chrome, Electron apps and Flatpaks already use the portal)
+export GTK_USE_PORTAL=1   # GTK 3
+export GDK_DEBUG=portals  # GTK 4
 export HYPRCURSOR_THEME="Bibata-Modern-Ice"
 export HYPRCURSOR_SIZE=16
 export XCURSOR_THEME="Bibata-Modern-Ice"

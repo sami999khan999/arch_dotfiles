@@ -490,27 +490,17 @@ class Backdrop(Gtk.Widget):
         snap.pop()
 
 
-class PanelApp(Gtk.Application):
-    """A window hosting one view. toggle=True (popups): running the panel again while it's open
-    closes it, and Esc closes it. toggle=False (the Docker panel and Control Center, which are
-    their workspace's app): running it again just brings it up."""
+class ViewHost:
+    """What hosts a view: its window (the header with the title, the view, the status line with its hints),
+    the keys, say() and typing(). PanelApp is one (a panel, one per process); the file picker
+    (pickergui.py) makes one per dialog. toggle: Esc and Close close the window."""
+    toggle = True
+    status_timer = 0
 
-    def __init__(self, view, app_id, size=(900, 560), toggle=True):
-        super().__init__(application_id=app_id, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
-        self.view, self.size, self.toggle = view, size, toggle
-        view.host = self
-        self.win = None
-        self.status_timer = 0
-
-    def do_activate(self):
-        if self.win:
-            self.win.close() if self.toggle else self.win.present()
-            return
-        install_css(self.view.css)
-        self.backdrop = self.make_backdrop() if self.toggle and self.view.backdrop else None
-        self.win = Gtk.ApplicationWindow(application=self, title=self.view.title, decorated=False)
+    def build_window(self, application, size):
+        self.win = Gtk.ApplicationWindow(application=application, title=self.view.title, decorated=False)
         self.win.add_css_class("panel")
-        self.win.set_default_size(*self.size)
+        self.win.set_default_size(*size)
 
         lead = box(False, 10, *([label(self.view.icon, "head-icon")] if self.view.icon else []),
                    label(self.view.title, "title"))
@@ -544,6 +534,72 @@ class PanelApp(Gtk.Application):
         self.win.add_controller(keys)
         if self.view.interval:
             GLib.timeout_add(int(self.view.interval * 1000), self._tick)
+        return self.win
+
+    def _tick(self):
+        if not self.win:
+            return False
+        self.view.refresh()
+        return True
+
+    def _on_key(self, _ctrl, keyval, _code, state):
+        if keyval == Gdk.KEY_Escape and self.toggle and not self.typing():
+            self.win.close()
+            return True
+        return self.view.key(keyval, state)
+
+    def close_view(self):
+        if self.toggle:
+            self.win.close()
+
+    def say(self, msg, kind="ok", seconds=4):
+        self.status.set_visible(True)
+        self.status.set_text(msg)
+        self.status.remove_css_class("bad")
+        if kind == "bad":
+            self.status.add_css_class("bad")
+        if self.status_timer:
+            GLib.source_remove(self.status_timer)
+
+        def clear_msg():
+            self.status_timer = 0
+            self.show_hints()
+            return False
+        self.status_timer = GLib.timeout_add(seconds * 1000, clear_msg)
+
+    def show_hints(self):
+        self.status.remove_css_class("bad")
+        self.status.set_visible(self.view.footer)
+        self.status.set_markup(hint_markup(self.view.hints))
+
+    def typing(self):
+        w = self.win.get_focus() if self.win else None
+        while w is not None:
+            if isinstance(w, Gtk.Editable):
+                return True
+            w = w.get_parent()
+        return False
+
+
+class PanelApp(ViewHost, Gtk.Application):
+    """A window hosting one view. toggle=True (popups): running the panel again while it's open
+    closes it, and Esc closes it. toggle=False (the Docker panel and Control Center, which are
+    their workspace's app): running it again just brings it up."""
+
+    def __init__(self, view, app_id, size=(900, 560), toggle=True):
+        super().__init__(application_id=app_id, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.view, self.size, self.toggle = view, size, toggle
+        view.host = self
+        self.win = None
+        self.status_timer = 0
+
+    def do_activate(self):
+        if self.win:
+            self.win.close() if self.toggle else self.win.present()
+            return
+        install_css(self.view.css)
+        self.backdrop = self.make_backdrop() if self.toggle and self.view.backdrop else None
+        self.build_window(self, self.size)
         if self.backdrop:   # the popup goes up once the backdrop is there, so it's the one on top
             self.win.connect("close-request", lambda *_: self.backdrop.destroy() or False)
             self.backdrop.connect("map", lambda *_: GLib.idle_add(lambda: self.win.present() or False))
@@ -616,50 +672,6 @@ class PanelApp(Gtk.Application):
         """A click on the backdrop. The popup is pinned (pin_over_backdrop), so it stays above the
         backdrop that click raised; both close, the popup fading out over the backdrop as with Esc."""
         self.win.close()
-
-    def _tick(self):
-        if not self.win:
-            return False
-        self.view.refresh()
-        return True
-
-    def _on_key(self, _ctrl, keyval, _code, state):
-        if keyval == Gdk.KEY_Escape and self.toggle and not self.typing():
-            self.win.close()
-            return True
-        return self.view.key(keyval, state)
-
-    def close_view(self):
-        if self.toggle:
-            self.win.close()
-
-    def say(self, msg, kind="ok", seconds=4):
-        self.status.set_visible(True)
-        self.status.set_text(msg)
-        self.status.remove_css_class("bad")
-        if kind == "bad":
-            self.status.add_css_class("bad")
-        if self.status_timer:
-            GLib.source_remove(self.status_timer)
-
-        def clear_msg():
-            self.status_timer = 0
-            self.show_hints()
-            return False
-        self.status_timer = GLib.timeout_add(seconds * 1000, clear_msg)
-
-    def show_hints(self):
-        self.status.remove_css_class("bad")
-        self.status.set_visible(self.view.footer)
-        self.status.set_markup(hint_markup(self.view.hints))
-
-    def typing(self):
-        w = self.win.get_focus() if self.win else None
-        while w is not None:
-            if isinstance(w, Gtk.Editable):
-                return True
-            w = w.get_parent()
-        return False
 
 
 def run(view, app_id, size=(900, 560), toggle=True):

@@ -360,7 +360,7 @@ free models may keep what they're sent, so don't use it on secrets.
 pushed and by whom, what isn't pushed, what's behind GitHub, what changed lately… It starts on the project
 selected in the panel ("this project"). The model dropdown is the same as Commit's. The chats are kept:
 the side list has them, newest first (*+ New chat* or `Ctrl+N` starts one); a chat's bin deletes it (click
-it again within 3 s); deleting the one still answering stops its answer). They stay on this PC, in `~/.local/share/projects/ask/` (only you can read them), since
+it again within 3 s; deleting the one still answering stops its answer). They stay on this PC, in `~/.local/share/projects/ask/` (only you can read them), since
 they hold this PC's project data. It is **read-only**, by
 construction rather than by instruction (`asklib.py`):
 - the model (opencode, `--standalone`) runs in a **bubblewrap sandbox**: the system read-only, a throwaway

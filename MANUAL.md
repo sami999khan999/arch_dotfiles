@@ -274,8 +274,9 @@ A folder you move is recorded as moved; a project that isn't on this PC stays li
 the HDD have them. The panel and `projects` mark them in amber; put them in git and push to make them safe.
 
 **The panel** (`panels/projectsgui.py`): the `~/code` tree on the left (groups fold with ←/→ or a click;
-a repo shows its branch, ● when it has uncommitted changes; a cloud for one that isn't cloned; ⚠ local
-only); `/` searches. On the right, the selected project:
+a repo shows its branch when it isn't on main, ● when it has uncommitted changes; a cloud for one that
+isn't cloned; ⚠ local only; it follows the list, so `projects delete` / `move` on the command line show
+up in a couple of seconds); `/` searches. On the right, the selected project:
 
 - **State**: its branch, then `in sync` / `↑N to push` / `↓N to pull` / `diverged` / `no upstream`, changed
   files, and when it last fetched. Selecting a project whose last fetch is over 10 minutes old fetches it in
@@ -313,7 +314,10 @@ header shows **Clone missing (N)**, which uses the same progress list.
 project with *Pin* or `p`; pins are in the list, so every PC has them), **Changes** (every repo with
 uncommitted changes or commits on no remote) and **All projects** (the folder tree). A project's row says
 what needs doing: `● 3` uncommitted changes, `↑2` commits to push, `main ↓4` its main branch is behind
-GitHub (just `↓4` when main is the branch checked out), then the branch checked out. When the panel
+GitHub (just `↓4` when main is the branch checked out), then the branch checked out when it isn't main.
+Inside a section the projects sit under their top folder (active, paused, … archive last, folded at first:
+old work doesn't bury what you're on), one line each, with the folder in front when the name alone
+doesn't say it (`cipher-safe/backend`, `business-management-nft/v1`). When the panel
 opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
 current.
 
@@ -338,7 +342,8 @@ them, then sync"). A branch where you and GitHub both have new commits is left a
 
 **The sections** on the left: Pinned · Changes (uncommitted `● N`, unpushed `↑N`) · **Out of date**
 (`↓N`: commits behind GitHub, all branches together, as `main ↓N` on the page; `+N new`: branches on
-GitHub not here yet; *Sync all*) · **Conflicts** (`⚠ N`) · All projects.
+GitHub not here yet; *Sync all*) · **Conflicts** (`⚠ N`) · All projects. A click outside the search box takes
+the typing focus back to the list, so the keys (`t`, `a`, `c`…) work again.
 
 **Conflicts tab** (in a project's page, beside Changes): files left with conflicts in the folder (from a
 merge or pull you started: resolve them in VS Code, then commit), and every diverged branch: how many

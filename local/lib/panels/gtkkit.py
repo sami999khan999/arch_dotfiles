@@ -289,6 +289,63 @@ def slider(lo, hi, step, value, on_change, fmt="{:.2f}", width=200):
     return box(False, 8, sc, shown)
 
 
+class WrapLayout(Gtk.LayoutManager):
+    """Children at their own width, left to right, wrapping onto the next line when the width runs out
+    (FlowBox lines its children up in columns spread across the width; chips should sit together)."""
+
+    def __init__(self, spacing=8, line_spacing=6):
+        super().__init__()
+        self.spacing, self.line_spacing = spacing, line_spacing
+
+    def do_get_request_mode(self, widget):
+        return Gtk.SizeRequestMode.HEIGHT_FOR_WIDTH
+
+    def lines(self, widget, width):
+        """The children by line: [(child, w, h)] each, w their natural width (cut to the line's)."""
+        out, line, x = [], [], 0
+        child = widget.get_first_child()
+        while child:
+            if child.should_layout():
+                _, nat, _, _ = child.measure(Gtk.Orientation.HORIZONTAL, -1)
+                w = min(nat, width) if width >= 0 else nat
+                if line and x + self.spacing + w > width >= 0:
+                    out.append(line)
+                    line, x = [], 0
+                h = child.measure(Gtk.Orientation.VERTICAL, w)[1]
+                x += (self.spacing if line else 0) + w
+                line.append((child, w, h))
+            child = child.get_next_sibling()
+        return out + [line] if line else out
+
+    def do_measure(self, widget, orientation, for_size):
+        if orientation == Gtk.Orientation.HORIZONTAL:   # at least the widest child, at best all on one line
+            sizes = [w for line in self.lines(widget, -1) for _, w, _ in line]
+            mins = [c.measure(orientation, -1)[0] for line in self.lines(widget, -1) for c, _, _ in line]
+            nat = sum(sizes) + self.spacing * max(len(sizes) - 1, 0)
+            return max(mins, default=0), nat, -1, -1
+        lines = self.lines(widget, for_size)
+        h = sum(max(h for _, _, h in line) for line in lines) + self.line_spacing * max(len(lines) - 1, 0)
+        return h, h, -1, -1
+
+    def do_allocate(self, widget, width, height, baseline):
+        y = 0
+        for line in self.lines(widget, width):
+            x, tall = 0, max(h for _, _, h in line)
+            for child, w, _ in line:
+                rect = Gdk.Rectangle()
+                rect.x, rect.y, rect.width, rect.height = x, y, w, tall
+                child.size_allocate(rect, -1)
+                x += w + self.spacing
+            y += tall + self.line_spacing
+
+
+def wrap_box(spacing=8, line_spacing=6):
+    """A box whose children wrap onto more lines rather than widen it (append / clear as usual)."""
+    b = Gtk.Box()
+    b.set_layout_manager(WrapLayout(spacing, line_spacing))
+    return b
+
+
 def clear(container):
     while (child := container.get_first_child()) is not None:
         container.remove(child)

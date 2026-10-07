@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, box, button, clear, dropdown, label, recolor, rgbf, rule_heading,
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, box, button, clear, dropdown, label, recolor, rgbf, rule_heading, wrap_box,
                     run, scrolled, switch)
 from keys import fuzzy
 from keysgui import marked
@@ -35,6 +35,10 @@ HIT = recolor("#7aa2f7")   # matched letters, as in the shortcut list
 HISTORY = 300              # commits in the graph
 STALE = 600                # seconds: an older fetch is redone when the project is selected
 FOLDED = {"archive", "templates", "forks"}   # groups that start folded
+# inside a section the projects are under their top folder, in this order (others after, by name); old
+# work (archive) starts folded there too, so the active projects aren't lost among 50 archived ones
+TOPS = ["active", "paused", "templates", "forks", "archive"]
+FOLDED |= {f"{sec}/archive" for sec in ("§changes", "§outdated", "§conflicts")}
 MAX_BRANCH_ROWS = 6       # local branches in a project's branch table (the Branches tab has them all)
 STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer ago than this are fetched
 # the tree's sections, each folds: pinned projects, work not on GitHub yet, GitHub ahead of you (Sync
@@ -42,7 +46,7 @@ STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer 
 SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§outdated", "Out of date"),
             ("§conflicts", "Conflicts"), ("§all", "All projects")]
 G_OPEN, G_SHUT = "", ""         # folder open / closed
-G_REPO, G_MISSING, G_LOCAL = "", "", ""   # git branch, cloud download, warning
+G_MISSING, G_LOCAL = "", ""   # cloud download, warning
 # graph: lane colours (Tokyo Night; the theme recolours them), lane width and row height in px
 LANES = ["#7aa2f7", "#bb9af7", "#9ece6a", "#ff9e64", "#7dcfff", "#e0af68", "#73daca", "#f7768e"]
 LANE_W, ROW_H, MAX_LANES = 14, 24, 10
@@ -342,6 +346,7 @@ class Projects(View):
     def __init__(self):
         super().__init__()
         self.projects = load_projects()
+        self.list_seen = self.list_stamp()
         self.folded = set(FOLDED)
         self.selected = None          # rel of the project shown on the right
         self.ref = ""                 # the graph's branch ("" = every branch)
@@ -410,6 +415,7 @@ class Projects(View):
         else:
             self.show_setup()
         GLib.idle_add(lambda: (self.update_counts(), self.focus_list()) and False)
+        self.search.connect("map", lambda *_: self.leave_search_on_click())
         # the panel's popups (Move, Delete…) are a card over the dimmed panel, not windows of their own:
         # a window of this class would be tiled on the workspace like the panel itself
         self.card = box(True, 10, classes=("dialog",))
@@ -441,7 +447,8 @@ class Projects(View):
         self.title_col.set_hexpand(True)
         # two cards across the page's width: Status (the checked-out branch's state, the remotes) and
         # Branches (every local branch against main; a click on one shows its history, Graph)
-        self.chips = box(False, 8)
+        # the state chips wrap onto a second line rather than widen the card (and the window, on a small screen)
+        self.chips = wrap_box(8, 6)
         self.fetched_lbl = label("", "dim")
         self.urls = box(True, 2)
         self.note = label("", "amber", wrap=True)
@@ -500,6 +507,22 @@ class Projects(View):
             (b.add_css_class if n == name else b.remove_css_class)("on")
         self.filter_box.set_visible(name == "graph")
 
+    def leave_search_on_click(self):
+        """A click anywhere outside the search box takes the typing focus out of it (to the list), as
+        it would anywhere else: GTK only moves focus to what takes it, so a click on a label, the page
+        or a gap left the keys (t, a, c…) going into the search."""
+        root = self.search.get_root()
+        if getattr(self, "click_watch", None) or not root:
+            return
+        self.click_watch = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+
+        def pressed(_g, _n, x, y):
+            inside = lambda w: w is not None and (w is self.search or w.is_ancestor(self.search))
+            if inside(root.get_focus()) and not inside(root.pick(x, y, Gtk.PickFlags.DEFAULT)):
+                self.focus_list()
+        self.click_watch.connect("pressed", pressed)
+        root.add_controller(self.click_watch)
+
     def focus_list(self):
         row = self.tree.get_selected_row() or self.first_project() or self.tree.get_row_at_index(0)
         if row:
@@ -534,7 +557,14 @@ class Projects(View):
             GLib.idle_add(self.reload)
         self.count_changes()
 
+    def list_stamp(self):
+        try:
+            return os.stat(pj.LIST).st_mtime_ns
+        except OSError:
+            return None
+
     def reload(self, select=None):
+        self.list_seen = self.list_stamp()
         self.projects = load_projects()
         if select:
             self.selected = None
@@ -599,8 +629,14 @@ class Projects(View):
                                  ("§outdated", outdated, "Everything is up to date with GitHub"),
                                  ("§conflicts", clashing, "Nothing to merge by hand")):
             out.append(("section", key, 0, len(items)))
-            if key not in self.folded:
-                out += [("project", r, 0, "where") for r in items] or [("hint", hint, 0, None)]
+            if key in self.folded:
+                continue
+            if not items:
+                out.append(("hint", hint, 0, None))
+            elif key == "§pinned":   # a few, chosen: no sub-headings
+                out += [("project", r, 0, "where") for r in items]
+            else:
+                out += self.by_top(key, items)
         out.append(("section", "§all", 0, len(self.projects)))
         if "§all" in self.folded:
             return out
@@ -619,6 +655,23 @@ class Projects(View):
                 out.append(("project", p.rel, len(parts) - 1, None))
         return out
 
+    def by_top(self, section, items):
+        """A section's projects under a sub-heading per top folder (active, paused, … archive last); a
+        project right in ~/code (notes) comes first, without one."""
+        tops = {}
+        for r in items:
+            tops.setdefault(r.split("/")[0] if "/" in r else "", []).append(r)
+        rank = lambda t: TOPS.index(t) if t in TOPS else TOPS.index("archive") - 0.5   # archive stays last
+        order = sorted(tops, key=lambda t: (t != "", rank(t), t))
+        out = []
+        for t in order:
+            if t:
+                out.append(("sub", f"{section}/{t}", 0, len(tops[t])))
+                if f"{section}/{t}" in self.folded:
+                    continue
+            out += [("project", r, 1 if t else 0, "where") for r in tops[t]]
+        return out
+
     def paint_tree(self, keep_scroll=False):
         # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
         seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned),
@@ -632,9 +685,17 @@ class Projects(View):
         self.rows = {}
         by_rel = {p.rel: p for p in self.projects}
         titles = dict(SECTIONS)
-        first, picked = None, False
+        first, picked, under = None, False, None
         for kind, key, depth, extra in self.layout():
-            if kind == "section":
+            if kind in ("section", "sub"):
+                under = key if kind == "sub" else None
+            if kind == "sub":   # a top folder inside a section: folds like a group
+                shut = key in self.folded
+                line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"),
+                           label(key.split("/", 1)[1], "bold"), label(str(extra), "dim"))
+                row = Gtk.ListBoxRow(child=line)
+                row.add_css_class("group-row")
+            elif kind == "section":
                 shut = key in self.folded
                 line = box(False, 8, label("▸" if shut else "▾", "dim", "pj-glyph"),
                            label(titles[key], "section-title"), label(str(extra), "dim"))
@@ -662,6 +723,7 @@ class Projects(View):
                 self.rows.setdefault(key, []).append(row)
                 first = first or row
             row.kind, row.key = kind, key
+            row.group = under if kind == "project" and extra == "where" else None   # what ← folds
             row.get_child().set_margin_start(depth * 16)
             self.tree.append(row)
             if kind == "project" and key == self.selected and not picked:
@@ -681,14 +743,22 @@ class Projects(View):
         """A project's row: its icon, name (with where it is, in a section or a search), then what
         needs doing (● changed files, ↑ unpushed commits, main ↓ behind GitHub) and its branch."""
         if p.kind == "repo":
-            glyph, gclass, right, rclass = G_REPO, "amber", p.branch, "dim"
+            # the branch only when it isn't main: that's the case worth seeing (main on every row was noise)
+            # (main isn't known until its health is in: main / master stand for it till then)
+            off_main = p.branch not in ((p.main,) if p.main else ("", "main", "master"))
+            glyph, gclass, right, rclass = "", "", p.branch if off_main else "", "dim"
         elif p.kind == "missing":
             glyph, gclass, right, rclass = G_MISSING, "dim", "not cloned", "dim"
         else:
             glyph, gclass, right, rclass = G_LOCAL, "amber", "local only", "amber"
-        if match == "where":
-            name = label(p.name, ellipsize=True)
-            text = box(True, 1, name, label(os.path.dirname(p.rel) or "~/code", "setting-sub", ellipsize=True))
+        if match == "where":   # in a section: one line, its folder (dim) unless the name already says it
+            inner = p.rel.split("/", 1)[1] if "/" in p.rel else p.rel
+            parent = os.path.basename(os.path.dirname(inner))   # cipher-safe/backend, …-nft/v1
+            if parent and parent.replace("-", "_") in p.name.replace("-", "_"):   # housefind/housefind_1
+                parent = ""
+            name = text = label((f"<span foreground='{recolor('#565f89')}'>{GLib.markup_escape_text(parent)}/</span>"
+                                 if parent else "") + GLib.markup_escape_text(p.name), markup=True, ellipsize=True)
+            name.set_ellipsize(Pango.EllipsizeMode.START)   # a long path loses its start, never the name
         elif match:
             name = label(marked(p.name, match[1], HIT), markup=True, ellipsize=True)
             where = label(marked(os.path.dirname(p.rel), match[2], HIT), "setting-sub", markup=True, ellipsize=True)
@@ -698,7 +768,8 @@ class Projects(View):
             name = text = label(p.name, *(("dim",) if p.kind == "missing" else ()), ellipsize=True)
         name.set_max_width_chars(10)   # the column keeps its width: long names ellipsize instead
         text.set_hexpand(True)
-        line = box(False, 8, label(glyph, gclass, "pj-glyph"), text)
+        # an icon only for what's unusual (not cloned, no git remote): the same one on every repo said nothing
+        line = box(False, 8, *((label(glyph, gclass, "pj-glyph"),) if glyph else ()), text)
         if p.rel in self.pinned and match != "where":   # in All projects: it's pinned too
             line.append(label("\U000f0403", "dim"))
         s = lambda n: "s" * (n > 1)
@@ -715,7 +786,8 @@ class Projects(View):
                 badge = label(text_, cls)
                 badge.set_tooltip_text(tip)
                 line.append(badge)
-        line.append(label(right, rclass))
+        if right:
+            line.append(label(right, rclass))
         return line
 
     def tree_clicked(self, gesture, _n, x, y):
@@ -725,7 +797,7 @@ class Projects(View):
         if isinstance(hit, Gtk.Button):
             return   # a button in a section's header (Sync all): it does its own thing, no folding
         row = self.tree.get_row_at_y(int(y))
-        if row and row.kind in ("group", "section"):
+        if row and row.kind in ("group", "sub", "section"):
             self.fold(row.key)
 
     def fold(self, key, shut=None):
@@ -744,7 +816,7 @@ class Projects(View):
             i += 1
 
     def activated(self, row):
-        if row.kind in ("group", "section"):
+        if row.kind in ("group", "sub", "section"):
             self.fold(row.key)
         else:
             self.open_code()
@@ -912,6 +984,10 @@ class Projects(View):
                 "\n".join(git_lines(p.path, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/remotes")))
 
     def refresh(self):
+        # the list changed outside the panel (projects delete / move on the command line, the other PC's
+        # changes pulled): show it, not what was there when the panel opened
+        if self.list_stamp() != self.list_seen and not self.busy:
+            self.reload()
         p = self.current()
         if (not p or p.kind != "repo" or self.live_busy or self.dim.get_visible()
                 or self.pages.get_visible_child_name() != "detail"):
@@ -1029,7 +1105,8 @@ class Projects(View):
         self.others.set_visible(bool(local))
         if not local:
             return
-        self.others.append(self.card_head("Branches", label(f"compared to {main}" if len(local) > 1 else "", "dim")))
+        self.others.append(self.card_head("Branches", label(f"compared to {main}" if len(local) > 1 else "", "dim",
+                                                            ellipsize=True)))
 
         def on_github(b):
             if b["gone"]:
@@ -1045,7 +1122,10 @@ class Projects(View):
             return "✓ pushed", "green"
 
         def name_button(b):
-            name = Gtk.Button(child=label(b["name"], *(("bold",) if b["head"] else ())), tooltip_text="its history (Graph)")
+            text = label(b["name"], *(("bold",) if b["head"] else ()))
+            text.set_ellipsize(Pango.EllipsizeMode.MIDDLE)   # a long name gives way on a small screen, not the card
+            text.set_width_chars(min(len(b["name"]), 10))       # but keeps enough to tell it apart
+            name = Gtk.Button(child=text, tooltip_text=f"{b['name']}: its history (Graph)")
             name.add_css_class("flat")
             name.add_css_class("branch-chip")
             name.connect("clicked", lambda _b, n=b["name"]: self.show_graph_of(n, tab=True))
@@ -1093,7 +1173,7 @@ class Projects(View):
         if remote_only:
             more.append(f"{remote_only} only on GitHub")
         if more:
-            block.append(label(" · ".join(more) + " (Branches tab)", "dim"))
+            block.append(label(" · ".join(more) + " (Branches tab)", "dim", wrap=True))
         self.others.append(block)
 
     def paint_git(self, p, gen, branches, dirty, ahead, behind, has_origin):
@@ -1921,7 +2001,7 @@ class Projects(View):
             order = ["changes", "conflicts", "graph", "branches"]
             self.switch_tab(order[(order.index(self.tab) + 1) % 4])
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row:
-            group = row.key if row.kind == "group" else os.path.dirname(row.key)
+            group = row.key if row.kind in ("group", "sub") else row.group or os.path.dirname(row.key)
             if group and not self.search.get_text():
                 self.fold(group, shut=keyval == Gdk.KEY_Left)
         elif keyval == Gdk.KEY_n:

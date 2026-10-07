@@ -431,12 +431,16 @@ class Projects(View):
         self.heading = label("", "heading", ellipsize=True)
         self.where = label("", "dim", ellipsize=True)
         self.chips = box(False, 8)
-        self.chips.set_margin_top(8)
-        # the other branches, a chip each with its state; a click shows its history (Graph)
+        self.chips.set_margin_top(10)
+        # the branches against main, beside the project's name and state rather than under them: the page
+        # is wide and the header short; a click on a branch shows its history (Graph)
         self.others = box(False, 6)
-        self.others.set_margin_top(10)
+        self.others.set_valign(Gtk.Align.START)
         self.urls = box(True, 2)
-        self.urls.set_margin_top(8)
+        self.urls.set_margin_top(4)
+        info = box(True, 0, self.heading, self.where, self.urls, self.chips)
+        info.set_hexpand(False)
+        self.top = box(False, 40, info, self.others)
         self.actions = box(False, 8)
         self.actions.set_margin_top(14)
         self.note = label("", "amber", wrap=True)
@@ -472,8 +476,7 @@ class Projects(View):
         self.live = None   # the shown project's (status, HEAD, refs) at the last look: refresh() redraws on a change
         self.live_busy = False
         self.switch_tab("changes")
-        return box(True, 0, self.heading, self.where, self.chips, self.others, self.urls, self.actions, self.note,
-                   self.tabs_bar, self.tab_pages)
+        return box(True, 0, self.top, self.actions, self.note, self.tabs_bar, self.tab_pages)
 
     def switch_tab(self, name):
         self.tab = name
@@ -1036,8 +1039,10 @@ class Projects(View):
         first = 0
         if base:   # the heading: main, its GitHub state, what the rows below are compared to; a rule under it
             text, cls = on_github(base)
+            hint = label("the base", "dim")   # short: the table sits beside the project's name, not under it
+            hint.set_tooltip_text(f"the branches below are compared to {main}")
             for c, w in enumerate((label("●" if base["head"] else "", "accent", "dot-col"), name_button(base),
-                                   label(text, cls), label(f"the branches below are compared to {main}", "dim"))):
+                                   label(text, cls), hint)):
                 w.set_valign(Gtk.Align.CENTER)
                 grid.attach(w, c, 0, 1, 1)
             rule = Gtk.Separator()

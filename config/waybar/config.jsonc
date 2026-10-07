@@ -321,20 +321,24 @@
     "tooltip-format": "Devices connected: {num_connections}",
     "on-click": "~/.local/lib/panels/btgui.py"
   },
+  // as wide as its number (the visualizer recounts its gap when the volume gains or loses a digit).
+  // Each icon carries its own spacing: the speakers draw past their 7 px cell (8 px with no waves,
+  // 14 with three), so plain spaces left a wide gap at a low volume; spaces + 1 px hair spaces
+  // start the number 7 px after each one as drawn
   "pulseaudio": {
-    "format": "{icon}  {volume}%",
+    "format": "{icon}{volume}%",
     "on-click": "~/.local/lib/panels/audiogui.py",
     "on-click-right": "pamixer -t",
     "tooltip-format": "Playing at {volume}%",
     "scroll-step": 5,
-    "format-muted": "\ueee8  {volume}%",
+    "format-muted": "\ueee8 \u200a\u200a\u200a\u200a\u200a\u200a{volume}%",
     "format-icons": {
-      "headphone": "",
-      "headset": "",
+      "headphone": "\uf025 \u200a\u200a\u200a\u200a\u200a",
+      "headset": "\uf025 \u200a\u200a\u200a\u200a\u200a",
       "default": [
-        "",
-        "",
-        ""
+        "\uf026 \u200a",
+        "\uf027 \u200a\u200a\u200a",
+        "\uf028  "
       ]
     }
   },

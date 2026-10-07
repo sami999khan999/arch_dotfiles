@@ -26,9 +26,10 @@ every second and just after a window change, so any change on the right (a title
 an indicator, the clock, the code-backup icon) is followed within a second, to the pixel. Without a
 measurement (grim missing, the dividers not found) the gap is worked out from what's on the right:
 the window title and the group count (their text), the play button, the idle / do-not-disturb
-indicators and the clock's view (short or long). cava always makes RAW_BARS; each shown bar is the
+indicators, the clock's view (short or long) and the volume's digits. cava always makes RAW_BARS; each shown bar is the
 loudest of its share of them. SIGUSR1: recount now (clock.py and toggle.sh send it when the clock's
-view or an indicator changes).
+view or an indicator changes); a new volume recounts at once (pactl subscribe): its module is as wide
+as its number and its icon.
 
 It's the last module of the left section and may shrink (max-length; the bar has no centre
 section, see config.jsonc): GTK then shrinks it rather than push the right section, so the clock and
@@ -37,12 +38,13 @@ the power button can't move whatever happens. The sums below just make it fill t
 import importlib.machinery, importlib.util, json, math, os, shutil, signal, socket, subprocess, sys, threading, time
 
 # The reference: on the 1366 px screen the gap is GAP_REF px with a TITLE_REF-character title, the
-# group count "⊞ 1/1", the play button showing, no indicator and the short clock. Every difference
+# group count "⊞ 1/1", the play button showing, no indicator, the short clock and a 3-digit volume. Every difference
 # from that is added or taken off below. A wider screen adds its width. (The bar has no tray: apps
 # with a tray icon have their own workspace.)
 GAP_REF, TITLE_REF = 196, 30   # measured with the Settings button on the right (the agentmux one left again)
 COUNT_REF = "\U000f0570 1/1"   # the group count's text in the reference
 CLOCK_REF_LEN = 17             # "Thu 01 Oct  22:43": the short clock
+VOLUME_REF_LEN = 3             # "100%": the volume's digits (the model leaves out its icon's few px)
 CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; measured with Pango)
 EMPTY_PX = 38         # px freed on an empty workspace besides the title text: the title's padding
                       # (14) and the count " 1/1" (28), less the 4 px the lone icon gets back
@@ -137,7 +139,7 @@ def screen_width():
 
 
 state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "indicators": 0,
-         "clock": CLOCK_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15, "lead": 0, "trail": 0, "playing": False}
+         "clock": CLOCK_REF_LEN, "volume": VOLUME_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15, "lead": 0, "trail": 0, "playing": False}
 
 _layout = None
 
@@ -192,6 +194,7 @@ def modelled_gap():
         gap += PLAYER_PX
     gap -= s["indicators"] * INDICATOR_PX + BELL_PX
     gap -= (s["clock"] - CLOCK_REF_LEN) * CHAR_PX
+    gap -= (s["volume"] - VOLUME_REF_LEN) * CHAR_PX
     return gap
 
 
@@ -342,6 +345,33 @@ def follow_player():
         time.sleep(2)
 
 
+def volume():
+    """The bar's volume (waybar's pulseaudio module: the default sink, rounded), None if unknown."""
+    out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True).stdout
+    try:
+        return round(float(out.split()[1]) * 100)
+    except (IndexError, ValueError):
+        return None
+
+
+def follow_volume():
+    """pactl's events: a sink changed (or the default sink did). A new volume can change the volume
+    module's width (its digits, its icon): recount, and again once waybar has redrawn it."""
+    shown = volume()
+    while True:
+        p = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True)
+        for line in p.stdout:
+            if " on sink #" in line or " on server" in line:
+                now = volume()
+                if now is not None and now != shown:
+                    shown, state["volume"] = now, len(str(now))
+                    recount()
+                    threading.Timer(0.3, recount).start()
+        p.wait()
+        time.sleep(2)
+
+
 def indicators():
     """Indicators shown besides the bell: idle off (scripts/indicator.sh)."""
     return int(subprocess.run(["pgrep", "-x", "hypridle"], capture_output=True).returncode != 0)
@@ -379,6 +409,7 @@ def main():
     with open(conf, "w") as f:
         f.write(CONFIG)
     read_rest()
+    state["volume"] = len(str(volume() or 100))
     state["style"] = read_style()
     text_px(COUNT_REF)   # Pango set up here, on one thread, before the others start
     os.makedirs(PID_DIR, exist_ok=True)
@@ -387,7 +418,7 @@ def main():
     signal.signal(signal.SIGUSR1, lambda *_: WAKE.set())
     signal.signal(signal.SIGUSR2, lambda *_: WAKE.set())
     signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
-    for watcher in (follow_windows, follow_player, tick):
+    for watcher in (follow_windows, follow_player, follow_volume, tick):
         threading.Thread(target=watcher, daemon=True).start()
     cava = subprocess.Popen(["cava", "-p", conf], stdout=subprocess.PIPE, text=True, bufsize=1)
     last, heard = None, 0.0

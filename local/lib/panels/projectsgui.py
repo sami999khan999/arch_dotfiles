@@ -66,7 +66,7 @@ button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
 button.branch-chip { padding: 1px 6px; min-height: 0; margin-left: -6px; }
 .branch-head { font-size: 9pt; }
 /* the header's two cards, Status and Branches: side by side, the same width and height */
-.card { background: alpha(#1a1b26, .55); border: 1px solid alpha(#3b4261, .7); padding: 10px 14px; }
+.card { border: 1px solid alpha(#3b4261, .7); padding: 10px 14px; }   /* the page's own background */
 .card-title { color: #a9b1d6; font-weight: 700; }
 /* main heads the branch card, the other branches under it, set off by a rule */
 separator.branch-rule { background: alpha(#3b4261, .5); min-height: 1px; margin: 3px 0; }

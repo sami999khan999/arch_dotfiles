@@ -94,6 +94,8 @@ window#waybar {
   font-size: 13px;
   padding: 0 13px 0 9px;   /* the icon spills right of its glyph box (see "icons" below); measured on screen */
   margin: 0;
+  /* a seam: workspace 1's button is accent too when active, and the two read as one block */
+  border-right: 2px solid @base;
   transition: background-color 150ms;
 }
 

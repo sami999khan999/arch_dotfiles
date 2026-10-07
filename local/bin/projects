@@ -433,9 +433,10 @@ def set_ai_model(model):
     return commit(f"commit messages by {model}")
 
 
-def ask_model(prompt, files, model=None, timeout=120):
+def ask_model(prompt, files, model=None, timeout=120, stop=None):
     """One answer from model (default ai_model()) to prompt, with files ({name: text}) attached, from
-    opencode in the sandbox. (ok, the reply's text or what went wrong)."""
+    opencode in the sandbox. stop: a threading.Event; set, the run is killed (the Ask chat deleted while it
+    answers). (ok, the reply's text or what went wrong)."""
     if not shutil.which("opencode") or not shutil.which("bwrap"):
         return False, "opencode or bubblewrap isn't installed (setup/packages.txt)"
     tmp = tempfile.mkdtemp(prefix="projects-ai-")
@@ -453,10 +454,20 @@ def ask_model(prompt, files, model=None, timeout=120):
                 "--setenv", "HOME", box, "--setenv", "PWD", box, "--setenv", "PATH", "/usr/bin",
                 "opencode", "run", "--standalone", "--format", "json", "-m", model or ai_model(),
                 *[a for name in files for a in ("-f", f"{box}/in/{name}")], prompt]
-        try:
-            r = subprocess.run(argv, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return False, f"the model didn't answer in {timeout // 60} minutes"
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                stdin=subprocess.DEVNULL)
+        deadline = time.time() + timeout
+        while True:   # half a second at a time: a stop or the timeout kills the sandbox (--die-with-parent)
+            try:
+                out, err = proc.communicate(timeout=0.5)
+                break
+            except subprocess.TimeoutExpired:
+                if (stop and stop.is_set()) or time.time() > deadline:
+                    proc.kill()
+                    proc.communicate()
+                    return False, "stopped" if stop and stop.is_set() else \
+                        f"the model didn't answer in {timeout // 60} minutes"
+        r = subprocess.CompletedProcess(argv, proc.returncode, out, err)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     texts = []

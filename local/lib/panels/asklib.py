@@ -290,7 +290,7 @@ def transcript(history):
     return "\n\n".join(f"## {label[r]}\n{t}" for r, t in items)
 
 
-def ask(question, history, overview_text, selected, model, looked=lambda what: None):
+def ask(question, history, overview_text, selected, model, looked=lambda what: None, stop=None):
     """Answer question (history: [(role, text)], updated in place). looked(what) for each query run.
     (ok, answer text or what went wrong, actions)."""
     start = len(history)   # a failed question leaves the history as it was
@@ -302,7 +302,10 @@ def ask(question, history, overview_text, selected, model, looked=lambda what: N
         last = round_ == ROUNDS - 1
         prompt = ("Read the attached file and reply with one JSON object as it says."
                   + (" No more queries: answer now with what you have." if last else ""))
-        ok, text = pj.ask_model(prompt, {"ask.txt": context}, model)
+        if stop and stop.is_set():   # the chat was deleted while it answered
+            del history[start:]
+            return False, "stopped", []
+        ok, text = pj.ask_model(prompt, {"ask.txt": context}, model, stop=stop)
         if not ok:
             del history[start:]
             return False, text, []

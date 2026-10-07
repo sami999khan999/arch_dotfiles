@@ -133,7 +133,8 @@ class Ask(View):
             delete = button(TRASH, lambda b, sid=c["id"]: self.delete_chat(b, sid), "flat", "chat-del",
                             tooltip="delete this chat")
             delete.set_valign(Gtk.Align.CENTER)
-            delete.set_sensitive(not busy)
+            if busy:
+                delete.set_tooltip_text("delete this chat (stops its answer)")
             row = Gtk.ListBoxRow(child=box(False, 6, info, delete))
             row.chat_id = c["id"]
             self.chats.append(row)
@@ -161,6 +162,10 @@ class Ask(View):
             self.armed = GLib.timeout_add(3000, self.disarm)
             return
         self.disarm()
+        if sid == self.busy:   # still answering: stop it (the model run is killed); a late answer is dropped
+            self.stop.set()
+            self.busy, self.looked = None, []
+            self.go.set_sensitive(self.overview is not None)
         asklib.delete_session(sid)
         if self.chat["id"] == sid:
             self.chat = asklib.new_session(self.selected)
@@ -231,6 +236,7 @@ class Ask(View):
             return
         chat = self.chat
         self.busy, self.looked = chat["id"], []
+        stop = self.stop = threading.Event()   # set: the answer is no longer wanted (its chat deleted)
         self.entry.set_text("")
         self.go.set_sensitive(False)
         chat["title"] = chat["title"] or question[:80]
@@ -252,16 +258,18 @@ class Ask(View):
         model = self.model
 
         def go():
-            ok, text, actions = asklib.ask(question, chat["history"], self.overview, chat["selected"], model, looked)
+            ok, text, actions = asklib.ask(question, chat["history"], self.overview, chat["selected"], model, looked,
+                                           stop)
             GLib.idle_add(lambda: self.answered(chat, model, ok, text, actions) and False)
         threading.Thread(target=go, daemon=True).start()
 
     def answered(self, chat, model, ok, text, actions):
+        if self.busy != chat["id"]:   # its chat was deleted (and the answer stopped) meanwhile: dropped
+            return
         chat["messages"].append({"who": "ai", "model": model, "ok": ok, "text": text if ok else f"no answer: {text}",
                                  "looked": self.looked, "actions": actions, "done": {}})
         chat["updated"] = time.time()
-        if chat["id"] in {c["id"] for c in asklib.sessions()}:   # unless it was deleted meanwhile
-            asklib.save_session(chat)
+        asklib.save_session(chat)
         self.busy, self.looked = None, []
         self.go.set_sensitive(self.overview is not None)
         self.paint_chats()

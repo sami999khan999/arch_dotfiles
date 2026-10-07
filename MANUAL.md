@@ -122,7 +122,7 @@ Control Center's workspace. (No preview: the picker draws a sketch from the colo
 in a file:** use one of the roles (any Tokyo Night colour in `tokyo-night/theme.json`); a colour that
 isn't one stays the same in every theme.
 
-Not themed: Dolphin's own KDE colours (`config/kdeglobals`: KDE has no include, and Settings writes
+Not themed: Dolphin's own KDE colours (Files, the file manager, is) (`config/kdeglobals`: KDE has no include, and Settings writes
 that file), the login screen (`system/greeter`, installed as root), the polkit password prompt
 (`hypr/hyprtoolkit.conf`), lazydocker, wiremix, and VS Code (Settings Sync).
 
@@ -402,6 +402,28 @@ merge to you in `~/code/.projects`.
 
 The program is `local/bin/projects`.
 
+## Files
+
+Files (`Super + E`, `Super + Shift + F`, workspace 7; `local/lib/panels/filesgui.py`) is the file
+manager: a GTK panel in the panels' look, so it follows the colour theme. It's the default for folders
+(`sami-files.desktop` in `config/mimeapps.list`): `xdg-open` of a folder, a browser's "show in folder", a
+run of `filesgui.py <folder>` all open the running one there. Dolphin is still installed (it lands on
+workspace 7 too).
+
+- **Left:** Places (home, the XDG folders, `~/code`, `~/dotfiles`) and Drives (`/`, what's mounted under
+  `/mnt`, `/media`, `/run/media`). **Top:** back, forward, up, the path as crumbs (click one to go there;
+  click beside them or `Ctrl+L` to type a path), a filter (`/` or `Ctrl+F`: names containing what you type).
+- **The folder:** a table (name, size or a folder's item count, modified, type), folders first, sorted
+  by a click on a column. The folder is watched: changes made anywhere show by themselves.
+- **Keys:** `Enter` open (a file in its default app), `Backspace` / `Alt+←` back, `Alt+→` forward,
+  `Alt+↑` up, `F2` rename, `Ctrl+Shift+N` new folder, `Del` to the trash, `Shift+Del` delete permanently
+  (asks), `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy / cut / paste, `Ctrl+Shift+C` copy the path, `Ctrl+H` hidden
+  files, `F4` a terminal here, `F5` reload, `Esc` clears the filter or the selection. Right-click a file or
+  the empty part for a menu.
+- Copy and cut put the files on the clipboard as file URIs too, so they paste into other apps; files another
+  app copied paste here. A name that's taken gets " (2)". A drive without a trash (NTFS, `/tmp`) asks
+  before deleting for good. It remembers the last folder and the hidden-files choice (`~/.local/state/files`).
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:
@@ -426,7 +448,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 3 | Web | Chrome windows |
 | 4 | Terminal | kitty |
 | 5 | Projects | the Projects panel (below) |
-| 7 | Files | Dolphin |
+| 7 | Files | Files (`filesgui.py`; Dolphin opens here too) |
 | 8 | Discord | Discord |
 | 9 | Docker | the Docker panel (below) |
 | 10 (key 0) | Control | the Control Center (below) |

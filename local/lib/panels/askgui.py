@@ -15,7 +15,7 @@ import projectsgui as pg
 
 pj = pg.pj
 HERE = os.path.dirname(os.path.abspath(__file__))
-TRASH = ""
+TRASH = "\uf014"
 CSS = """
 .ask-log { padding: 4px 2px; }
 .ask-you { color: #6b8fe0; font-weight: 700; }
@@ -47,7 +47,7 @@ def when(t):
 
 
 class Ask(View):
-    icon = ""   # as the Projects panel
+    icon = "\uea62"   # as the Projects panel
     interval = 0
     css = CSS
     hints = [("Enter", "ask"), ("Ctrl+N", "new chat"), ("Esc", "close")]

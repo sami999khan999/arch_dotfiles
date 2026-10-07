@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Comment=Browse and manage files, in the colour theme
+Exec=python3 /home/sami/.local/lib/panels/filesgui.py %U
+Icon=system-file-manager
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;
+Keywords=files;folders;file manager;explorer;
+StartupWMClass=sami.files

@@ -114,6 +114,7 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
   </tr>
   <tr>
     <td width="33%" align="center" valign="top"><b>Projects</b><br><sub>Every repo in the code folder on a private list: one command clones them all back. A panel for branches and history.</sub><br><sub><a href="MANUAL.md#projects">More →</a></sub></td>
+    <td width="33%" align="center" valign="top"><b>Files</b><br><sub>A file manager in the panels' look and the colour theme.</sub><br><sub><a href="MANUAL.md#files">More →</a></sub></td>
   </tr>
 </table>
 

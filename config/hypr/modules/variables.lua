@@ -1,7 +1,7 @@
 -- Hyprland default apps
 
 TERMINAL     = "kitty"
-FILE_MANAGER = "dolphin"
+FILE_MANAGER = "~/.local/lib/panels/filesgui.py"   -- Files (local/lib/panels/filesgui.py)
 BROWSER      = "google-chrome-stable"
 EDITOR       = "gnome-text-editor --new-window"
 CALCULATOR   = "gnome-calculator"

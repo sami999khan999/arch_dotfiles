@@ -569,6 +569,11 @@ class Projects(View):
         except OSError:
             return None
 
+    def disk_changed(self):
+        """A listed project cloned or gone since the panel looked (a stat per project: cheap enough for
+        refresh's every 2 s)."""
+        return any((p.kind == "repo") != pj.is_repo(p.path) for p in self.projects if p.kind in ("repo", "missing"))
+
     def reload(self, select=None):
         self.list_seen = self.list_stamp()
         self.projects = load_projects()
@@ -1021,9 +1026,9 @@ class Projects(View):
                 "\n".join(git_lines(p.path, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads", "refs/remotes")))
 
     def refresh(self):
-        # the list changed outside the panel (projects delete / move on the command line, the other PC's
-        # changes pulled): show it, not what was there when the panel opened
-        if self.list_stamp() != self.list_seen and not self.busy:
+        # the list or ~/code changed outside the panel (projects delete / move / clone on the command line,
+        # the other PC's changes pulled): show it, not what was there when the panel opened
+        if (self.list_stamp() != self.list_seen or self.disk_changed()) and not self.busy:
             self.reload()
         p = self.current()
         if (not p or p.kind != "repo" or self.live_busy or self.dim.get_visible()
@@ -1939,6 +1944,7 @@ class Projects(View):
         todo = pj.missing()
         if not todo:
             self.say("every listed project is already here")
+            self.reload()   # the panel thought some weren't: show them
             return
         self.busy = True
         self.stop = threading.Event()

@@ -309,7 +309,8 @@ doesn't have (an unlisted repo, a folder without git) moves to `~/code/unsorted/
 a listed folder already taken stays put. `projects arrange` (`-n`: just show) does the same any time. If `gh` isn't logged in, a
 button above opens `gh auth login`. *Start a new list instead* creates the private repo from what's in `~/code`; then build the structure with + New
 (*New folder…*, *Clone a URL*), one project at a time. Whenever listed projects aren't on this PC, the
-header shows **Clone missing (N)**, which uses the same progress list.
+header shows **Clone missing (N)**, which uses the same progress list. The panel notices projects
+cloned or removed outside it (`projects clone` / `delete` in a terminal) within a couple of seconds.
 
 **The list on the left** has three sections, each folding with a click (or Enter): **Pinned** (pin a
 project with *Pin* or `p`; pins are in the list, so every PC has them), **Changes** (every repo with

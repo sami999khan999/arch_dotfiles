@@ -408,6 +408,11 @@ class View:
         """A key the focused widget didn't use. Return True if handled."""
         return False
 
+    def leave_text(self):
+        """A click outside the text field that has the keyboard (the search…): where the focus goes
+        instead. By default nowhere, so the panel's keys work again; a view with a list can focus it."""
+        self.window.set_focus(None)
+
     # -- provided by the host --
     def say(self, msg, kind="ok", seconds=4):
         """A message on the status line; kind "bad" shows it in red. It clears itself after seconds."""
@@ -591,6 +596,11 @@ class ViewHost:
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self._on_key)
         self.win.add_controller(keys)
+        # a click anywhere outside the focused text field leaves it, as in a browser: GTK only moves the
+        # focus to what takes it, so a click on a label, a gap or the page left the keys going into the search
+        click = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self._on_click)
+        self.win.add_controller(click)
         if self.view.interval:
             GLib.timeout_add(int(self.view.interval * 1000), self._tick)
         return self.win
@@ -626,10 +636,10 @@ class ViewHost:
         win.add_controller(keys)
         return win
 
-    def popup_address(self):
+    def popup_client(self):
         import json
         try:
-            return next(c["address"] for c in json.loads(hypr_socket("j/clients") or "[]")
+            return next(c for c in json.loads(hypr_socket("j/clients") or "[]")
                         if c["pid"] == os.getpid() and c["title"] == self.win.get_title() and c["floating"])
         except (ValueError, StopIteration):
             return None
@@ -637,17 +647,31 @@ class ViewHost:
     def pin_over_backdrop(self):
         """Pin the popup once Hyprland has it: a click on the backdrop focuses and raises the backdrop,
         and a pinned window stays above it (no frame of the popup hidden, as the click closes it). Pinned
-        also means it would follow a workspace switch without its backdrop, so that closes it
-        (watch_workspace)."""
-        me = self.popup_address()
+        also means it would follow a workspace switch without its backdrop, so it's unpinned while
+        another workspace shows (watch_workspace)."""
+        me = self.popup_client()
         if me:
-            hypr_socket(f'dispatch hl.dsp.window.pin({{ window = "address:{me}" }})')
+            self.address, self.home = me["address"], me["workspace"]["name"]
+            self.set_pinned(True)
             self.watch_workspace()
             return False
         self.pin_tries = getattr(self, "pin_tries", 0) + 1
         return self.pin_tries < 30   # Hyprland lists a new window within a few tries of 30 ms
 
+    def set_pinned(self, on):
+        """Pin / unpin the popup (Hyprland's pin toggles: its state is read first). Unpinned, it goes back
+        to the workspace it opened on: a pinned window moves along to every workspace shown."""
+        me = self.popup_client()
+        if not me or me["pinned"] == on:
+            return
+        hypr_socket(f'dispatch hl.dsp.window.pin({{ window = "address:{self.address}" }})')
+        if not on:
+            hypr_socket(f'dispatch hl.dsp.window.move({{ workspace = "{self.home}", follow = false, '
+                        f'window = "address:{self.address}" }})')
+
     def watch_workspace(self):
+        """The popup stays on its workspace with its backdrop: another workspace shown unpins it there,
+        its own shown again pins it back above the backdrop."""
         import socket, threading
         path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
 
@@ -659,9 +683,10 @@ class ViewHost:
                     while chunk := sock.recv(4096):
                         buf += chunk
                         *events, buf = buf.split(b"\n")
-                        if any(e.startswith(b"workspace>>") for e in events):
-                            GLib.idle_add(lambda: self.win.close() or False)
-                            return
+                        for e in events:
+                            if e.startswith(b"workspace>>"):
+                                name = e[len(b"workspace>>"):].decode(errors="replace")
+                                GLib.idle_add(lambda on=name == self.home: self.set_pinned(on) or False)
             except OSError:
                 pass
         threading.Thread(target=watch, daemon=True).start()
@@ -682,6 +707,18 @@ class ViewHost:
             self.win.close()
             return True
         return self.view.key(keyval, state)
+
+    def _on_click(self, _gesture, _n, x, y):
+        # the outermost text field around the focus: an entry's own Gtk.Text is one too, and its icons
+        # (the search glass, the clear button) are inside the entry but not inside its text
+        field, w = None, self.win.get_focus()
+        while w is not None:
+            if isinstance(w, Gtk.Editable):
+                field = w
+            w = w.get_parent()
+        hit = self.win.pick(x, y, Gtk.PickFlags.DEFAULT)
+        if field is not None and not (hit is not None and (hit is field or hit.is_ancestor(field))):
+            self.view.leave_text()
 
     def close_view(self):
         if self.toggle:

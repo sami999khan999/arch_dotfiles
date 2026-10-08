@@ -415,7 +415,6 @@ class Projects(View):
         else:
             self.show_setup()
         GLib.idle_add(lambda: (self.update_counts(), self.focus_list()) and False)
-        self.search.connect("map", lambda *_: self.leave_search_on_click())
         # the panel's popups (Move, Delete…) are a card over the dimmed panel, not windows of their own:
         # a window of this class would be tiled on the workspace like the panel itself
         self.card = box(True, 10, classes=("dialog",))
@@ -507,21 +506,13 @@ class Projects(View):
             (b.add_css_class if n == name else b.remove_css_class)("on")
         self.filter_box.set_visible(name == "graph")
 
-    def leave_search_on_click(self):
-        """A click anywhere outside the search box takes the typing focus out of it (to the list), as
-        it would anywhere else: GTK only moves focus to what takes it, so a click on a label, the page
-        or a gap left the keys (t, a, c…) going into the search."""
-        root = self.search.get_root()
-        if getattr(self, "click_watch", None) or not root:
-            return
-        self.click_watch = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
-
-        def pressed(_g, _n, x, y):
-            inside = lambda w: w is not None and (w is self.search or w.is_ancestor(self.search))
-            if inside(root.get_focus()) and not inside(root.pick(x, y, Gtk.PickFlags.DEFAULT)):
-                self.focus_list()
-        self.click_watch.connect("pressed", pressed)
-        root.add_controller(self.click_watch)
+    def leave_text(self):
+        """A click outside a text field: out of the search, to the list (the panel's keys t, a, c… work there)."""
+        w = self.window.get_focus()
+        if w is not None and (w is self.search or w.is_ancestor(self.search)):
+            self.focus_list()
+        else:
+            super().leave_text()
 
     def focus_list(self):
         row = self.tree.get_selected_row() or self.first_project() or self.tree.get_row_at_index(0)

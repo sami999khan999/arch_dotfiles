@@ -342,8 +342,7 @@ them, then sync"). A branch where you and GitHub both have new commits is left a
 
 **The sections** on the left: Pinned · Changes (uncommitted `● N`, unpushed `↑N`) · **Out of date**
 (`↓N`: commits behind GitHub, all branches together, as `main ↓N` on the page; `+N new`: branches on
-GitHub not here yet; *Sync all*) · **Conflicts** (`⚠ N`) · All projects. A click outside the search box takes
-the typing focus back to the list, so the keys (`t`, `a`, `c`…) work again.
+GitHub not here yet; *Sync all*) · **Conflicts** (`⚠ N`) · All projects.
 
 **Conflicts tab** (in a project's page, beside Changes): files left with conflicts in the folder (from a
 merge or pull you started: resolve them in VS Code, then commit), and every diverged branch: how many
@@ -549,11 +548,14 @@ Every panel is a GTK window (`local/lib/panels/*gui.py`) in the look of the Cont
 icon and title with details on the right, a blue underline, blue section headings, amber keys and
 window classes, green / amber / red levels, key hints at the bottom. The popups float in the middle of the screen; running one again (its
 key or waybar click) closes it, and so does `Esc`. The hints at the bottom list each panel's keys.
+A click anywhere outside a text field (a search box…) leaves it, so the panel's keys work again
+(`leave_text` in `gtkkit.py`; Projects goes back to its list).
 While a popup is open the screen behind it is blurred and darkened, the bar excepted (a full-screen
 window under it showing a screenshot taken as it opened, blurred by GTK: Hyprland's blur is one
 strength for everything; `Backdrop` in `gtkkit.py`, `panels-backdrop` in `modules/windowrules.lua`);
-a click there closes the popup, and so does switching workspace (the popup is pinned above its
-backdrop, so that click can't cover it). Settings → Appearance → Panels: on / off, blur (0–40 px)
+a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
+and it's still there over its backdrop (it's pinned above the backdrop, so that click can't cover it,
+and unpinned while another workspace shows). Settings → Appearance → Panels: on / off, blur (0–40 px)
 and darkness.
 The pair popup (`Super + Alt + P`) has none: you watch the pair while you change it.
 

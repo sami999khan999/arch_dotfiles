@@ -127,7 +127,8 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthrea
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproject)$" }, size = { 820, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.quitagentmux)$" }, size = { 560, 300 } })
 -- Commit, from the Projects panel (commitgui.py): the message and the changed files
-hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$" }, size = { 900, 640 } })
+-- Commit (commitgui.py): the files and the selected one's diff side by side, so by the screen's size
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- Ask, from the Projects panel (askgui.py): large, by the screen's size (1440×886 on 1920×1080, 1024×630 on 1366×768)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.ask)$" }, size = { "monitor_w*0.75", "monitor_h*0.82" } })
 -- the Open / Save dialogs (pickergui.py, the portal's file picker): Files' window, a little smaller than the screen

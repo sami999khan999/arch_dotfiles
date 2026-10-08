@@ -352,7 +352,10 @@ do, in VS Code; the panel only shows where things stand. The branch table's **ma
 how each branch stands against main.
 
 **Commit…** (`c`, when there are changes) opens a popup like every other panel (`commitgui.py`: the screen blurred behind it, `Esc` or a click outside closes it): a message (subject line, then a body if it needs one;
-`Ctrl+Enter` commits), the changed files (untick what stays out), *Push it to GitHub after*. A normal
+`Ctrl+Enter` commits; the subject's length beside it, amber past 72), the changed files (untick what stays
+out; each with its `+`/`−` lines, the name before its folder; a filter, and *All* / *None* for the files
+it shows; `Space` ticks the selected one), and on the right the selected file's diff (a click on a file,
+or `↑↓` in the list); *Push it to GitHub after* (the button says *Commit & push N files*). A normal
 `git commit`: the project's hooks run. **Write it for me** has a free model write the message from the
 ticked files' changes, in the style of the repo's recent commits, through `opencode run` (the free tier only
 works from inside opencode). The dropdown beside it picks the model from opencode's free ones

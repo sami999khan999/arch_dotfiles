@@ -82,10 +82,21 @@ list > row:hover { background: alpha(#292e42, .45); }
 list > row:selected { background: #292e42; color: #c0caf5; }
 list > row:focus { outline: none; }
 
-entry { background: alpha(#000000, .22); color: #c0caf5; border: none; border-bottom: 1px solid alpha(#c0caf5, .12);
-        padding: 5px 10px; min-height: 22px; box-shadow: none; caret-color: #6b8fe0; }
-entry:focus-within { border-bottom-color: #6b8fe0; background: alpha(#000000, .32); outline: none; }
+/* text fields (and the number box): a sunken square box with a thin frame that turns blue while it
+   has the keyboard; Adwaita's rounded corners, inner focus ring and shadows taken off */
+entry, spinbutton { background: #16161e; color: #c0caf5; border: 1px solid alpha(#3b4261, .7); border-radius: 0;
+                    box-shadow: none; outline: none; caret-color: #6b8fe0; min-height: 24px; }
+entry { padding: 4px 10px; }
+entry:hover, spinbutton:hover { border-color: #3b4261; }
+entry:focus-within, spinbutton:focus-within { border-color: #6b8fe0; background: #16161e; outline: none;
+                                              box-shadow: inset 0 -1px #6b8fe0; }
+entry > text, spinbutton > text { background: transparent; outline: none; box-shadow: none; }
 entry placeholder, entry > text > placeholder { color: #565f89; }
+entry selection, spinbutton selection { background: alpha(#6b8fe0, .35); color: #c0caf5; }
+entry > image { color: #565f89; margin: 0 2px; }   /* the search glass, the clear button */
+entry > image:hover { color: #c0caf5; }
+entry:focus-within > image:first-child { color: #6b8fe0; }
+entry:disabled, spinbutton:disabled { background: alpha(#16161e, .5); color: #565f89; border-color: alpha(#3b4261, .4); }
 
 /* quiet tinted text buttons; blue only for the one main action */
 button { background: alpha(#c0caf5, .06); color: #c0caf5; border: none; padding: 5px 14px;
@@ -125,10 +136,8 @@ dropdown arrow, spinbutton button { color: #565f89; }
 dropdown popover listview { background: transparent; }
 dropdown popover listview > row { padding: 4px 10px; }
 dropdown popover listview > row:selected { background: #292e42; }
-spinbutton { background: alpha(#000000, .22); color: #c0caf5; border: none; border-bottom: 1px solid alpha(#c0caf5, .12); box-shadow: none; }
-spinbutton:focus-within { border-bottom-color: #6b8fe0; }
 spinbutton > text { padding: 4px 8px; min-width: 40px; }
-spinbutton button { background: transparent; border: none; padding: 2px 8px; }
+spinbutton button { background: transparent; border: none; border-left: 1px solid alpha(#3b4261, .7); border-radius: 0; padding: 2px 8px; }
 spinbutton button:hover { background: alpha(#c0caf5, .08); color: #c0caf5; }
 scale trough { background: #292e42; border: none; min-height: 4px; padding: 0; }
 scale highlight { background: #6b8fe0; border: none; min-height: 4px; margin: 0; }

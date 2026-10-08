@@ -575,6 +575,7 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
 | Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |
+| System agent (`sysagentgui.py`) | `Super + Ctrl + S`, waybar sparkles icon | ask an AI about this PC, strictly read-only: see System agent below |
 
 ### Notifications
 
@@ -590,6 +591,32 @@ dismisses the newest on screen, `Super + Shift + ,` all of them.
 How: mako runs `scripts/notifications.py log` for every notification (`on-notify` in
 `config/mako/config`), which keeps the last 200 with their time in `~/.local/state/notifications.json`
 and signals the bell (waybar signal 10). Nothing polls.
+
+### System agent
+
+`Super + Ctrl + S` or the sparkles in the bar: a chat with a free AI model (through opencode, picked in the
+dropdown by Ask) about this PC — why a service failed, what's using the memory, where a setting lives, what
+a config file does, what Hyprland sees, which packages are installed. It looks before it answers (each
+thing it read is listed under the answer) and says where the answer comes from. The chats are kept in
+`~/.local/share/sysagent/chats` (only for you); a chat's bin deletes it (a second click within 3 s).
+
+It is **strictly read-only**, by construction (`sysagentlib.py`), in three layers, each enough alone:
+
+1. The model runs in opencode in a bubblewrap sandbox holding none of your files (an empty, throwaway
+   home), with network only to reach the model. opencode's own tools are refused (edit, write, bash,
+   read, web…): `bash` and `read` stay listed as *ask*, which opencode's free tier requires and a
+   non-interactive run always rejects.
+2. Its only usable tools are the panel's own (an MCP server on `127.0.0.1` at a random secret path,
+   alive only while it answers), and they only read: a file, a folder, find, search, a shell command
+   in the reader sandbox, and fixed status commands (processes, services and their status, the journal,
+   Hyprland's state, packages, Docker, ports, system info) with every argument checked.
+3. Files and commands are read in the reader sandbox: the whole filesystem mounted read-only, no
+   network, an empty `/run` and `/tmp` (no session bus, Hyprland, Docker or other sockets), its own
+   process namespace (it can't see or signal your programs), no privileges, and a seccomp filter that
+   refuses `socket()`, `connect()` and io_uring. Keys, tokens, browser profiles, shell history and every
+   `.env` under `~/code` are covered: it can't read them either.
+
+When something needs changing it tells you what to run. Free models may keep what they're sent.
 
 ### Settings panel
 

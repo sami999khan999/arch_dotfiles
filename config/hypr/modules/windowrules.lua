@@ -131,6 +131,8 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.quitagen
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- Ask, from the Projects panel (askgui.py): large, by the screen's size (1440×886 on 1920×1080, 1024×630 on 1366×768)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.ask)$" }, size = { "monitor_w*0.75", "monitor_h*0.82" } })
+-- the System agent (sysagentgui.py): larger still, for long logs and config files (1536×929 on 1920×1080)
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.sysagent)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- the Open / Save dialogs (pickergui.py, the portal's file picker): Files' window, a little smaller than the screen
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.picker)$" }, size = { "monitor_w*0.70", "monitor_h*0.78" } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page

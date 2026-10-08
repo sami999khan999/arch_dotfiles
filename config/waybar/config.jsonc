@@ -23,6 +23,7 @@
     "custom/window",
     "custom/divider",
     "custom/codesync",
+    "custom/sysagent",
     "custom/keys",
     "custom/settings",
     "bluetooth",
@@ -347,6 +348,11 @@
     "return-type": "json",
     "escape": true,
     "on-click": "~/.local/bin/wsgroups"
+  },
+  "custom/sysagent": {
+    "format": "󰙴",
+    "tooltip-format": "System agent: ask about this PC, read-only (Super + Ctrl + S)",
+    "on-click": "~/.local/lib/panels/sysagentgui.py"
   },
   "custom/keys": {
     "format": "",

@@ -115,6 +115,7 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
   <tr>
     <td width="33%" align="center" valign="top"><b>Projects</b><br><sub>Every repo in the code folder on a private list: one command clones them all back. A panel for branches and history.</sub><br><sub><a href="MANUAL.md#projects">More →</a></sub></td>
     <td width="33%" align="center" valign="top"><b>Files</b><br><sub>A file manager in the panels' look and the colour theme.</sub><br><sub><a href="MANUAL.md#files">More →</a></sub></td>
+    <td width="33%" align="center" valign="top"><b>System agent</b><br><sub>Ask an AI about this PC: it reads the config, logs and services, in a sandbox where it can't change a thing.</sub><br><sub><a href="MANUAL.md#system-agent">More →</a></sub></td>
   </tr>
 </table>
 

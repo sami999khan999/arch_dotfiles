@@ -37,7 +37,7 @@ window#waybar {
 }
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
-#custom-clock, #custom-wsgroups, #custom-keys, #custom-settings,
+#custom-clock, #custom-wsgroups, #custom-sysagent, #custom-keys, #custom-settings,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
 #custom-idle-indicator, #custom-notifications,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
@@ -47,7 +47,7 @@ window#waybar {
   transition: background-color 150ms, color 150ms;
 }
 
-#custom-clock:hover, #custom-wsgroups:hover, #custom-keys:hover, #custom-settings:hover,
+#custom-clock:hover, #custom-wsgroups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
 #memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover,
 #custom-visualizer:hover {
@@ -225,7 +225,7 @@ window#waybar {
   padding: 0 10px;
 }
 
-#custom-keys, #custom-settings, #bluetooth, #network {
+#custom-sysagent, #custom-keys, #custom-settings, #bluetooth, #network {
   color: @muted;
 }
 
@@ -268,6 +268,7 @@ window#waybar {
    (measured with Pango: keyboard 6 px, wifi 5, ethernet 3), so equal padding left them off-centre.
    Each gets that much less padding on the left and more on the right; the total stays the same,
    so the bar's widths (and visualizer.py's sums) don't change. */
+#custom-sysagent  { padding: 0 12px 0 8px; }
 #custom-keys      { padding: 0 12px 0 8px; }
 #custom-settings  { padding: 0 12px 0 8px; }   /* the cog: 2 px right of centre on screen */
 #network.wifi,

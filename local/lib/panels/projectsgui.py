@@ -2,7 +2,7 @@
 # projectsgui.py — the Projects panel (Super + Ctrl + P): every project in ~/code, from the `projects`
 # list (~/code/.projects/projects.json, private), with its git details. Running it again closes it.
 #
-#   left   the ~/code tree: groups fold (←/→, Enter or a click on the group); a repo shows its branch and
+#   left   the ~/code tree, all of it or one GitHub account's / org's (the dropdown by the search): groups fold (←/→, Enter or a click on the group); a repo shows its branch and
 #          a dot when it has uncommitted changes; a cloud for a listed project that isn't cloned on this
 #          PC; ⚠ a local-only folder (no git remote: only the SSD and the HDD backup have it)
 #   right  the selected project: branch, to push / to pull, changed files, last fetch, remotes; open it in
@@ -45,7 +45,9 @@ STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer 
 # brings it), what needs merging by hand, and all of them
 SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§outdated", "Out of date"),
             ("§conflicts", "Conflicts"), ("§all", "All projects")]
+INDENT = 18 + 8                  # a tree level: .pj-glyph's width + the rows' spacing
 G_OPEN, G_SHUT = "", ""         # folder open / closed
+G_REPO = "\uf401"                # a git repo (nf-oct-repo), in the folders' icon column
 G_MISSING, G_LOCAL = "", ""   # cloud download, warning
 # graph: lane colours (Tokyo Night; the theme recolours them), lane width and row height in px
 LANES = ["#7aa2f7", "#bb9af7", "#9ece6a", "#ff9e64", "#7dcfff", "#e0af68", "#73daca", "#f7768e"]
@@ -325,6 +327,15 @@ class Project:
         self.branch = pj.current_branch(self.path) if kind == "repo" else ""
 
 
+def owner_of(p):
+    """The owner filter's key for a project: its GitHub account or org (lower case: GitHub ignores case),
+    §other for a remote elsewhere, §local for a folder with no remote."""
+    if p.kind == "local":
+        return "§local"
+    repo = pj.github_repo(p.entry.get("url", ""))
+    return repo.split("/")[0].lower() if repo else "§other"
+
+
 def load_projects():
     data = pj.load()
     out = {}
@@ -358,6 +369,7 @@ class Projects(View):
         self.shown_rel = None         # the project on the page: the same one again isn't blanked first
         self.tree_seen = None         # what the tree shows (paint_tree skips a repaint that changes nothing)
         self.branch_names = []        # for the graph's branch filter
+        self.org = ""                 # the tree's owner filter: an owner_of() key ("" = every owner)
         self.syncing = False          # Sync all is running
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
@@ -388,8 +400,10 @@ class Projects(View):
         click = Gtk.GestureClick()   # a single click on a group folds it
         click.connect("released", self.tree_clicked)
         self.tree.add_controller(click)
-        self.search.set_margin_bottom(8)
-        left = box(True, 0, self.search, scrolled(self.tree))
+        self.org_box = box(False, 0)   # the owner filter, above the search (paint_orgs)
+        top = box(True, 6, self.org_box, self.search)
+        top.set_margin_bottom(8)
+        left = box(True, 0, top, scrolled(self.tree))
         left.add_css_class("side")
         left.set_size_request(400, -1)
         left.set_hexpand(False)   # its rows expand; without this the column takes a share of the spare width
@@ -408,6 +422,7 @@ class Projects(View):
             for edge in ("start", "end", "top"):
                 getattr(page, f"set_margin_{edge}")(20)
 
+        self.paint_orgs()
         self.paint_tree()
         if os.path.exists(pj.LIST):
             self.pages.set_visible_child_name("empty")
@@ -557,6 +572,7 @@ class Projects(View):
     def reload(self, select=None):
         self.list_seen = self.list_stamp()
         self.projects = load_projects()
+        self.paint_orgs()
         if select:
             self.selected = None
             parts = select.split("/")
@@ -596,21 +612,51 @@ class Projects(View):
             list(pool.map(fetch, stale))
         GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
 
+    def paint_orgs(self):
+        """The owner filter: every GitHub account / org in the list with its project count, then other
+        remotes and local-only folders. A filter whose owner is gone from the list goes back to all."""
+        counts, names = {}, {}
+        for p in self.projects:
+            k = owner_of(p)
+            counts[k] = counts.get(k, 0) + 1
+            if k[0] != "§":
+                names.setdefault(k, pj.github_repo(p.entry["url"]).split("/")[0])
+        names.update({"§other": "other remotes", "§local": "local only"})
+        keys = sorted(k for k in counts if k[0] != "§") + [k for k in ("§other", "§local") if k in counts]
+        if self.org not in counts:
+            self.org = ""
+        clear(self.org_box)
+        dd = dropdown([("", "All owners")] + [(k, f"{names[k]}  {counts[k]}") for k in keys], self.org,
+                      self.pick_org)
+        dd.set_tooltip_text("only one GitHub account's or org's projects")
+        dd.set_hexpand(True)   # the column's width, like the search under it
+        self.org_box.append(dd)
+
+    def pick_org(self, key):
+        self.org = key
+        self.paint_tree()
+        self.focus_list()
+
+    def shown(self):
+        """The projects the owner filter lets through."""
+        return [p for p in self.projects if not self.org or owner_of(p) == self.org]
+
     # ---- the tree --------------------------------------------------------------------------------
     def layout(self):
         """[(kind, key, depth, extra)] in on-screen order: kind is section, hint, group or project. A
         search is one flat list of matches, best first; else the three sections, each folding."""
         q = self.search.get_text().strip()
+        projects = self.shown()
         if q:
             found = []
-            for p in self.projects:
+            for p in projects:
                 m = fuzzy(q, p.name, p.rel)
                 if m:
                     found.append((-m[0], p.rel, m))
             return [("project", rel, 0, m) for _, rel, m in sorted(found)]
-        by_rel = {p.rel: p for p in self.projects}
+        by_rel = {p.rel: p for p in projects}
         pinned = [r for r in self.pinned if r in by_rel]
-        repos = [p for p in self.projects if p.kind == "repo"]
+        repos = [p for p in projects if p.kind == "repo"]
         changes = [p.rel for p in repos if p.dirty or p.unpushed]
         outdated = [p.rel for p in repos if p.out_of_date]
         clashing = [p.rel for p in repos if p.conflicts]
@@ -628,11 +674,11 @@ class Projects(View):
                 out += [("project", r, 0, "where") for r in items]
             else:
                 out += self.by_top(key, items)
-        out.append(("section", "§all", 0, len(self.projects)))
+        out.append(("section", "§all", 0, len(projects)))
         if "§all" in self.folded:
             return out
         groups = set()
-        for p in self.projects:
+        for p in projects:
             parts = p.rel.split("/")
             hidden = False
             for i in range(1, len(parts)):
@@ -688,7 +734,7 @@ class Projects(View):
                 row.add_css_class("group-row")
             elif kind == "section":
                 shut = key in self.folded
-                line = box(False, 8, label("▸" if shut else "▾", "dim", "pj-glyph"),
+                line = box(False, 8, label("▸" if shut else "▾", "dim", "pj-glyph", xalign=0.5),   # centred over the folders' icons
                            label(titles[key], "section-title"), label(str(extra), "dim"))
                 if key == "§outdated":   # Sync all, at the right of its header
                     line.get_last_child().set_hexpand(True)
@@ -704,7 +750,7 @@ class Projects(View):
                 row.add_css_class("hint-row")
             elif kind == "group":
                 shut = key in self.folded
-                n = sum(p.rel.startswith(key + "/") for p in self.projects)
+                n = sum(p.rel.startswith(key + "/") for p in self.shown())
                 line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"),
                            label(os.path.basename(key), "bold"), label(str(n), "dim"))
                 row = Gtk.ListBoxRow(child=line)
@@ -715,7 +761,8 @@ class Projects(View):
                 first = first or row
             row.kind, row.key = kind, key
             row.group = under if kind == "project" and extra == "where" else None   # what ← folds
-            row.get_child().set_margin_start(depth * 16)
+            # a level is a glyph and its gap: a folder's rows start right under the folder's name
+            row.get_child().set_margin_start(depth * INDENT)
             self.tree.append(row)
             if kind == "project" and key == self.selected and not picked:
                 self.tree.select_row(row)   # a project in two sections: the first is the selected one
@@ -737,7 +784,7 @@ class Projects(View):
             # the branch only when it isn't main: that's the case worth seeing (main on every row was noise)
             # (main isn't known until its health is in: main / master stand for it till then)
             off_main = p.branch not in ((p.main,) if p.main else ("", "main", "master"))
-            glyph, gclass, right, rclass = "", "", p.branch if off_main else "", "dim"
+            glyph, gclass, right, rclass = G_REPO, "dim", p.branch if off_main else "", "dim"
         elif p.kind == "missing":
             glyph, gclass, right, rclass = G_MISSING, "dim", "not cloned", "dim"
         else:
@@ -759,8 +806,7 @@ class Projects(View):
             name = text = label(p.name, *(("dim",) if p.kind == "missing" else ()), ellipsize=True)
         name.set_max_width_chars(10)   # the column keeps its width: long names ellipsize instead
         text.set_hexpand(True)
-        # an icon only for what's unusual (not cloned, no git remote): the same one on every repo said nothing
-        line = box(False, 8, *((label(glyph, gclass, "pj-glyph"),) if glyph else ()), text)
+        line = box(False, 8, label(glyph, gclass, "pj-glyph"), text)
         if p.rel in self.pinned and match != "where":   # in All projects: it's pinned too
             line.append(label("\U000f0403", "dim"))
         s = lambda n: "s" * (n > 1)

@@ -274,9 +274,10 @@ A folder you move is recorded as moved; a project that isn't on this PC stays li
 the HDD have them. The panel and `projects` mark them in amber; put them in git and push to make them safe.
 
 **The panel** (`panels/projectsgui.py`): the `~/code` tree on the left (groups fold with ←/→ or a click;
-a repo shows its branch when it isn't on main, ● when it has uncommitted changes; a cloud for one that
+a repo has a repo icon in the folders' icon column and shows its branch when it isn't on main, ● when it has uncommitted changes; a cloud for one that
 isn't cloned; ⚠ local only; it follows the list, so `projects delete` / `move` on the command line show
-up in a couple of seconds); `/` searches. On the right, the selected project:
+up in a couple of seconds); `/` searches; the dropdown above the search shows one GitHub account's or
+org's projects only (or other remotes', or the local-only folders), in every section. On the right, the selected project:
 
 - **State**: its branch, then `in sync` / `↑N to push` / `↓N to pull` / `diverged` / `no upstream`, changed
   files, and when it last fetched. Selecting a project whose last fetch is over 10 minutes old fetches it in

@@ -623,7 +623,8 @@ def git_status(path, max_age=30):
     hit = _git.get(path)
     if hit and now - hit[0] < max_age:
         return hit[1]
-    rc, out = run(["git", "-C", path, "status", "--porcelain=v2", "--branch", "--untracked-files=normal"], timeout=2)
+    # --no-optional-locks: a plain status refreshes .git/index, which codesync then saw as a change
+    rc, out = run(["git", "--no-optional-locks", "-C", path, "status", "--porcelain=v2", "--branch", "--untracked-files=normal"], timeout=2)
     st = None
     if rc == 0:
         st = {"changes": 0, "ahead": 0, "behind": 0}

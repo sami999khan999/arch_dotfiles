@@ -49,7 +49,7 @@ end
 
 
 # Added by Antigravity CLI installer
-set -gx PATH "/home/sami/.local/bin" $PATH
+fish_add_path -gm ~/.local/bin   # first, once: a plain prepend added it again in every nested shell
 
 # >>> railway initialize >>>
 # only where the Railway CLI is installed: another PC without it would print an error in every shell

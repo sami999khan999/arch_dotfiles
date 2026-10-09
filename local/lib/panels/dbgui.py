@@ -4,7 +4,8 @@
 # brings it up. The connections, drivers and tunnels are dblib.py's; this draws them.
 #
 #   left   the connections; open one (Enter / double-click) for its schemas → tables, keys,
-#          databases → collections, buckets → folders → files. A green dot: connected.
+#          databases → collections, buckets → folders → files. A green dot: connected. The search filters
+#          what's open; the dropdown below it shows one kind of database only.
 #   right  the selected table / key / collection / file, a page at a time (« ‹ page › », the page size), the query box
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once.
@@ -129,6 +130,7 @@ class Databases(View):
         self.painting = False    # paint_tree() re-selecting the row: not a pick
         self.ai_queries = set()  # queries the AI suggested and you put in the query box
         self.confirm = None      # (text, time): Run pressed once on a write the AI suggested
+        self.only = ""           # the one kind of database shown ("": every kind)
 
     def conn(self, cid):
         return next((c for c in self.conns if c["id"] == cid), None)
@@ -142,12 +144,15 @@ class Databases(View):
         self.filter = Gtk.Entry(placeholder_text="filter (Redis: Enter scans for it)", hexpand=True)
         self.filter.connect("changed", lambda *_: self.paint_tree())
         self.filter.connect("activate", lambda *_: self.scan_redis())
+        self.kind = dropdown([("", "All types")] + [(k, f"{v[1]}  {v[0]}") for k, v in db.KINDS.items()], "",
+                             lambda k: (setattr(self, "only", k), self.paint_tree()))
+        self.kind.set_tooltip_text("show one kind of database only")
         self.tree = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.tree.add_css_class("db-tree")
         self.tree.set_activate_on_single_click(False)
         self.tree.connect("row-selected", lambda _l, row: row and self.picked(row.key))
         self.tree.connect("row-activated", lambda _l, row: self.toggle(row.key))
-        top = box(False, 0, self.filter)
+        top = box(True, 6, self.filter, self.kind)
         for edge in ("top", "start", "end", "bottom"):
             getattr(top, f"set_margin_{edge}")(10)
         left = box(True, 0, top, scrolled(self.tree), classes=("side",))
@@ -243,13 +248,16 @@ class Databases(View):
         clear(self.tree)
         text = self.filter.get_text().strip().lower()
         for c in self.conns:
+            if self.only and c["kind"] != self.only:
+                continue
             cid = c["id"]
             self.add_row((cid, ()), 0, c)
             if (cid, ()) in self.open:
                 self.add_kids(cid, (), 1, text)
-        if not self.conns:
+        if not self.conns or (self.only and not any(c["kind"] == self.only for c in self.conns)):
             hint = Gtk.ListBoxRow(selectable=False, activatable=False)
-            hint.set_child(label("No connections yet: + Connection (n)", "dim"))
+            hint.set_child(label(f"No {db.KINDS[self.only][0]} connections" if self.conns else
+                                 "No connections yet: + Connection (n)", "dim"))
             hint.key = None
             self.tree.append(hint)
         if keep:

@@ -433,7 +433,7 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
 - **The tree** (left): Enter or a double-click opens a connection (a green dot while connected), then
   schemas → tables and views, Redis keys (with their type), databases → collections, buckets → folders →
   files. `/` filters what's listed; on a Redis connection, Enter in the filter asks the server for keys
-  containing it. Redis keys and S3 files come a page at a time: open *more* for the next.
+  containing it. The dropdown under it shows one kind of database only (*All types* by default). Redis keys and S3 files come a page at a time: open *more* for the next.
 - **The right side**: the selected table / key / collection / file with its size and columns, a page at a
   time, and the selected row in full underneath. **Pages**: `«` `‹` `›` `»` (or `[` `]`), *rows 1,201–1,400
   of 3,000*, a page number to type (Enter), and 50 to 1000 rows a page. A table, a Redis list or sorted set

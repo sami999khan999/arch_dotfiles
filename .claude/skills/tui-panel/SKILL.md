@@ -10,7 +10,9 @@ All panels are Python in `local/lib/panels/` (linked to `~/.local/lib/panels`), 
 
 **GUI panels are what's in use now** (GTK 4, `*gui.py`); the terminal ones below are the older
 versions. A GUI panel is a `gtkkit.View`: `build()` returns the content, `refresh()` runs every
-`interval` s while shown, `say()` writes the status line, `close()` closes a popup (no-op in the
+`interval` s while shown (a workspace app's pauses while its workspace is hidden: `hidden_refresh()`
+instead, `shown_changed(shown)` when that flips; a view updated by events sets `interval = 0` and calls
+`self.on_change()` if set, so its Control Center card's header follows), `say()` writes the status line, `close()` closes a popup (no-op in the
 Control Center), `css` adds view-specific style. Each module has `make()` (the view; `ccgui.py`
 uses it) and `main()` → `run(make(), "panels.<name>", (W, H))`. The app id is the window class:
 `modules/windowrules.lua` floats and centres every `panels.*` window (add a size rule per panel);

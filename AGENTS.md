@@ -42,11 +42,12 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `local/lib/panels/settings*.py` | Settings panel (Super + I): `settingslib.py` reads / writes / applies every setting, `settingsgui.py` is the window. Key mapping (keys / mouse buttons → an action) is `remaps` in `settings.json` → `hl.bind`s in `settings.lua`. `settingslib.py restore` (run at login) puts gsettings back in line with the repo files. Hyprland values: `config/hypr/settings.json` → generated `modules/settings.lua` (required last; don't hand-edit). Per-PC: `settings.local.json` (gitignored) |
 | `config/waybar/` | `config.jsonc` + `style.css`; waybar runs as its packaged systemd user service (restarts itself after a crash) |
 | `config/themes/`, `local/bin/theme`, `local/lib/theme/themelib.py`, `local/lib/panels/themegui.py` | colour themes: a palette per theme, `active`, the generated `current/` (gitignored); `theme apply <id>` makes the files and reloads; the picker is Super + Shift + T |
-| `local/bin/agentmux`, `local/lib/agentmux/`, `config/agentmux/`, `local/lib/panels/agentpickgui.py` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents. The New thread / Open project pickers are GTK popups (`agentpickgui.py`) |
+| `local/bin/agentmux` (a launcher for `local/lib/agentmux/cli.py`), `local/lib/agentmux/`, `config/agentmux/`, `local/lib/panels/agentpickgui.py` | agentmux (Super + A): threads are sessions on `tmux -L agents` (kitty-pair attaches the VS Code kitty to one), the workspace is `tmux -L agentmux`. Sidebars follow a control-mode subscription — never add polling of the agents. The New thread / Open project pickers are GTK popups (`agentpickgui.py`) |
 | `local/bin/projects`, `local/lib/panels/projectsgui.py` | the project list: every repo in `~/code` and its remotes, in `~/code/.projects/projects.json` (a **private** repo, never in this one); `projects clone` gets them all back; the panel is Super + Ctrl + P |
 | `local/lib/panels/sysagent*.py` | the System agent (Super + Ctrl + S): an AI chat about this PC, strictly read-only — opencode in a sandbox with no files, whose only tools are the panel's read-only MCP gate, which reads in a second sandbox (read-only filesystem, no network, no sockets, own PIDs, secrets covered). Never give it a tool that writes |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups`, `codesync`, `dotsync` |
+| `local/lib/hypr/hyprsock.py` | ask Hyprland over its socket (`query("clients")`, `request("dispatch …")`), not by starting `hyprctl`: the bar's scripts, `wsgroups` and `gtkkit.hypr_socket` use it |
 | `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |
 | `system/` | root-only bits, run once per PC with `pkexec` (`install.sh` lists them): `root-setup.sh` (Chrome policy; this PC's data-drive fstab line, only where that drive is attached), `swap-setup.sh` (SSD swapfile after zram, on the root btrfs), `boot-splash.sh` (quiet boot), `greeter/install.sh` (greetd + noctalia-greeter, `greetd.toml`) |
 
@@ -107,6 +108,12 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
 - waybar/GTK prefers ellipsizing a label over moving the centre island, so the window title is
   truncated in `scripts/wintitle.py`, not with `max-length`.
 - waybar signals in use: `RTMIN+8` workspace buttons, `+9` idle, `+10` notifications, `+11` codesync.
+- **Nothing polls while unseen.** A workspace app (Control Center, Projects, Docker…) stays open on its
+  workspace: gtkkit pauses its `refresh()` while that workspace isn't on a screen and calls
+  `shown_changed(True)` the moment it is; a card whose graph keeps a history samples in
+  `hidden_refresh()`. Prefer events (`pactl subscribe`, `gtkkit.hypr_events`, inotify) to timers, and the
+  socket (`hyprsock`) to `hyprctl`. A Python command run often (a hook, a bar module) is a short launcher in
+  `local/bin/` importing a module: a script is compiled on every run, a module once.
 - `pkill -f <pattern>` also matches the shell running it and kills your own command. Use
   `pkill -f '[c]ontrolcenter\.py'`-style patterns, or better, signal by PID.
 - agentmux's sidebars are terminal UIs in tmux panes (`local/lib/agentmux/term.py`), sharpened to look

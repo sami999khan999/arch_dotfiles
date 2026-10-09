@@ -110,12 +110,17 @@ def load_state():
 
 def save_state(**kw):
     os.makedirs(STATE_DIR, exist_ok=True)
-    state = load_state()
-    before = state.get("status")
-    state.update(kw)
-    with open(STATE + ".tmp", "w") as f:
-        json.dump(state, f)
-    os.replace(STATE + ".tmp", STATE)  # readers never see half a file
+    # locked, own temp name: the service and a CLI run (now, restore, move) both save; unlocked, one
+    # could drop the other's change or rename the other's half-written temp file
+    with open(STATE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = load_state()
+        before = state.get("status")
+        state.update(kw)
+        tmp = f"{STATE}.{os.getpid()}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, STATE)  # readers never see half a file
     if kw.get("status", before) != before or "last_sync" in kw:
         subprocess.run(["pkill", f"-RTMIN+{WAYBAR_SIGNAL}", "-x", "waybar"])
 

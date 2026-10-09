@@ -115,6 +115,7 @@ libdvdcss
 libgsf
 libnotify
 libopenraw
+libsecret
 libva-intel-driver-irql
 libva-nvidia-driver
 linux-cachyos
@@ -176,9 +177,13 @@ poppler-glib
 power-profiles-daemon
 pv
 python
+python-boto3
 python-defusedxml
 python-gobject
 python-packaging
+python-psycopg
+python-pymongo
+python-redis
 realtime-privileges
 rebuild-detector
 reflector

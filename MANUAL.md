@@ -411,6 +411,32 @@ merge to you in `~/code/.projects`.
 
 The program is `local/bin/projects`.
 
+## Databases
+
+A database client for Postgres, Redis, MongoDB, S3 (AWS or anything S3-compatible: MinIO, R2…) and SQLite,
+local or remote. Workspace 6's app (a tiled window, class `sami.databases`): `Super + 6`, `Super + Ctrl + 6`
+or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers are `dblib.py`.
+
+- **Connections** (`+ Connection` or `n`, `e` edits the selected one): a form per kind. For Postgres and
+  Redis, paste a `postgres://` / `redis://` / `rediss://` URL and it fills the fields; MongoDB takes its
+  connection string (`mongodb+srv://…`). **Test** tries it without saving. **SSH tunnel**: `user@server`
+  or a host from `~/.ssh/config` reaches a Postgres / Redis that only listens on that server (key login).
+  The list is `~/.local/share/dbclient/connections.json` (hosts and users only: it stays on this PC,
+  never in this repo); passwords, keys and connection strings are in the keyring (gnome-keyring).
+- **The tree** (left): Enter or a double-click opens a connection (a green dot while connected), then
+  schemas → tables and views, Redis keys (with their type), databases → collections, buckets → folders →
+  files. `/` filters what's listed; on a Redis connection, Enter in the filter asks the server for keys
+  containing it. Redis keys and S3 files come a page at a time: open *more* for the next.
+- **The right side**: the selected table / key / collection / file, 200 rows at a time (**Load more**),
+  with its size and columns; the selected row in full underneath. The **query box** runs SQL, a Redis
+  command (`HGETALL session:42`) or, on a collection, a Mongo filter `{…}` or pipeline `[…]`:
+  **Ctrl + Enter** runs it, or just the selected part. **Stop** cancels a long Postgres / SQLite query.
+  Full access: what you run applies at once. S3: Download, Upload…, Delete; Redis: Delete (click twice).
+- **Light on the PC**: nothing runs until you open the workspace, and nothing polls. A connection opens
+  when you use it and closes, with its tunnel, after 3 idle minutes. Each one does its work in a thread of
+  its own, so a slow server never freezes the window. A driver's library loads the first time you open
+  one of its kind.
+
 ## Files
 
 Files (`Super + E`, `Super + Shift + F`, workspace 7; `local/lib/panels/filesgui.py`) is the file
@@ -468,6 +494,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 3 | Web | Chrome windows |
 | 4 | Terminal | kitty |
 | 5 | Projects | the Projects panel (below) |
+| 6 | Data | the database client (see Databases above) |
 | 7 | Files | Files (`filesgui.py`; Dolphin opens here too) |
 | 8 | Discord | Discord |
 | 9 | Docker | the Docker panel (below) |

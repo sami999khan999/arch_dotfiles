@@ -444,6 +444,8 @@ class System(View):
         self.sampler = Sampler()
         self.tab = "Overview"
         self.armed = None   # (action, pid, time) while End / Kill waits for its second click
+        self.awake = threading.Event()   # cleared while the Control Center's workspace is hidden
+        self.awake.set()
         threading.Thread(target=self.sample_loop, daemon=True).start()
 
     @property
@@ -470,11 +472,18 @@ class System(View):
             time.sleep(0.1)
         while True:
             if self.compact:  # the card reads what the terminal card read (sysmon), in this thread
+                if not self.awake.is_set():   # hidden: no process walk, no nvidia-smi
+                    self.awake.wait()
+                    self.card_stats.tick()    # shown again: two fresh readings a moment apart, not
+                    time.sleep(0.4)           # CPU use averaged over the whole time it was hidden
                 self.card_stats.tick()
             else:
                 self.sampler.sample()
             GLib.idle_add(self.show)
             time.sleep(self.interval)
+
+    def shown_changed(self, shown):
+        (self.awake.set if shown else self.awake.clear)()
 
     @property
     def tile_info(self):

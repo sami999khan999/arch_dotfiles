@@ -416,6 +416,16 @@ class View:
     def refresh(self):
         pass
 
+    def hidden_refresh(self):
+        """Instead of refresh() while the window's workspace isn't on a screen (workspace apps only):
+        nothing by default; a view whose graph keeps a history samples here, without drawing."""
+
+    def shown_changed(self, shown):
+        """The window's workspace came on a screen (or went): by default refresh at once, so the first
+        frame shown is current."""
+        if shown:
+            self.refresh()
+
     def key(self, keyval, state):
         """A key the focused widget didn't use. Return True if handled."""
         return False
@@ -494,6 +504,44 @@ def hypr_socket(request):
         return reply.decode(errors="replace")
     except OSError:
         return ""
+
+
+def hypr_events(win, wanted, on_event):
+    """Follow Hyprland's event socket while win is open: on_event(line) on the main thread for each
+    event line starting with one of wanted (bytes). The thread ends when the window closes."""
+    import socket, threading
+    path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.connect(path)
+    except OSError:
+        sock.close()
+        return False
+    alive = [True]
+
+    def stop(*_):
+        # left running, every closed file dialog kept its thread, its widgets and its handler
+        alive[0] = False
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+    win.connect("unrealize", stop)   # closed (destroy waits for the last Python reference)
+
+    def watch():
+        with sock:
+            try:
+                buf = b""
+                while chunk := sock.recv(4096):
+                    buf += chunk
+                    *events, buf = buf.split(b"\n")
+                    for e in events:
+                        if e.startswith(wanted):
+                            GLib.idle_add(lambda e=e: alive[0] and on_event(e) and False)
+            except OSError:
+                pass
+    threading.Thread(target=watch, daemon=True).start()
+    return True
 
 
 class Backdrop(Gtk.Widget):
@@ -640,41 +688,37 @@ class ViewHost:
     def watch_workspace(self):
         """The popup stays on its workspace with its backdrop: another workspace shown unpins it there,
         its own shown again pins it back above the backdrop."""
-        import socket, threading
-        path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
+        def moved(e):
+            self.set_pinned(e[len(b"workspace>>"):].decode(errors="replace") == self.home)
+        hypr_events(self.win, (b"workspace>>",), moved)
 
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    def watch_shown(self):
+        """A workspace app (the Control Center, Projects, Docker…) stays open on its workspace: while
+        that isn't on a screen, refresh() pauses (hidden_refresh() instead) and nobody sees the work."""
+        self.shown, self.check_queued = True, False
+
+        def changed(_e):
+            if not self.check_queued:   # one check for a burst of events
+                self.check_queued = True
+                GLib.idle_add(self.check_shown)
+        hypr_events(self.win, (b"workspace", b"focusedmon", b"activespecial", b"movewindow",
+                               b"openwindow", b"closewindow", b"pin"), changed)
+
+    def check_shown(self):
+        import json
+        self.check_queued = False
         try:
-            sock.connect(path)
-        except OSError:
-            sock.close()
-            return
-        open_ = [True]
-
-        def stop(*_):
-            # the thread ends with the popup: left running, every closed dialog kept its thread, its
-            # widgets and a j/clients request on every workspace switch
-            open_[0] = False
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-        self.win.connect("unrealize", stop)   # closed (destroy waits for the last Python reference)
-
-        def watch():
-            with sock:
-                try:
-                    buf = b""
-                    while chunk := sock.recv(4096):
-                        buf += chunk
-                        *events, buf = buf.split(b"\n")
-                        for e in events:
-                            if e.startswith(b"workspace>>"):
-                                name = e[len(b"workspace>>"):].decode(errors="replace")
-                                GLib.idle_add(lambda on=name == self.home: open_[0] and self.set_pinned(on) or False)
-                except OSError:
-                    pass
-        threading.Thread(target=watch, daemon=True).start()
+            mons = json.loads(hypr_socket("j/monitors") or "[]")
+            me = next((c for c in json.loads(hypr_socket("j/clients") or "[]")
+                       if c["pid"] == os.getpid() and c["title"] == self.win.get_title()), None)
+            on = {m["activeWorkspace"]["id"] for m in mons} | {m["specialWorkspace"]["id"] for m in mons}
+            shown = me is None or me["pinned"] or me["workspace"]["id"] in on   # unknown: as before
+        except (ValueError, KeyError, TypeError):
+            shown = True
+        if shown != self.shown:
+            self.shown = shown
+            self.view.shown_changed(shown)
+        return False
 
     def close_from_backdrop(self):
         """A click on the backdrop. The popup is pinned (pin_over_backdrop), so it stays above the
@@ -684,7 +728,7 @@ class ViewHost:
     def _tick(self):
         if not self.win:
             return False
-        self.view.refresh()
+        (self.view.refresh if getattr(self, "shown", True) else self.view.hidden_refresh)()
         return True
 
     def _on_key(self, _ctrl, keyval, _code, state):
@@ -759,6 +803,8 @@ class PanelApp(ViewHost, Gtk.Application):
         self.backdrop = self.make_backdrop() if self.toggle and self.view.backdrop else None
         self.build_window(self, self.size)
         self.present()
+        if not self.toggle:
+            self.watch_shown()
 
 
 def run(view, app_id, size=(900, 560), toggle=True):
@@ -766,7 +812,8 @@ def run(view, app_id, size=(900, 560), toggle=True):
     # their slow work (git, docker, nvidia-smi) in threads: a closed popup's widgets (a cycle through
     # their own signal handlers) were once collected on a git thread, and GTK, which is main-thread
     # only, crashed (the Projects panel, SIGSEGV in gtk_list_box_remove_all). So the collector runs
-    # only here, on the main loop, every few seconds; plain reference counting still frees the rest.
+    # only here, on the main loop, every half minute (a full pass over the heap: every few seconds kept
+    # idle panels busy); plain reference counting still frees the rest.
     gc.disable()
-    GLib.timeout_add_seconds(5, lambda: gc.collect() is not None)
+    GLib.timeout_add_seconds(30, lambda: gc.collect() is not None)
     PanelApp(view, app_id, size, toggle).run([])

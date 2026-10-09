@@ -300,7 +300,7 @@ class Service(Gtk.Application):
 
 def main():
     gc.disable()   # as gtkkit.run: the collector only on the main loop (GTK is main-thread only)
-    GLib.timeout_add_seconds(5, lambda: gc.collect() is not None)
+    GLib.timeout_add_seconds(30, lambda: gc.collect() is not None)
     Service().run([sys.argv[0]])
 
 

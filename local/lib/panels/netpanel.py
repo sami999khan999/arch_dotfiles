@@ -94,13 +94,13 @@ class NetworkPanel(Panel):
         self.dev, self.typ, self.state, self.conn = active_device()
         self.info, self.last_info = details(self.dev), time.time()
 
-    def tick(self):
+    def tick(self, details=True):
         now, cur = time.time(), counters(self.dev)
         dt = max(now - self.prev_t, 0.001)
         self.down = (self.down + [max(cur[0] - self.prev[0], 0) / dt])[-HISTORY:]
         self.up = (self.up + [max(cur[1] - self.prev[1], 0) / dt])[-HISTORY:]
         self.prev, self.prev_t = cur, now
-        if now - self.last_info > 10:  # connection details change rarely
+        if details and now - self.last_info > 10:  # connection details change rarely
             self.refresh()
 
     def draw(self, w, h):

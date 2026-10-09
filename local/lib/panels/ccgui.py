@@ -135,6 +135,22 @@ class ControlCenter(View):
                 v.refresh()
                 self.paint_chrome(v)
 
+    def hidden_refresh(self):
+        """Workspace 10 isn't on a screen: only the cards that keep a history sample, on their schedule."""
+        now = time.time()
+        for v in self.views:
+            if v.interval and now - self.last.get(v, 0) >= v.interval:
+                self.last[v] = now
+                v.hidden_refresh()
+
+    def shown_changed(self, shown):
+        now = time.time()
+        for v in self.views:
+            v.shown_changed(shown)
+            if shown:
+                self.last[v] = now
+                self.paint_chrome(v)
+
     def key(self, keyval, state):
         self.follow_focus()
         handled = self.current.key(keyval, state)

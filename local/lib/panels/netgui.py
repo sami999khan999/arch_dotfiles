@@ -123,6 +123,14 @@ class Network(View):
         self.net.tick()
         self.update()
 
+    def hidden_refresh(self):
+        self.net.tick(details=False)   # the traffic graphs keep their last minute while hidden
+
+    def shown_changed(self, shown):
+        if shown:
+            self.net.refresh()   # the connection may have changed meanwhile (nmcli was skipped)
+            self.update()
+
     def update(self):
         n = self.net
         ip, gw, dns, wifi = n.info

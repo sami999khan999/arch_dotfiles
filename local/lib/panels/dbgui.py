@@ -194,6 +194,7 @@ class Databases(View):
                    self.nav["next"], self.nav["last"], sizes)
         sizes.set_margin_start(8)
         foot.set_margin_top(6)
+        foot.set_margin_bottom(6)
 
         self.rowview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
                                     top_margin=8, bottom_margin=8)

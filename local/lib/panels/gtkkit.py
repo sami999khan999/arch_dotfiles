@@ -794,6 +794,16 @@ class PanelApp(ViewHost, Gtk.Application):
             self.watch_shown()
 
 
+def collect():
+    """The garbage collector, then glibc gives what's free back to the system: it keeps freed memory for
+    reuse, so a panel stayed as big as its busiest moment (a big folder, a dialog since closed). True,
+    for a GLib timer."""
+    import ctypes
+    gc.collect()
+    ctypes.CDLL("libc.so.6").malloc_trim(0)
+    return True
+
+
 def run(view, app_id, size=(900, 560), toggle=True):
     # Python's cyclic garbage collector runs on whichever thread happens to allocate, and the panels do
     # their slow work (git, docker, nvidia-smi) in threads: a closed popup's widgets (a cycle through
@@ -802,5 +812,5 @@ def run(view, app_id, size=(900, 560), toggle=True):
     # only here, on the main loop, every half minute (a full pass over the heap: every few seconds kept
     # idle panels busy); plain reference counting still frees the rest.
     gc.disable()
-    GLib.timeout_add_seconds(30, lambda: gc.collect() is not None)
+    GLib.timeout_add_seconds(30, collect)
     PanelApp(view, app_id, size, toggle).run([])

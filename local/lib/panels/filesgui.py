@@ -9,7 +9,7 @@
 import gc, json, os, shutil, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, Gio, GLib, Gtk, Pango, PanelApp, View, box, button, clear, label, scrolled
+from gtkkit import Gdk, Gio, GLib, Gtk, Pango, PanelApp, View, box, button, clear, collect, label, scrolled
 from gi.repository import GObject
 
 HOME = os.path.expanduser("~")
@@ -851,7 +851,7 @@ class FilesApp(PanelApp):
 
 def main():
     gc.disable()   # as gtkkit.run: the collector only on the main loop (GTK is main-thread only)
-    GLib.timeout_add_seconds(30, lambda: gc.collect() is not None)
+    GLib.timeout_add_seconds(30, collect)
     FilesApp(Files()).run(sys.argv)
 
 

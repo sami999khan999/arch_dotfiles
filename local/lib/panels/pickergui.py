@@ -10,7 +10,7 @@
 import fnmatch, gc, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, Gio, GLib, Gtk, ViewHost, box, button, dropdown, install_css, label
+from gtkkit import Gdk, Gio, GLib, Gtk, ViewHost, box, button, collect, dropdown, install_css, label
 import filesgui as fg
 
 BUS = "org.freedesktop.impl.portal.desktop.sami"
@@ -248,6 +248,8 @@ class Dialog(ViewHost):
         self.backdrop = self.make_backdrop() if view.backdrop else None
         self.build_window(app, (1100, 700))
         self.win.connect("close-request", lambda *_: view.cancelled() or False)
+        # once it's gone, its folder listing and thumbnails go back to the system, not in a minute
+        self.win.connect("unrealize", lambda *_: GLib.timeout_add_seconds(1, lambda: collect() and False))
         self.present()
 
 
@@ -300,7 +302,7 @@ class Service(Gtk.Application):
 
 def main():
     gc.disable()   # as gtkkit.run: the collector only on the main loop (GTK is main-thread only)
-    GLib.timeout_add_seconds(30, lambda: gc.collect() is not None)
+    GLib.timeout_add_seconds(30, collect)
     Service().run([sys.argv[0]])
 
 

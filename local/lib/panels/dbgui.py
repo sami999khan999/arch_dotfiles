@@ -200,8 +200,9 @@ class Databases(View):
         self.rowview.add_css_class("rowview")
         buf = self.rowview.get_buffer()
         buf.create_tag("key", foreground=recolor("#e0af68"))
-        rs = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, min_content_height=110)
+        rs = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, min_content_height=110, visible=False)
         rs.set_child(self.rowview)
+        self.rowpane = rs   # shown while a row is selected
 
         tbl = Gtk.ScrolledWindow(vexpand=True)
         tbl.set_child(self.table)
@@ -210,7 +211,9 @@ class Databases(View):
         split.set_end_child(rs)
         split.set_resize_end_child(False)
         split.set_shrink_end_child(False)   # the selected row stays in view under the table
-        split.set_position(100000)          # ...at its minimum height: the table gets the rest
+        # ...at its minimum height: the table gets the rest. The position can only be set once the pane has
+        # a size (set before, GTK kept the halfway default), and again whenever its range changes
+        split.connect("notify::max-position", lambda p, _: p.set_position(p.props.max_position))
         self.results = split
         split.set_margin_top(12)
 
@@ -684,6 +687,7 @@ class Databases(View):
         item = self.selection.get_selected_item()
         buf = self.rowview.get_buffer()
         buf.set_text("")
+        self.rowpane.set_visible(item is not None)
         if not item:
             return
         cols = [c.get_title() for c in self.table.get_columns()]

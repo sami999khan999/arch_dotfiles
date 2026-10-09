@@ -23,7 +23,9 @@ AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
 FS, RS = "\x1f", "\x1e"   # field / record separators inside the subscription value
 SUB = ("#{S:" + FS.join(["#{session_name}", "#{@project}", "#{@harness}", "#{@kind}", "#{pane_title}",
                          "#{session_attached}", "#{pane_current_command}", "#{session_created}",
-                         "#{session_activity}", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}"]) + RS + "}")
+                         "0", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}"]) + RS + "}")
+# "0": lib.FIELDS' activity, not shown here; #{session_activity} changed on every redraw of an agent's
+# screen (an idle one's too), and each change rebuilt the sidebars
 # needs: a permission prompt or question waits for you; working: the agent is running; done: it
 # finished since you last looked at that thread; idle: waiting for you, already seen; shell: it quit
 STATE_GLYPH = {"needs": ("!", "red"), "error": ("✗", "red"), "working": ("◐", "green"), "done": ("✓", "amber"),

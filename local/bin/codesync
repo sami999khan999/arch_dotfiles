@@ -355,6 +355,20 @@ class Watcher:
         self.paths = {}  # watch descriptor -> directory
         self.skip = ignore_patterns()[0]
         self.add_tree(root)
+        self.ignore_seen = None   # the ignore list's mtime when its file patterns were read
+
+    def ignored(self, d, name):
+        """An event not worth a sync: a file the ignore list leaves out (*.pyc, .DS_Store…), or one of
+        git's short-lived *.lock files (a status in an editor or a sidebar made them every few seconds)."""
+        try:
+            seen = os.stat(IGNORE).st_mtime
+        except OSError:
+            seen = 0
+        if seen != self.ignore_seen:   # the list takes effect without a restart
+            self.ignore_seen, self.files = seen, ignore_patterns()[1]
+        if name.endswith(".lock") and "/.git/" in d + "/":
+            return True
+        return any(fnmatch(name, p) for p in self.files)
 
     def skipped(self, name):
         return any(fnmatch(name, p) for p in self.skip)
@@ -371,7 +385,7 @@ class Watcher:
 
     def read(self):
         """Handle waiting events; True if anything relevant changed."""
-        data, i = os.read(self.fd, 65536), 0
+        data, i, relevant = os.read(self.fd, 65536), 0, False
         while i < len(data):
             wd, mask, _, size = struct.unpack_from("iIII", data, i)
             name = data[i + 16:i + 16 + size].rstrip(b"\0").decode(errors="replace")
@@ -379,9 +393,11 @@ class Watcher:
             if mask & IN_ISDIR and mask & (IN_CREATE | IN_MOVED_TO) and wd in self.paths:
                 if not self.skipped(name):
                     self.add_tree(os.path.join(self.paths[wd], name))  # watch new folders too
+            if not name or not self.ignored(self.paths.get(wd, ""), name):
+                relevant = True
             if mask & IN_DELETE_SELF:
                 self.paths.pop(wd, None)
-        return True
+        return relevant
 
 
 def watch():

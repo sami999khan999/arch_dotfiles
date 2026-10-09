@@ -74,11 +74,13 @@ DOTS_LEFT, DOTS_RIGHT = (0x40, 0x04, 0x02, 0x01), (0x80, 0x20, 0x10, 0x08)
 WAVES = [((0, 8), 1.5, 0.35), ((8, 28), 4.0, -0.8), ((28, 64), 9.0, 1.6)]
 EASE = 0.25           # "wave": how fast its height follows the sound (per frame; 1 = at once)
 
+# sleep_timer: cava goes quiet after that many seconds of silence. Longer than SILENT_AFTER, so the
+# loop still sees the silence and hides the module (at 1 it never did, and kept measuring the bar)
 CONFIG = f"""
 [general]
 bars = {RAW_BARS}
 framerate = {FPS}
-sleep_timer = 1
+sleep_timer = 3
 
 [input]
 method = pipewire

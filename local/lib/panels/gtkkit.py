@@ -643,10 +643,27 @@ class ViewHost:
         import socket, threading
         path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket2.sock"
 
-        def watch():
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(path)
+        except OSError:
+            sock.close()
+            return
+        open_ = [True]
+
+        def stop(*_):
+            # the thread ends with the popup: left running, every closed dialog kept its thread, its
+            # widgets and a j/clients request on every workspace switch
+            open_[0] = False
             try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                    sock.connect(path)
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        self.win.connect("unrealize", stop)   # closed (destroy waits for the last Python reference)
+
+        def watch():
+            with sock:
+                try:
                     buf = b""
                     while chunk := sock.recv(4096):
                         buf += chunk
@@ -654,9 +671,9 @@ class ViewHost:
                         for e in events:
                             if e.startswith(b"workspace>>"):
                                 name = e[len(b"workspace>>"):].decode(errors="replace")
-                                GLib.idle_add(lambda on=name == self.home: self.set_pinned(on) or False)
-            except OSError:
-                pass
+                                GLib.idle_add(lambda on=name == self.home: open_[0] and self.set_pinned(on) or False)
+                except OSError:
+                    pass
         threading.Thread(target=watch, daemon=True).start()
 
     def close_from_backdrop(self):

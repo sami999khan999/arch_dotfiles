@@ -572,38 +572,39 @@ def new_chat():
             "history": [], "messages": []}
 
 
-def chat_file(cid):
+def chat_file(cid, folder=CHATS):
     if not re.fullmatch(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", cid or ""):
         raise ValueError(f"not a chat id: {cid}")
-    return os.path.join(CHATS, f"{cid}.json")
+    return os.path.join(folder, f"{cid}.json")
 
 
-def save_chat(chat):
-    os.makedirs(CHATS, mode=0o700, exist_ok=True)
-    path = chat_file(chat["id"])
+def save_chat(chat, folder=CHATS):
+    """Kept for you only (the folder 700, the file 600). folder: another agent's (dbagent.py), else ours."""
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = chat_file(chat["id"], folder)
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(chat, f)
     os.replace(path + ".tmp", path)
 
 
-def chats():
+def chats(folder=CHATS):
     """Every kept chat, the latest first."""
     out = []
-    for name in os.listdir(CHATS) if os.path.isdir(CHATS) else []:
+    for name in os.listdir(folder) if os.path.isdir(folder) else []:
         if name.endswith(".json"):
             try:
-                with open(os.path.join(CHATS, name)) as f:
+                with open(os.path.join(folder, name)) as f:
                     chat = json.load(f)
-                chat_file(chat.get("id"))
+                chat_file(chat.get("id"), folder)
                 out.append(chat)
             except (OSError, ValueError):
                 continue
     return sorted(out, key=lambda c: -c.get("updated", 0))
 
 
-def delete_chat(cid):
+def delete_chat(cid, folder=CHATS):
     try:
-        os.remove(chat_file(cid))
+        os.remove(chat_file(cid, folder))
     except FileNotFoundError:
         pass

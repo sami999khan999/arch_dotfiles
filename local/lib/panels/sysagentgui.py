@@ -165,6 +165,9 @@ class SysAgent(View):
     css = CSS
     hints = [("Enter", "ask"), ("Ctrl+N", "new chat"), ("Esc", "close")]
     title, subtitle = "System agent", "read-only"
+    intro = INTRO
+    # where the chats are kept and what answers: another agent's window (dbaskgui.py) swaps these
+    chats_dir = lib.CHATS
 
     def __init__(self):
         super().__init__()
@@ -221,7 +224,7 @@ class SysAgent(View):
     def paint_chats(self):
         self.disarm()
         self.chats.remove_all()
-        for c in lib.chats():
+        for c in lib.chats(self.chats_dir):
             title = label(c["title"] or "(untitled)", ellipsize=True)
             title.set_hexpand(True)
             busy = c["id"] == self.busy
@@ -245,7 +248,7 @@ class SysAgent(View):
         self.entry.grab_focus()
 
     def open_chat(self, cid):
-        chat = next((c for c in lib.chats() if c["id"] == cid), None)
+        chat = next((c for c in lib.chats(self.chats_dir) if c["id"] == cid), None)
         if chat:
             self.chat = chat
             self.paint_log()
@@ -263,7 +266,7 @@ class SysAgent(View):
             self.stop.set()
             self.busy, self.looked = None, []
             self.go.set_sensitive(True)
-        lib.delete_chat(cid)
+        lib.delete_chat(cid, self.chats_dir)
         if self.chat["id"] == cid:
             self.chat = lib.new_chat()
             self.paint_log()
@@ -284,7 +287,7 @@ class SysAgent(View):
         while self.log.get_first_child():
             self.log.remove(self.log.get_first_child())
         if not self.chat["messages"]:
-            self.log.append(label(INTRO, "dim", wrap=True))
+            self.log.append(label(self.intro, "dim", wrap=True))
         for m in self.chat["messages"]:
             self.paint_message(m)
         if self.busy == self.chat["id"]:
@@ -328,7 +331,7 @@ class SysAgent(View):
         chat["title"] = chat["title"] or question[:80]
         chat["messages"].append({"who": "you", "text": question})
         chat["updated"] = time.time()
-        lib.save_chat(chat)
+        lib.save_chat(chat, self.chats_dir)
         self.paint_chats()
         self.paint_log()
 
@@ -348,9 +351,13 @@ class SysAgent(View):
         model = self.model
 
         def go():
-            ok, text = lib.ask(question, chat["history"], model, on_call, stop)
+            ok, text = self.answer(question, chat, model, on_call, stop)
             GLib.idle_add(lambda: self.answered(chat, model, ok, text) and False)
         threading.Thread(target=go, daemon=True).start()
+
+    def answer(self, question, chat, model, on_call, stop):
+        """(ok, text): the model's answer (chat["history"] updated). Runs in a thread."""
+        return lib.ask(question, chat["history"], model, on_call, stop)
 
     def answered(self, chat, model, ok, text):
         if self.busy != chat["id"]:   # its chat was deleted (and the answer stopped) meanwhile: dropped
@@ -358,7 +365,7 @@ class SysAgent(View):
         chat["messages"].append({"who": "ai", "model": model, "ok": ok, "text": text if ok else f"no answer: {text}",
                                  "looked": self.looked})
         chat["updated"] = time.time()
-        lib.save_chat(chat)
+        lib.save_chat(chat, self.chats_dir)
         self.busy, self.looked = None, []
         self.go.set_sensitive(True)
         self.paint_chats()

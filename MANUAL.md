@@ -436,16 +436,17 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   command (`HGETALL session:42`) or, on a collection, a Mongo filter `{…}` or pipeline `[…]`:
   **Ctrl + Enter** runs it, or just the selected part. **Stop** cancels a long Postgres / SQLite query.
   Full access: what you run applies at once. S3: Download, Upload…, Delete; Redis: Delete (click twice).
-- **Ask** (`a`, or *Ask* in the header): an AI about the connection and what's selected (`dbagent.py`,
-  the System agent's model and machinery: opencode in a sandbox with no files, only the panel's tools).
-  It reads on a connection of its own and can't change anything: one statement in a read-only
-  transaction that's rolled back (Postgres), the file opened read-only (SQLite), reading commands only
-  (Redis), find / aggregate without `$out`, `$merge` or JavaScript (MongoDB). A query it suggests goes in
-  the query box when you click *Put in query box*; a write from it needs a second Run. **AI sees data**
-  (per connection, off by default): off, the model only gets the structure (tables, columns, types,
-  indexes, counts, Redis key and S3 file names), never rows or values; on, it can query the data, which
-  is then sent to the model (free models may keep it). It never gets the host, user or password.
-  Conversations last while the window is open.
+- **Ask** (`a`, or *Ask* in the header): a popup like the other panels (`dbaskgui.py`), an AI about the
+  connection and what's selected (`dbagent.py`; the System agent's model and machinery: opencode in a
+  sandbox with no files, only the panel's tools). It reads on a connection of its own and can't change
+  anything: one statement in a read-only transaction that's rolled back (Postgres), the file opened
+  read-only (SQLite), reading commands only (Redis), find / aggregate without `$out`, `$merge` or
+  JavaScript (MongoDB). *Put in query box* under a query it suggests sends it to the Databases window's
+  query box and closes Ask; a write from it needs a second Run. **AI sees data** (per connection, off by
+  default): off, the model only gets the structure (tables, columns, types, indexes, counts, Redis key and
+  S3 file names), never rows or values; on, it can query the data, which is then sent to the model (free
+  models may keep it). It never gets the host, user or password. Chats are kept per connection in
+  `~/.local/share/dbclient/chats/` (for you only), deleted with the connection.
 - **Light on the PC**: nothing runs until you open the workspace, and nothing polls. A connection opens
   when you use it and closes, with its tunnel, after 3 idle minutes. Each one does its work in a thread of
   its own, so a slow server never freezes the window. A driver's library loads the first time you open

@@ -102,6 +102,7 @@ def load():
 
 def save(conns):
     os.makedirs(DIR, mode=0o700, exist_ok=True)
+    os.chmod(DIR, 0o700)   # for you only: the list names private servers, Ask's chats are kept under it
     fd = os.open(LIST, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
         json.dump(conns, f, indent=2)

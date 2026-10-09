@@ -400,16 +400,42 @@ def context(conn, selected, columns, query):
     return "\n".join(lines) + "\n"
 
 
-def ask(conn, question, history, selected="", columns="", query="", on_call=lambda name, args: None, stop=None):
+def ask(conn, question, history, selected="", columns="", query="", on_call=lambda name, args: None, stop=None,
+        model=None):
     """Answer question about conn (history: [(role, text)], updated on success): (ok, text). It sees the data
     only when the connection allows it (conn["ai_data"])."""
     data = bool(conn.get("ai_data"))
     s = Session(conn, selected.split(".")[0] if conn["kind"] == "mongo" and "." in selected else "", data)
     try:
-        return lib.ask(question, history, lib.model(), on_call, stop, tools=s.tools(), server="db", agent="dbread",
+        return lib.ask(question, history, model or lib.model(), on_call, stop, tools=s.tools(), server="db", agent="dbread",
                        rules=RULES + ("" if data else SCHEMA_RULES), context=context(conn, selected, columns, query))
     finally:
         s.close()
+
+
+def chats_dir(cid):
+    """A connection's kept chats (dbaskgui.py): for you only, deleted with the connection."""
+    if not re.fullmatch(r"[0-9a-f]{12}", cid or ""):
+        raise ValueError(f"not a connection id: {cid}")
+    return os.path.join(db.DIR, "chats", cid)
+
+
+def forget(cid):
+    """A deleted connection's chats go with it."""
+    import shutil
+    try:
+        shutil.rmtree(chats_dir(cid), ignore_errors=True)
+    except ValueError:
+        pass
+
+
+def intro(conn):
+    return (f"Ask about {conn['name']}: what a table holds, why a query is slow, which index would help, a query "
+            "for something…\n\nIt reads on a connection of its own and can't change anything; a query it suggests "
+            "goes in the query box when you click Put in query box, and you run it (a write needs a second Run). "
+            "It never gets the host, user or password. The model is remote (the System agent's, through "
+            "opencode) and free models may keep what they're sent: unless AI sees data is on, it only gets the "
+            "structure (names, types, indexes, counts), never rows or values.")
 
 
 def queries(text):

@@ -8,10 +8,10 @@
 #             agentmux attaches to the same one from its middle pane: two clients, one process.
 #   agentmux  (tmux -L agentmux)  the workspace itself: projects pane, agents pane, the nested client
 #             showing the thread, the terminals column. Only layout; nothing runs here for long.
-import contextlib, copy, fcntl, json, os, re, shutil, socket, subprocess, time
+import contextlib, copy, fcntl, json, os, re, shutil, subprocess, time
 
 HOME = os.path.expanduser("~")
-HOSTNAME = socket.gethostname()
+HOSTNAME = os.uname().nodename   # socket.gethostname(), without importing socket
 CONF = f"{HOME}/.config/agentmux"
 RUN = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/agentmux"
 STATE = f"{os.environ.get('XDG_STATE_HOME', HOME + '/.local/state')}/agentmux/state.json"

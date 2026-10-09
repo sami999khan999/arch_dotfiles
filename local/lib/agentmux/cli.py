@@ -1,0 +1,1507 @@
+#!/usr/bin/env python3
+"""agentmux — an agent-first, project-based tmux (Super + A, or workspace 1 in waybar).
+
+  agentmux                     open the workspace (builds it the first time, then reattaches)
+  agentmux project <dir>       switch to a project (opens it if it isn't yet)
+  agentmux show <thread>       show a thread in the middle
+  agentmux new-thread [h]      new agent thread in the current project (h: claude, opencode, agy, codex;
+                               without it a picker asks), also opened in the project's VS Code kitty
+  agentmux new                 Super + N on its workspace: a new thread, or agentmux itself if it isn't open
+  agentmux open                project picker (a folder browser; the first time it asks for the
+                               projects folder, then opens there)
+  agentmux term                new terminal (full height, listed at the right) in the terminals column (opens it)
+  agentmux split-term [pane]   split a terminal (the shown one), stacked
+  agentmux next-term [1|-1]    show the next / previous terminal
+  agentmux collapse-list collapse|expand
+                               the terminal list down to its icons, or back to its width
+  agentmux collapse projects|agents collapse|expand|toggle
+                               a sidebar down to a strip of its rows' icons, or back to its width
+  agentmux close-term [pane]   close a terminal of the column (the focused one; a split half, else the terminal)
+  agentmux close-thread        close the selected row of the focused sidebar, else the shown thread (asks)
+  agentmux close-project <dir> close a project: ends its threads and terminals, drops it from the list
+  agentmux focus projects|agents|main|terms
+  agentmux maximize [role]     the focused panel (or role's) takes the whole width; again: back
+  agentmux click <range>       a status-bar button
+  agentmux reload              refresh everything without closing it (Ctrl+Alt+R)
+  agentmux quit [--yes]        really close it (Ctrl+Alt+Q; closing the window only detaches): a popup
+                               asks first, listing what's still running; ends the workspace, its threads
+                               and terminals. Threads also open in a VS Code kitty keep running there;
+                               the others are remembered and come back the next time it opens
+  agentmux speak <pane>        the read-aloud key (Ctrl+Alt+L) in a thread: Audio Cursor reads the
+                               selection in the project's VS Code window, or by itself when none
+                               is open (nothing selected: play / pause)
+  agentmux settings            the settings panel (Ctrl+Alt+S): shortcuts, notifications, options
+  agentmux apply-keys          bind the shortcuts from the settings (config/agentmux/settings.json)
+  agentmux focus-next          focus the next part (Projects, Threads, the thread, terminals)
+  agentmux notify --from <agent>
+                               an agent's hook (claude, codex, agy): the thread's state for the
+                               sidebars, and a notification when it needs you, finished or failed
+  agentmux notify-screen <thread> needs|done|exited
+                               the same, for what a sidebar saw on screen
+  agentmux clear-notices <thread>
+                               dismiss its "needs your input" / error notifications (no longer true)
+  agentmux hooks               install those hooks in each agent's own config (idempotent)
+  agentmux paste <pane>        Ctrl+V in a Codex / agy thread: the clipboard's text, as a terminal paste
+
+Layout (tmux -L agentmux):  Projects | Agents | the thread | terminal | terminal list
+Threads are sessions on the agents server (tmux -L agents): the middle pane and the terminals column
+are nested clients of them, as is the kitty beside a VS Code window, so the same agent shows live in
+both places. See local/lib/agentmux/lib.py.
+"""
+import json, os, re, shlex, subprocess, sys, time   # hashlib, shutil, socket: where used (a hook starts this per tool call)
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
+import lib
+sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+try:   # the colour theme (local/bin/theme): colours here are Tokyo Night's, recolored to the active theme's
+    from themelib import recolor
+except ImportError:
+    def recolor(text, tid=None):
+        return text
+
+HERE = os.path.expanduser("~/.local/lib/agentmux")
+SELF = os.path.expanduser("~/.local/bin/agentmux")
+SESSION = "main"
+WIDTHS = {"projects": 24, "agents": 32, "terms": 0.32, "termlist": 18}   # columns; terms: share of the screen
+MIN = {"projects": 20, "agents": 24, "termlist": 4}   # narrower than this, a sidebar collapses to its strip
+MAX = {"projects": 40, "agents": 50}                  # and it's never dragged wider than this
+ICONS_ONLY = 9   # the terminal list narrower than this shows only icons (termlist.py)
+MIN_TERM = 20    # the terminal itself (left of its list) is never dragged narrower
+COLLAPSED = 5    # the collapsed list: its icons in the middle column; a collapsed sidebar is as wide
+
+
+def opt(name):
+    return lib.app("show-option", "-gqv", name)[1]
+
+
+def set_opt(name, value):
+    lib.app("set-option", "-g", name, value)
+
+
+def pane(role):
+    """The pane id of a role, if that pane is still there."""
+    pid = opt(f"@p_{role}")
+    # a pane that's gone: tmux still answers rc 0, with nothing printed
+    if pid and lib.app("display-message", "-p", "-t", pid, "#{pane_id}")[1] == pid:
+        return pid
+    return None
+
+
+def nested(name, hint=True):
+    """Command for a pane that shows a thread: a client of the agents server (TMUX unset, so tmux
+    allows the nesting). hint: when the thread ends the pane shows the keys instead of closing
+    (the middle pane); without it the pane closes (the terminals column)."""
+    attach = " ".join(shlex.quote(a) for a in lib.AGENTS + ["attach", "-t", f"={name}"])
+    return f"env -u TMUX -u TMUX_PANE {attach}" + (f"; {idle_cmd()}" if hint else "")
+
+
+def swap_client(role, session):
+    """Point the nested client in role's pane at session, without restarting it: the pane redraws once
+    with the new content (a respawn showed a blank pane, then the attach drawing it). False when the pane
+    has no client of the agents server (the home screen, say): then it's respawned."""
+    p = pane(role)
+    if not p:
+        return False
+    tty = lib.app("display-message", "-p", "-t", p, "#{pane_tty}")[1]
+    rc, ttys = lib.agents("list-clients", "-F", "#{client_tty}")
+    if rc != 0 or not tty or tty not in ttys.split():
+        return False
+    return lib.agents("switch-client", "-c", tty, "-t", f"={session}")[0] == 0
+
+
+def idle_cmd():
+    """The middle pane with no thread: the home screen (prompt box, threads)."""
+    return f"exec python3 {HERE}/home.py"
+
+
+def poke():
+    """Wake the sidebars: the current project or thread changed."""
+    for role in ("projects", "agents", "home"):
+        p = opt(f"@pid_{role}")
+        if p.isdigit():
+            try:
+                os.kill(int(p), 10)
+            except OSError:
+                pass
+
+
+def where():
+    s = lib.load_state()
+    project = s.get("project", "")
+    thread = s.get("threads", {}).get(project, "")
+    label = ""
+    if thread:
+        t = next((t for t in lib.threads() if t["name"] == thread), None)
+        if t:
+            label = f"#{thread.rsplit(lib.SEP, 1)[-1]} {lib.HARNESSES.get(t['harness'], (t['harness'] or 'shell',))[0]}"
+    set_opt("@project_name", lib.project_name(project) if project else "")
+    set_opt("@thread_label", label)
+    lib.app("refresh-client", "-S")
+
+
+# ---- building the workspace -------------------------------------------------------------------
+def build():
+    try:
+        cols, lines = os.get_terminal_size()
+    except OSError:
+        cols, lines = 200, 50
+    s = lib.load_state()
+    py = f"exec python3 {HERE}/sidebar.py"   # exec: the shell tmux starts it with doesn't stay around
+    rc, p0 = lib.app("new-session", "-d", "-s", SESSION, "-x", str(cols), "-y", str(lines - 1),
+                     "-P", "-F", "#{pane_id}", f"{py} projects")
+    sw = {role: side_width(role) for role in ("projects", "agents")}
+    _, p1 = lib.app("split-window", "-h", "-t", p0, "-l", str(max(cols - sw["projects"] - 1, 20)),
+                    "-P", "-F", "#{pane_id}", f"{py} agents")
+    _, p2 = lib.app("split-window", "-h", "-t", p1, "-l", str(max(cols - sw["projects"] - sw["agents"] - 2, 20)),
+                    "-P", "-F", "#{pane_id}", idle_cmd())
+    for role, pid, label in (("projects", p0, "Projects"), ("agents", p1, "Agents"), ("main", p2, "Thread")):
+        set_opt(f"@p_{role}", pid)
+        lib.app("set-option", "-p", "-t", pid, "@label", label)
+    for role, pid in (("projects", p0), ("agents", p1)):
+        if role in hidden():
+            lib.app("kill-pane", "-t", pid)
+    mark_closed()
+    lib.app("select-pane", "-t", p2)
+    project = s.get("project")
+    if project and os.path.isdir(project):
+        switch_project(project, build_only=True)
+    where()
+
+
+def widths():
+    w = {**WIDTHS, **lib.load_state().get("widths", {})}
+    for role, low in MIN.items():
+        w[role] = min(max(int(w.get(role) or 0), low), MAX.get(role, 999))
+    w["terms"] = min(max(float(w.get("terms") or WIDTHS["terms"]), 0.15), 0.6)
+    return w
+
+
+def collapsed():
+    """The sidebars folded to a strip of icons with their ‹ (sidebar.py): they stay folded until opened."""
+    return set(lib.load_state().get("collapsed", []))
+
+
+def side_width(role):
+    """A sidebar's width: the strip while it's collapsed, else its remembered width."""
+    return COLLAPSED if role in collapsed() else widths()[role]
+
+
+def collapse_side(role, how):
+    """A sidebar's ‹ / › (or c): fold it to the strip of its icons, or open it to its remembered width.
+    The other sidebar keeps its width: the columns freed or taken are the thread's."""
+    s = lib.load_state()
+    c = set(s.get("collapsed", []))
+    fold = role not in c if how == "toggle" else how == "collapse"
+    (c.add if fold else c.discard)(role)
+    s["collapsed"] = sorted(c)
+    lib.save_state(s)   # first: save-widths (the resize hook) reads it
+    for r in (role, "agents" if role == "projects" else "projects"):
+        if pane(r):
+            lib.app("resize-pane", "-t", pane(r), "-x", str(side_width(r)))
+
+
+def hidden():
+    """The panels closed with Ctrl+Alt+1/2/3 or their ×: they stay closed until toggled back."""
+    return set(lib.load_state().get("hidden", []))
+
+
+def mark_closed():
+    """Status-bar options for the closed panels (each shows a toggle to bring it back). Terminals:
+    shown when the current project has shells running behind a closed column."""
+    h = hidden()
+    for role in ("projects", "agents"):
+        set_opt(f"@closed_{role}", "1" if role in h else "")
+    project = lib.load_state().get("project", "")
+    behind = bool(project) and pane("terms") is None and terms_alive(project)
+    set_opt("@closed_terms", "1" if behind else "")
+    lib.app("refresh-client", "-S")
+
+
+# ---- the terminals column, per project ---------------------------------------------------------
+# state "terms_open": the projects whose terminals column is shown. Opening it in one project doesn't
+# open it in the others; switching to a project shows or hides the column to match. Hidden, a
+# project's shells keep running (its "<project>·terms" session).
+def terms_shown(project):
+    return project in lib.load_state().get("terms_open", [])
+
+
+def set_terms_shown(project, on):
+    s = lib.load_state()
+    shown = set(s.get("terms_open", []))
+    (shown.add if on else shown.discard)(project)
+    s["terms_open"] = sorted(shown)
+    lib.save_state(s)
+
+
+def terms_alive(project):
+    """True if the project's terminals session exists (without making one)."""
+    name = f"{lib.session_base(project)}{lib.SEP}terms"
+    return lib.agents("has-session", "-t", f"={name}")[0] == 0
+
+
+def ensure_layout():
+    """Put back a sidebar that's gone (crashed, or toggled open again): left of the thread, at its
+    width. Panels closed on purpose (hidden()) stay closed."""
+    main = pane("main")
+    if main is None:
+        return
+    py = f"exec python3 {HERE}/sidebar.py"
+    made = False
+    closed = hidden()
+    for role, label, left_of in (("agents", "Agents", "main"), ("projects", "Projects", "agents")):
+        if role not in closed and pane(role) is None:
+            target = pane(left_of) or main
+            rc, pid = lib.app("split-window", "-h", "-b", "-d", "-t", target, "-l", str(side_width(role)),
+                              "-P", "-F", "#{pane_id}", f"{py} {role}")
+            if rc == 0:
+                set_opt(f"@p_{role}", pid)
+                lib.app("set-option", "-p", "-t", pid, "@label", label)
+                made = True
+    if made:   # a new pane takes its room from its neighbour: set both widths again
+        for role in ("projects", "agents"):
+            if pane(role):
+                lib.app("resize-pane", "-t", pane(role), "-x", str(side_width(role)))
+
+
+def attach():
+    if lib.app("has-session", "-t", f"={SESSION}")[0] != 0:
+        build()
+        if lib.option("resume-on-open"):   # the threads come back while the client attaches
+            subprocess.Popen([SELF, "restore"], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        ensure_layout()
+    apply_keys()
+    if lib.projects_root() is None:   # first use: ask for the projects folder once the client is up
+        lib.app("set-hook", "-t", SESSION, "client-attached", f"run-shell -b '{SELF} first-run'")
+    os.execvp("tmux", lib.APP + ["attach", "-t", f"={SESSION}"])
+
+
+# ---- actions ----------------------------------------------------------------------------------
+def show(name):
+    """The thread in the middle pane (a fresh nested client; the agent itself is untouched)."""
+    clear_notices(name)   # you're looking at it
+    threads = {t["name"]: t for t in lib.threads()}
+    t = threads.get(name)
+    if not t:
+        return
+    main = pane("main")
+    if main is None:
+        return
+    if not swap_client("main", name):
+        lib.app("respawn-pane", "-k", "-t", main, nested(name))
+    lib.app("set-option", "-p", "-t", main, "@label", f"{t['harness'] or 'shell'} · {name}")
+    s = lib.load_state()
+    s.setdefault("threads", {})[t["project"]] = name
+    s["project"] = t["project"]
+    lib.save_state(s)
+    lib.app("select-pane", "-t", main)
+    where()
+    poke()
+
+
+def switch_project(path, build_only=False):
+    path = os.path.abspath(os.path.expanduser(path))
+    if not build_only:
+        ensure_layout()
+    s = lib.load_state()
+    if path not in s.get("projects", []):
+        s.setdefault("projects", []).append(path)
+    s["project"] = path
+    lib.save_state(s)
+    mine = [t["name"] for t in lib.threads() if t["project"] == path and lib.runs_agent(t)]
+    last = s.get("threads", {}).get(path)
+    target = last if last in mine else (mine[-1] if mine else None)
+    if not build_only and lib.option("resume-on-open"):   # threads that should be running but aren't
+        target = resume_project(path) or target
+    # the terminals column first: this project's own, shown only if it was opened here (its shells ended
+    # by themselves since: it stays closed). Then the thread: it's drawn once, at its final width, not
+    # drawn and then squeezed or stretched (the flicker between a project with terminals and one without)
+    terms = pane("terms")
+    show_terms = terms_shown(path) and terms_alive(path)
+    if terms_shown(path) and not show_terms:
+        set_terms_shown(path, False)
+    if show_terms and terms:
+        respawn_terms(path)
+    elif show_terms:
+        open_terms(path)
+    elif terms:   # hidden here; that project's shells keep running
+        close_terms_column()
+    if target:
+        show(target)
+    elif pane("main"):
+        lib.app("respawn-pane", "-k", "-t", pane("main"), idle_cmd())
+        lib.app("set-option", "-p", "-t", pane("main"), "@label", "Thread")
+        if not build_only and not mine and not lib.project_agents(path):
+            # a new project: the home screen asks which agent (its Agents list), with the keyboard
+            lib.app("select-pane", "-t", pane("main"))
+    mark_closed()
+    if not build_only:
+        where()
+        poke()
+
+
+def resume_project(path, quiet=False):
+    """Bring back the project's threads that aren't running: each one remembered with its conversation
+    (state "sessions") reopens on that exact conversation under its old name; with nothing remembered
+    but no thread open at all, the latest session of every agent used there continues (lib.project_agents;
+    none remembered: nothing, the home screen asks). Skipped for an agent whose conversation already
+    runs straight in the project's VS Code kitty (it would run twice). Returns the thread to show (the one shown last, else the last started) or None."""
+    live = {t["name"]: t for t in lib.threads()}
+    mine = [n for n, t in live.items() if t["project"] == path and lib.runs_agent(t)]
+    saved = sorted(((n, r) for n, r in lib.load_state().get("sessions", {}).items()
+                    if r.get("project") == path and n not in live),
+                   key=lambda nr: int(nr[0].rsplit(lib.SEP, 1)[-1]) if nr[0].rsplit(lib.SEP, 1)[-1].isdigit() else 0)
+    if not saved and mine:
+        return None
+    installed = {k for k, _ in lib.installed_harnesses()}
+    in_kitty = {h for *_, h in lib.unshared_agents(path)}
+    running = {r.get("id") for n, r in lib.load_state().get("sessions", {}).items() if n in live}
+    started, continued = [], set()
+    for name, r in saved:
+        harness, sid = r.get("harness"), r.get("id")
+        if harness not in installed or harness in in_kitty or sid in running:
+            continue
+        if sid and lib.session_exists(path, harness, sid):
+            started.append((lib.new_thread(path, harness, session=sid, name=name), harness))
+        elif harness not in continued:   # its conversation is gone: the latest one there, once
+            continued.add(harness)
+            started.append((lib.new_thread(path, harness, resume=True, name=name), harness))
+    if not mine and not started:   # nothing remembered thread by thread: the agents used here
+        for harness in lib.project_agents(path):
+            if harness in installed and harness not in in_kitty and lib.has_history(path, harness):
+                started.append((lib.new_thread(path, harness, resume=True), harness))
+    if not started:
+        return None
+    if not quiet:
+        lib.wait_started(*started[-1])
+        names = ", ".join(lib.HARNESSES[h][0] for _, h in started)
+        msg(f"Reopened {names} · Ctrl+Alt+N for a new thread")
+    last = lib.load_state().get("threads", {}).get(path)
+    return last if last in [n for n, _ in started] + mine else started[-1][0]
+
+
+def restore():
+    """agentmux opened on a fresh agents server (after a restart or a logout): every open project gets
+    its threads back, the current one first, then the thread you had in front of you is shown."""
+    s = lib.load_state()
+    current = s.get("project", "")
+    projects = [current] + [p for p in s.get("projects", []) if p != current]
+    count = 0
+    for p in projects:
+        if p and os.path.isdir(p):
+            before = len(lib.threads())
+            resume_project(p, quiet=True)
+            count += len(lib.threads()) - before
+    if current and os.path.isdir(current):
+        switch_project(current)
+    if count:
+        msg(f"Reopened {count} thread{'s' * (count != 1)} where you left them")
+
+
+def new_from_desktop():
+    """Super + N on the Agents workspace (workspaces.conf): a new thread when agentmux is on screen
+    (a client attached), else open agentmux (the same window Super + A opens)."""
+    if lib.app("list-clients", "-t", SESSION)[1].strip():
+        return new_thread()
+    os.execvp("uwsm", ["uwsm", "app", "--", "kitty", "--config", os.path.expanduser("~/.config/kitty/agentmux.conf"),
+                       "--class", "agentmux", "-e", SELF])
+
+
+def new_thread(harness=None, prompt_file=None):
+    project = lib.load_state().get("project")
+    if not project:   # nothing to start it in: pick a project first
+        return popup("project")
+    if not harness:
+        found = lib.installed_harnesses()
+        if len(found) == 1:
+            harness = found[0][0]
+        else:
+            return popup("harness")
+    name = lib.new_thread(project, harness, prompt_file)
+    lib.wait_started(name, harness)   # show it running, not half-started
+    show(name)
+    if lib.show_in_pair(name, project):
+        msg(f"{name} started · also opened in the VS Code kitty")
+    else:
+        msg(f"{name} started")
+
+
+# The column is two panes: the shown terminal (a client of the terms session) and, at its right, the
+# list of its terminals (termlist.py), as in VS Code's terminal panel. Its width (state "terms") is the
+# two together; the list keeps its own (state "termlist", in columns).
+def list_width():
+    """The terminal list's width: its icons only while collapsed (state "termlist_collapsed"), else
+    the remembered width."""
+    return COLLAPSED if lib.load_state().get("termlist_collapsed") else widths()["termlist"]
+
+
+def collapse_list(how):
+    """The list's ‹ / › button: collapse it to its icons, or expand it back to its remembered width
+    (one wide enough for the names). Kept for every project and the next time the column opens."""
+    lst = pane("termlist")
+    collapsed = how == "collapse"
+    lib.update_state(termlist_collapsed=collapsed)   # first: save-widths (the resize hook) reads it
+    width = widths()["termlist"]
+    if not collapsed and width < ICONS_ONLY:   # it was dragged down to the icons: the default width
+        width = WIDTHS["termlist"]
+    if lst:
+        lib.app("resize-pane", "-t", lst, "-x", str(COLLAPSED if collapsed else width))
+
+
+def termlist_cmd(project):
+    return f"exec python3 {HERE}/termlist.py {shlex.quote(project)}"
+
+
+def open_terms(project):
+    """The terminals column (the project's terminals session and their list), at its remembered width."""
+    col = pane("terms")
+    if col is None:   # its share of the whole window, in columns (a % would be of the middle pane)
+        total = int(lib.app("display-message", "-p", "-t", pane("main"), "#{window_width}")[1] or 0)
+        cols = max(int(total * widths()["terms"]), 20 + list_width())
+        rc, col = lib.app("split-window", "-h", "-d", "-t", pane("main"), "-l", str(cols),
+                          "-P", "-F", "#{pane_id}", nested(lib.terms_session(project), hint=False))
+        set_opt("@p_terms", col)
+        lib.app("set-option", "-p", "-t", col, "@label", f"Terminals · {lib.project_name(project)}")
+    if pane("termlist") is None:
+        rc, lst = lib.app("split-window", "-h", "-d", "-t", col, "-l", str(list_width()),
+                          "-P", "-F", "#{pane_id}", termlist_cmd(project))
+        set_opt("@p_termlist", lst)
+        lib.app("set-option", "-p", "-t", lst, "@label", "Terminal list")
+    return col
+
+
+def respawn_terms(project):
+    """The column shows project's terminals (after a project switch, a reload)."""
+    session = lib.terms_session(project)
+    if not swap_client("terms", session):
+        lib.app("respawn-pane", "-k", "-t", pane("terms"), nested(session, hint=False))
+    lib.app("set-option", "-p", "-t", pane("terms"), "@label", f"Terminals · {lib.project_name(project)}")
+    if pane("termlist"):
+        lib.app("respawn-pane", "-k", "-t", pane("termlist"), termlist_cmd(project))
+    else:
+        open_terms(project)
+
+
+def close_terms_column():
+    """Hide the column (both its panes); the shells keep running."""
+    if opt("@max") == "terms":   # its own window goes with it
+        set_opt("@max", "")
+    save_widths()
+    # both panes in one tmux command: one redraw, and the thread is resized once, not twice
+    kill = [a for p in filter(None, (pane("terms"), pane("termlist"))) for a in (";", "kill-pane", "-t", p)][1:]
+    if kill:
+        lib.app(*kill)
+
+
+def terms_closed(project):
+    """The list saw the project's last terminal end: the column goes (if that's still the project shown)."""
+    set_terms_shown(project, False)
+    if lib.load_state().get("project") == project:
+        close_terms_column()
+    mark_closed()
+
+
+def show_terms(project):
+    """The column shown (opened if it's hidden) and focused; returns its pane."""
+    if pane("terms") is None:
+        set_terms_shown(project, True)
+        open_terms(project)
+        mark_closed()
+    col = pane("terms")
+    lib.app("select-pane", "-t", col)
+    return col
+
+
+def term():
+    """A new terminal: a window of its own, full height, in the project folder (the first one comes with
+    the session)."""
+    project = lib.load_state().get("project")
+    if not project:
+        return msg("Open a project first (Ctrl+Alt+O)")
+    fresh = not terms_alive(project)
+    show_terms(project)
+    if not fresh:
+        lib.agents("new-window", "-t", f"={lib.terms_session(project)}:", "-c", project)
+
+
+def split_term(target=None):
+    """A terminal split in two, stacked (the column is narrow), the new one in the same folder: the
+    given pane (a row's split button in the list), else the shown one. The splits share the height
+    evenly."""
+    project = lib.load_state().get("project")
+    if not (project and terms_alive(project)):
+        return term()   # nothing to split yet
+    show_terms(project)
+    if target:   # that terminal's window is shown first
+        lib.agents("select-window", "-t", target)
+    target = target or f"={lib.terms_session(project)}:"
+    lib.agents("split-window", "-v", "-t", target, "-c", "#{pane_current_path}")
+    lib.agents("select-layout", "-t", target, "even-vertical")
+
+
+def next_term(step):
+    """The next (step 1) or previous (-1) terminal, round again."""
+    project = lib.load_state().get("project")
+    if not (project and terms_alive(project)):
+        return msg("No terminal open (+ terminal: Ctrl+Alt+T)")
+    show_terms(project)
+    lib.agents("next-window" if step > 0 else "previous-window", "-t", f"={lib.terms_session(project)}")
+
+
+def set_hidden(role, closed):
+    s = lib.load_state()
+    h = set(s.get("hidden", []))
+    (h.add if closed else h.discard)(role)
+    s["hidden"] = sorted(h)
+    lib.save_state(s)
+    mark_closed()
+
+
+def toggle(role):
+    """Ctrl+Alt+1/2/3 or a panel's ×: close it (its width is kept), or bring it back. Closing the
+    terminals column only hides it: the shells keep running."""
+    if opt("@max"):
+        unmaximize()
+    p = pane(role)
+    project = lib.load_state().get("project")
+    if p:
+        if role == "terms":
+            set_terms_shown(project, False)
+            close_terms_column()
+        else:
+            save_widths()
+            set_hidden(role, True)
+            lib.app("kill-pane", "-t", p)
+        mark_closed()
+        for other in ("projects", "agents"):   # the freed columns go to the thread, not to the other sidebar
+            if pane(other):
+                lib.app("resize-pane", "-t", pane(other), "-x", str(side_width(other)))
+        focus("main")
+        return
+    if role == "terms":
+        if project:
+            set_terms_shown(project, True)
+            open_terms(project)
+            mark_closed()
+    else:
+        set_hidden(role, False)
+        ensure_layout()
+
+
+def close_term(target=None):
+    """A terminal of the column: the given pane (a row's × in the list), else the focused one; one half
+    of a split, else the whole terminal. The last one closes the column."""
+    project = lib.load_state().get("project")
+    if not (project and pane("terms")):
+        return msg("No terminal open (+ terminal: Ctrl+Alt+T)")
+    target = target or f"={lib.terms_session(project)}:"
+    out = lib.agents("display-message", "-p", "-t", target, "#{session_windows} #{window_panes} #{window_id}")[1].split()
+    tabs, panes, window = (int(out[0]), int(out[1]), out[2]) if len(out) == 3 else (0, 0, "")
+    if tabs <= 1 and panes <= 1:
+        set_terms_shown(project, False)   # the last one: the column closes with it
+    lib.agents("kill-pane", "-t", target)
+    if panes > 2:   # the splits left share the height again
+        lib.agents("select-layout", "-t", window, "even-vertical")
+
+
+def close_thread():
+    """Ctrl+Alt+X (remappable): close what's selected in the focused sidebar, else the shown thread.
+    The sidebar asks under that row, with its Close / Cancel buttons (state "ask", then a poke); with
+    Threads closed, tmux asks instead."""
+    s = lib.load_state()
+    focused = lib.app("display-message", "-p", "#{pane_id}")[1]
+    role = next((r for r in ("projects", "agents") if pane(r) and pane(r) == focused), None)
+    if role:
+        ask = {"role": role}
+    else:
+        name = s.get("threads", {}).get(s.get("project", ""))
+        if not name:
+            return msg("No thread to close")
+        if pane("agents") is None:
+            lib.app("confirm-before", "-p", f"Close thread {name}? Its agent is ended. (y/n)",
+                    f"run-shell -b {shlex.quote(f'{SELF} kill-thread {name}')}")
+            return
+        role, ask = "agents", {"role": "agents", "thread": name}
+    lib.update_state(ask=ask)
+    lib.app("select-pane", "-t", pane(role))   # the y / n go to the sidebar that asks
+    poke()
+
+
+def kill_thread(name):
+    lib.forget_thread(name)   # closed on purpose: not resumed next time
+    clear_notices(name)
+    lib.agents("kill-session", "-t", f"={name}")
+    project = lib.load_state().get("project")
+    if project:
+        switch_project(project)
+
+
+def in_kitty(name):
+    """True if a kitty outside agentmux shows this thread (the one beside VS Code): ending the thread
+    would close that kitty too. agentmux's own views are clients inside tmux (tmux-256color)."""
+    _, out = lib.agents("list-clients", "-t", f"={name}", "-F", "#{client_termname}")
+    return any(t.startswith("xterm-kitty") for t in out.split())
+
+
+def close_project(path):
+    """Its threads and terminals end (not one a VS Code kitty is showing), it leaves the Projects list,
+    and if it was the current project agentmux moves to the next open one."""
+    path = os.path.abspath(os.path.expanduser(path))
+    kept = 0
+    for t in lib.threads():
+        if t["project"] != path:
+            continue
+        if t["kind"] == "agent" and in_kitty(t["name"]):
+            kept += 1
+            continue
+        lib.agents("kill-session", "-t", f"={t['name']}")
+        clear_notices(t["name"])
+    s = lib.load_state()
+    s["projects"] = [p for p in s.get("projects", []) if p != path]
+    s.get("threads", {}).pop(path, None)
+    current = s.get("project") == path
+    if current:
+        s["project"] = ""
+    lib.save_state(s)
+    if current:
+        rest = [p for p in lib.projects() if p != path]
+        if rest:
+            switch_project(rest[0])
+        elif pane("main"):
+            lib.app("respawn-pane", "-k", "-t", pane("main"), idle_cmd())
+            where()
+    poke()
+    name = lib.project_name(path)
+    msg(f"Closed {name}" + (f" · {kept} thread{'s' * (kept > 1)} kept: open in VS Code" if kept else ""))
+
+
+# ---- maximize: one panel takes the whole width (Ctrl+Alt+Z), again puts the layout back ------------
+# Projects, Threads and the thread are zoomed (tmux resize-pane -Z). The terminals column is two panes,
+# the terminal and its list, that go together: they move to a window of their own ("max") and back.
+# Option @max: the maximized role, or "". While it's set no width is remembered (save_widths).
+def focused_role():
+    current = lib.app("display-message", "-p", "#{pane_id}")[1]
+    role = next((r for r in ("projects", "agents", "main", "terms", "termlist") if pane(r) == current), None)
+    return "terms" if role == "termlist" else role
+
+
+def maximize(role=None):
+    """Maximize role's panel (the focused one by default), or put the layout back if one is."""
+    if opt("@max"):
+        unmaximize()
+        return
+    role = role or focused_role()
+    if not role or pane(role) is None:
+        return
+    set_opt("@max", role)   # first: the resizes that follow mustn't be remembered as widths
+    if role == "terms":
+        col, lst = pane("terms"), pane("termlist")
+        lib.app("break-pane", "-d", "-s", col, "-n", "max")
+        if lst:
+            lib.app("join-pane", "-h", "-d", "-s", lst, "-t", col, "-l", str(list_width()))
+        lib.app("select-window", "-t", col)
+    else:
+        lib.app("resize-pane", "-Z", "-t", pane(role))
+    lib.app("select-pane", "-t", pane(role))
+    lib.app("refresh-client", "-S")
+
+
+def unmaximize():
+    """The maximized panel back in the layout, at its remembered width."""
+    role = opt("@max")
+    if role == "terms" and pane("terms") and pane("main"):
+        col, lst = pane("terms"), pane("termlist")
+        total = int(lib.app("display-message", "-p", "-t", pane("main"), "#{window_width}")[1] or 0)
+        cols = max(int(total * widths()["terms"]), 20 + list_width())
+        lib.app("join-pane", "-h", "-d", "-s", col, "-t", pane("main"), "-l", str(cols))
+        if lst:
+            lib.app("join-pane", "-h", "-d", "-s", lst, "-t", col, "-l", str(list_width()))
+        lib.app("select-window", "-t", pane("main"))
+        lib.app("select-pane", "-t", col)
+    elif role and pane("main"):
+        if lib.app("display-message", "-p", "-t", pane("main"), "#{window_zoomed_flag}")[1] == "1":
+            lib.app("resize-pane", "-Z", "-t", pane("main"))
+    set_opt("@max", "")
+    lib.app("refresh-client", "-S")
+
+
+def focus(role):
+    """Focus a part; a closed one (Projects, Threads, the terminals) is brought back first, and a
+    maximized other one goes back into the layout."""
+    if opt("@max") and opt("@max") != role:
+        unmaximize()
+    if pane(role) is None and role != "main":
+        toggle(role)
+    p = pane(role)
+    if p:
+        lib.app("select-pane", "-t", p)
+
+
+def first_run():
+    """client-attached, while no projects folder is set: open the picker (it asks for the folder)."""
+    lib.app("set-hook", "-u", "-t", SESSION, "client-attached")
+    if lib.projects_root() is None:
+        popup("project")
+
+
+def popup(kind):
+    """A picker (project / harness) as a GTK popup over agentmux, the look of every panel (blurred
+    backdrop, border); it runs `agentmux project …` / `new-thread …` itself when you choose."""
+    subprocess.Popen(["python3", os.path.expanduser("~/.local/lib/panels/agentpickgui.py"), kind],
+                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def msg(text):
+    lib.app("display-message", "-d", "3000", text)
+
+
+def click(rng):
+    {"term": term, "close-term": lambda: close_term(), "thread": new_thread, "open": lambda: popup("project"), "help": help_line,
+     "settings": settings, "show-projects": lambda: toggle("projects"), "show-agents": lambda: toggle("agents"),
+     "show-terms": lambda: toggle("terms")}.get(rng, lambda: None)()
+
+
+def still_running():
+    """What quitting would cut short: agents at work or waiting on you, and terminals running a
+    program (not just their shell). Threads open in a VS Code kitty aren't ended, so not listed."""
+    shown = lib.load_state().get("threads", {}).get(lib.load_state().get("project", ""))
+    out = []
+    for t in lib.threads():
+        mine = t["attached"] - (1 if t["name"] == shown else 0)   # viewers besides agentmux's own
+        if t["kind"] != "terms" and lib.runs_agent(t) and mine <= 0 and lib.state_of(t) in ("working", "needs"):
+            label = lib.HARNESSES.get(t["harness"], (t["harness"] or "agent",))[0]
+            out.append(f"{label} in {lib.project_name(t['project'])} is {'working' if lib.state_of(t) == 'working' else 'waiting on you'}")
+    rc, panes = lib.agents("list-panes", "-a", "-F", "#{session_name}\t#{pane_current_command}")
+    for line in panes.splitlines() if rc == 0 else []:
+        name, _, cmd = line.partition("\t")
+        if name.endswith(lib.SEP + "terms") and cmd not in lib.SHELLS:
+            out.append(f"{cmd} running in {name.rsplit(lib.SEP, 1)[0]}'s terminals")
+    return out
+
+
+def quit_agentmux(args):
+    """Ctrl+Alt+Q: asks (a popup saying what's still running), then quit_now in its own session: it
+    ends the server this key runs in."""
+    if "--now" in args:
+        return quit_now()
+    if "--yes" not in args:   # the popup (agentpickgui.py quit) runs `agentmux quit --yes` on Quit
+        subprocess.Popen(["python3", os.path.expanduser("~/.local/lib/panels/agentpickgui.py"), "quit",
+                          *still_running()], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    subprocess.Popen([SELF, "quit", "--now"], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def quit_now():
+    """The workspace server first: its sidebars stop watching (so the agents ending aren't taken for
+    agents that quit, which would forget their conversations) and its window closes. Then, on the
+    agents server, every terminals session and every thread nobody else is viewing; what a VS Code
+    kitty shows stays. Nothing is forgotten: restore() brings the threads back next time."""
+    lib.app("kill-server")
+    time.sleep(0.5)   # its nested clients detach
+    for t in lib.threads():
+        if t["kind"] == "terms" or t["attached"] == 0:
+            lib.agents("kill-session", "-t", f"={t['name']}")
+    if not lib.threads():   # nothing left that a VS Code kitty shows: the server too
+        lib.agents("kill-server")
+
+
+def reload():
+    """Ctrl+Alt+R: refresh agentmux in place. Both tmux configs are read again and every pane of the
+    workspace is started again: the sidebars, the home screen, and the clients that show the thread
+    and the terminals. Those are only views: the agents and shells run on the agents server and
+    carry on untouched."""
+    lib.app("source-file", os.path.expanduser("~/.config/agentmux/app.conf"))
+    lib.agents("source-file", os.path.expanduser("~/.config/agentmux/agents.conf"))
+    apply_keys()
+    ensure_layout()
+    for role in ("projects", "agents"):
+        if pane(role):
+            lib.app("respawn-pane", "-k", "-t", pane(role), f"exec python3 {HERE}/sidebar.py {role}")
+            lib.app("resize-pane", "-t", pane(role), "-x", str(side_width(role)))   # within MIN and MAX
+    s = lib.load_state()
+    project = s.get("project", "")
+    thread = s.get("threads", {}).get(project)
+    if thread and any(t["name"] == thread for t in lib.threads()):
+        show(thread)
+    elif pane("main"):
+        lib.app("respawn-pane", "-k", "-t", pane("main"), idle_cmd())
+    if pane("terms") and project:
+        respawn_terms(project)
+    mark_closed()
+    where()
+    msg("agentmux reloaded")
+
+
+# ---- notifications: an agent finished, or needs you ---------------------------------------------
+def thread_of_hook():
+    """The agentmux thread this hook runs in (Claude Code passes its environment on), or None for a
+    Claude Code that isn't running in an agentmux thread."""
+    sock = os.environ.get("TMUX", "").split(",")[0]
+    if os.path.basename(sock) != "agents" or not os.environ.get("TMUX_PANE"):
+        return None
+    rc, name = lib.agents("display-message", "-p", "-t", os.environ["TMUX_PANE"], "#{session_name}")
+    return name if rc == 0 and name and not name.startswith("_") else None
+
+
+def watching(name):
+    """True if you're looking at that thread right now: agentmux focused and showing it, or the kitty
+    beside VS Code that shows it focused."""
+    rc, out = lib.run(["hyprctl", "activewindow", "-j"])
+    try:
+        win = json.loads(out) if rc == 0 else {}
+    except ValueError:
+        win = {}
+    if win.get("class") == "agentmux":
+        s = lib.load_state()
+        return s.get("threads", {}).get(s.get("project", "")) == name
+    if str(win.get("class", "")).startswith("code-term-"):
+        _, pids = lib.agents("list-clients", "-t", f"={name}", "-F", "#{client_pid}")
+        for pid in pids.split():
+            try:
+                if int(open(f"/proc/{pid}/stat").read().split(")")[1].split()[1]) == win.get("pid"):
+                    return True   # that tmux client's parent is the focused kitty
+            except (OSError, IndexError, ValueError):
+                pass
+    return False
+
+
+def send_notification(name, summary, body, urgent=False):
+    """A desktop notification for thread name; clicking it (or its Open action) shows that thread in
+    agentmux. Detached, so the hook returns at once."""
+    if os.fork():
+        return
+    os.setsid()
+    if os.fork():
+        os._exit(0)
+    # urgent (needs you, an error): stays until you act on it, past mako's default timeout, and goes
+    # once it's no longer true (clear_notices: its id, printed first by -p, is kept for that)
+    p = subprocess.Popen(["notify-send", "-p", "-a", "agentmux", "-u", "critical" if urgent else "normal",
+                          *(["-t", "0"] if urgent else []), "-A", "default=Open", summary, body],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    nid = p.stdout.readline().strip()
+    if urgent and nid.isdigit():
+        _notice_ids(name, add=nid)
+    out = p.stdout.read()
+    p.wait()
+    if urgent and nid.isdigit():
+        _notice_ids(name, drop=nid)
+    if out.strip() == "default":
+        subprocess.run([SELF, "show", name], capture_output=True)
+        subprocess.run([os.path.expanduser("~/.config/hypr/scripts/focus-or-launch.sh"), "agentmux", "kitty",
+                        "--config", os.path.expanduser("~/.config/kitty/agentmux.conf"), "--class", "agentmux",
+                        "-e", SELF], capture_output=True)
+    os._exit(0)
+
+
+NOTICES = os.path.join(lib.RUN, "notices")   # <thread>: ids of its urgent notifications still showing
+
+
+def _notice_ids(name, add=None, drop=None):
+    """The ids of thread name's urgent notifications on screen; add / drop one."""
+    import fcntl
+    os.makedirs(NOTICES, exist_ok=True)
+    path = os.path.join(NOTICES, name)
+    with open(path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            ids = open(path).read().split()
+        except OSError:
+            ids = []
+        if add and add not in ids:
+            ids.append(add)
+        if drop in ids:
+            ids.remove(drop)
+        if add or drop:
+            with open(path, "w") as f:
+                f.write("\n".join(ids))
+    return ids
+
+
+def clear_notices(name):
+    """Thread name no longer needs you (you opened it, answered, or it ended): its "needs your input"
+    / error notifications go away instead of waiting on screen."""
+    for nid in _notice_ids(name):
+        subprocess.run(["makoctl", "dismiss", "-n", nid], capture_output=True)
+        _notice_ids(name, drop=nid)
+
+
+def notify_text(name):
+    """(summary, title) for thread name: "Claude Code · inkspect #1" and the thread's own title."""
+    t = next((t for t in lib.threads() if t["name"] == name), None)
+    if not t:
+        return None, None
+    agent = lib.HARNESSES.get(t["harness"], (t["harness"] or "Agent",))[0]
+    num = name.rsplit(lib.SEP, 1)[-1]
+    return f"{agent} · {lib.project_name(t['project'])} #{num}", lib.clean_title(t["title"])
+
+
+# What each agent's hooks report, as (state, note): state working / needs / done / error, or None to
+# ignore the event. One entry point for all of them: agentmux notify --from <harness>, with the hook's
+# JSON on stdin. Installed by `agentmux hooks`. opencode has none to offer (its 2.x plugins get no
+# session or permission events): the sidebars read its screen instead.
+def hook_event(src, event, data):
+    if src in ("claude", "codex"):   # subagents: counted while they run (subagents())
+        if event == "SubagentStart":
+            return "sub+", data.get("agent_id") or ""
+        if event == "SubagentStop":
+            return "sub-", data.get("agent_id") or ""
+        if event == "SessionStart":   # a (re)started agent has none running
+            return "sub0", ""
+    if src == "claude":
+        if event in ("UserPromptSubmit", "PostToolUse"):   # PostToolUse: a permission prompt was answered
+            return "working", ""
+        if event == "Notification":
+            kind, message = data.get("notification_type", ""), data.get("message", "")
+            if kind in ("permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input") \
+                    or (not kind and "permission" in message.lower()):
+                return "needs", message or "Needs your input"
+            return None, ""   # idle_prompt (the finish already said so), auth_success, …
+        if event == "Stop":
+            return "done", ""
+        if event == "StopFailure":
+            return "error", data.get("error") or data.get("message") or "Stopped with an error"
+    elif src == "codex":
+        if event in ("UserPromptSubmit", "PreToolUse"):
+            return "working", ""
+        if event == "PermissionRequest":
+            return "needs", f"Permission: {data.get('tool_name') or 'run a command'}"
+        if event == "Stop":
+            return "done", ""
+    elif src == "agy":
+        if event == "PreInvocation":
+            return "working", ""
+        if event == "Stop":   # terminationReason: NO_TOOL_CALL, MAX_STEPS_EXCEEDED, ERROR …
+            if "error" in str(data.get("terminationReason", "")).lower() or data.get("error"):
+                return "error", str(data.get("error") or "Stopped with an error")
+            # not fully idle: background work goes on, it's done when a later Stop says so
+            return ("done", "") if data.get("fullyIdle", True) else ("background", "")
+    return None, ""
+
+
+# A notification of each kind is sent once per occurrence, by whoever notices first: a hook, or a
+# sidebar reading the screen. The marks live in the state (lib.mark_finished with these keys) and are
+# cleared once the thread moves on (sidebar.parse_threads).
+NOTICE_KEY = {"needs": "asked", "done": "told_done", "error": "errored", "exited": "exited"}
+
+
+def notice(name, kind, note=""):
+    """Notify about thread name (kind: needs / done / error / exited), unless already notified for this
+    occurrence, or you're looking at it."""
+    if not lib.option(f"notify-{kind}") or not lib.mark_finished([name], True, key=NOTICE_KEY[kind]) \
+            or watching(name):
+        return
+    summary, title = notify_text(name)
+    if not summary:
+        return
+    tail = f" · {title}" if title else ""
+    body = {"needs": (note or "Needs your input") + tail, "done": "Finished" + tail,
+            "error": (note or "Stopped with an error") + tail, "exited": "Agent exited" + tail}[kind]
+    send_notification(name, summary, body, urgent=kind in ("needs", "error"))
+
+
+def notify(args):
+    """A harness hook: record the thread's state for the sidebars (tmux option @agent_state on its
+    session; they read it through their subscription) and notify when it needs you, finished or
+    failed. Silent outside an agentmux thread (a Claude Code started elsewhere, this one)."""
+    src = args[args.index("--from") + 1] if "--from" in args else "claude"
+    rest = [a for a in args if not a.startswith("--") and a != src]
+    try:
+        data = json.loads(sys.stdin.read() or "{}") if not sys.stdin.isatty() else {}
+    except ValueError:
+        data = {}
+    event = rest[0] if rest else data.get("hook_event_name", "")
+    name = thread_of_hook()
+    if not name:
+        return
+    if event == "PostToolUse" and \
+            lib.agents("display-message", "-p", "-t", f"={name}:", "#{@agent_state}")[1] == "working":
+        return   # one per tool call: mid-turn nothing changes (only after a permission prompt it does)
+    sid = str(data.get("session_id") or data.get("sessionId") or data.get("conversationId") or "")
+    if src in lib.RESUME_ARGS and re.fullmatch(r"[A-Za-z0-9-]{8,80}", sid):   # the thread's conversation
+        project, _, harness = lib.agents("display-message", "-p", "-t", f"={name}:", "#{@project}\t#{@harness}")[1].partition("\t")
+        if project and harness == src:
+            lib.remember_session(name, project, harness, sid)
+    state, note = hook_event(src, event, data)
+    if not state:
+        return
+    if state.startswith("sub"):
+        left = subagents(name, state, note)
+        said = lib.agents("display-message", "-p", "-t", f"={name}:", "#{@agent_state}")[1]
+        if state == "sub-" and left == 0 and said == "background":   # the turn ended earlier: done now
+            lib.agents("set-option", "-t", f"={name}:", "@agent_state", "done")
+            lib.mark_finished([name], True)
+            notice(name, "done")
+        return
+    if state == "done" and subagents(name) > 0:
+        state = "background"   # the turn ended but subagents still run: not done yet
+    lib.agents("set-option", "-t", f"={name}:", "@agent_state", state)
+    if state in ("working", "done", "background"):   # it moved on: "needs your input" / an error is old news
+        clear_notices(name)
+    if state == "background":
+        return
+    if state == "working":   # a new turn: earlier notices may be sent again when it gets there
+        for key in ("asked", "finished", "told_done", "errored"):
+            lib.mark_finished([name], False, key=key)
+    else:
+        if state == "done":
+            lib.mark_finished([name], True)   # the sidebars show it "done" until it's looked at
+        notice(name, state, note)
+
+
+def subagents(name, change="", agent_id=""):
+    """The thread's running subagents (ids, in the state dir; a lock keeps hooks that run at the same
+    time from losing one): change "sub+" / "sub-" / "sub0" (reset). Returns how many run; the count
+    goes to the sidebars as the session's @subagents."""
+    import fcntl
+    path = os.path.join(os.path.dirname(lib.STATE), "subagents.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            running = json.load(open(path))
+        except (OSError, ValueError):
+            running = {}
+        ids = running.get(name, [])
+        if change == "sub+":
+            ids.append(agent_id or f"anon-{len(ids)}")
+        elif change == "sub-":
+            if agent_id in ids:
+                ids.remove(agent_id)
+            elif ids:   # no id to match: one of them
+                ids.pop()
+        elif change == "sub0":
+            ids = []
+        if change:
+            running[name] = ids
+            if not ids:
+                running.pop(name, None)
+            _write_json(path, running)
+            lib.agents("set-option", "-t", f"={name}:", "@subagents", str(len(ids)))
+    return len(ids)
+
+
+def notify_screen(name, kind):
+    """A sidebar saw it on screen (a dialog that waits for you, or the agent quitting: then its
+    conversation isn't reopened after a restart)."""
+    if kind == "exited":
+        lib.forget_session(name)
+        clear_notices(name)
+    notice(name, kind)
+
+
+# ---- installing the hooks ------------------------------------------------------------------------
+# an absolute path: agy runs hook commands without a shell, so a ~ would never be expanded
+HOOK_CMD = os.path.expanduser("~/.local/bin/agentmux") + " notify --from {}"
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+
+def _merge_hook_events(hooks, events, command, extra):
+    """Claude / Codex style {"Event": [{"hooks": [{"type": "command", ...}]}]}: one entry per event that
+    runs command, older agentmux entries replaced, everything else kept."""
+    for event in events:
+        entries = [e for e in hooks.get(event, [])
+                   if not any("agentmux notify" in (h.get("command") or "") for h in e.get("hooks", []))]
+        entries.append({"hooks": [{"type": "command", "command": command, **extra}]})
+        hooks[event] = entries
+    return hooks
+
+
+def install_hooks():
+    """Each agent's own hooks call `agentmux notify --from <agent>`: Claude Code (~/.claude/settings.json),
+    Codex (~/.codex/hooks.json), Antigravity (~/.gemini/config/hooks.json). Safe to run again: it merges,
+    never replaces what's there. (opencode: no hooks; the sidebars read its screen.)"""
+    home = os.path.expanduser("~")
+    done = []
+    claude = f"{home}/.claude/settings.json"
+    try:
+        s = json.load(open(claude))
+    except (OSError, ValueError):
+        s = {}
+    s["hooks"] = _merge_hook_events(s.get("hooks", {}), ("UserPromptSubmit", "Notification", "Stop", "StopFailure",
+                                                         "SubagentStart", "SubagentStop", "SessionStart", "PostToolUse"),
+                                    HOOK_CMD.format("claude"), {"async": True, "timeout": 10})
+    _write_json(claude, s)
+    done.append("Claude Code")
+
+    codex = f"{home}/.codex/hooks.json"
+    try:
+        c = json.load(open(codex))
+    except (OSError, ValueError):
+        c = {}
+    c["hooks"] = _merge_hook_events(c.get("hooks", {}), ("UserPromptSubmit", "PreToolUse", "PermissionRequest", "Stop",
+                                                         "SubagentStart", "SubagentStop", "SessionStart"),
+                                    HOOK_CMD.format("codex"), {"async": True, "timeout": 10})
+    _write_json(codex, c)
+    # Codex only runs hooks.json with its codex_hooks feature on ([features] in config.toml)
+    toml = f"{home}/.codex/config.toml"
+    try:
+        lines = open(toml).read().splitlines()
+    except OSError:
+        lines = []
+    if not any(l.strip().replace(" ", "") == "codex_hooks=true" for l in lines):
+        lines = [l for l in lines if not l.strip().startswith("codex_hooks")]
+        if "[features]" in (l.strip() for l in lines):
+            lines.insert([l.strip() for l in lines].index("[features]") + 1, "codex_hooks = true")
+        else:
+            lines += ["", "[features]", "codex_hooks = true"]
+        with open(toml, "w") as f:
+            f.write("\n".join(lines).lstrip("\n") + "\n")
+    done.append("Codex")
+
+    agy = f"{home}/.gemini/config/hooks.json"
+    try:
+        g = json.load(open(agy))
+    except (OSError, ValueError):
+        g = {}
+    # agy's payload doesn't name its event: each command passes it; and agy wants these flat (no
+    # matcher groups: a malformed entry makes it ignore the whole file)
+    run = lambda event: [{"type": "command", "command": HOOK_CMD.format("agy") + " " + event, "timeout": 10}]
+    g.pop("zzprobe-flat", None)
+    g["agentmux"] = {"enabled": True, "PreInvocation": run("PreInvocation"), "Stop": run("Stop")}
+    _write_json(agy, g)
+    done.append("Antigravity")
+
+    print("agentmux hooks installed: " + ", ".join(done))
+
+
+# ---- shortcuts, status bar, help: all from the settings (lib.load_settings) ---------------------
+def apply_keys():
+    """Bind the shortcuts the settings name (and unbind the ones bound before), and build the status
+    bar's buttons and the help line from them: a remapped key shows right everywhere. Run on start,
+    on reload and when the settings panel saves."""
+    keys = lib.load_settings()["keys"]
+    for old in (opt("@bound_keys") or "").split():
+        lib.app("unbind", "-n", old)
+    # agents: actions go to the agents server (root and copy-mode tables: a held selection is copy
+    # mode there), where the thread's own pane is the current one
+    for old in (lib.agents("show-option", "-gqv", "@bound_keys")[1] or "").split():
+        lib.agents("unbind", "-n", old)
+        lib.agents("unbind", "-T", "copy-mode", old)
+    bound, bound_agents = [], []
+    for aid, _, cmd, _ in lib.ACTIONS:
+        key = keys.get(aid)
+        if not key:
+            continue
+        if cmd.startswith("agents:"):
+            run = ["run-shell", "-b", f"{SELF} {cmd[7:]} '#{{pane_id}}'"]
+            lib.agents("bind", "-n", key, *run)
+            lib.agents("bind", "-T", "copy-mode", key, *run)
+            bound_agents.append(key)
+            continue
+        if cmd.startswith("tmux:"):
+            lib.app("bind", "-n", key, *shlex.split(cmd[5:]))
+        else:
+            lib.app("bind", "-n", key, "run-shell", "-b", f"{SELF} {cmd}")
+        bound.append(key)
+    set_opt("@bound_keys", " ".join(bound))
+    lib.agents("set-option", "-g", "@bound_keys", " ".join(bound_agents))
+    lib.app("set-option", "-g", "status-right", status_right(keys))
+    lib.app("refresh-client", "-S")
+
+
+def status_right(keys):
+    """The status bar's buttons, clickable (MouseDown1Status runs agentmux click <range>). When their
+    keys share Ctrl+Alt it's said once: "Ctrl+Alt +  N thread · T terminal …"."""
+    K, T, D, M = (recolor(c) for c in ("#[fg=#e0af68]", "#[fg=#a9b1d6]", "#[fg=#3b4261]", "#[fg=#565f89]"))
+    buttons = [("thread", "new-thread", "thread"), ("term", "new-terminal", "terminal"),
+               ("close-term", "close-terminal", "close terminal"), ("open", "open-project", "open project"),
+               ("settings", "settings", "settings")]
+    closed = [("projects", "toggle-projects", "projects"), ("agents", "toggle-threads", "threads"),
+              ("terms", "toggle-terminals", "terminals")]
+    labels = {aid: lib.key_label(keys[aid]) for _, aid, _ in buttons + closed if keys.get(aid)}
+    common = "Ctrl+Alt+" if labels and all(l.startswith("Ctrl+Alt+") for l in labels.values()) else ""
+    short = lambda aid: labels[aid][len(common):] if aid in labels else ""
+    out = f"{M}Ctrl+Alt +  " if common else ""
+    for role, aid, what in closed:
+        out += (f"#{{?#{{@closed_{role}}},#[range=user|show-{role}]{M}▸ {K}{short(aid)} {M}{what}"
+                f"#[norange]{D} · ,}}")
+    out += f"{D} · ".join(f"#[range=user|{rng}]{K}{short(aid)} {T}{what}#[norange]" for rng, aid, what in buttons)
+    return out + " "
+
+
+def speak(pane_id):
+    """The read-aloud key, in a thread (agents server): the selection held in that pane is read by
+    Audio Cursor in the VS Code window of the thread's project; with nothing selected the key is
+    VS Code's Alt+P (pause, resume, read again). Each VS Code window running Audio Cursor listens on
+    $XDG_RUNTIME_DIR/audio-cursor/<pid>.sock and describes itself (folders, last focus) beside it."""
+    import hashlib, socket
+    # What was selected: tmux's own selection in the pane, or else what a program that does its own
+    # mouse selection (Claude Code) copied - it lands in a tmux buffer through OSC 52. A buffer is
+    # read once; pressed again the key is play / pause.
+    selected = lib.agents("display-message", "-p", "-t", pane_id, "#{selection_present}")[1] == "1"
+    if selected:
+        lib.agents("send-keys", "-t", pane_id, "-X", "copy-pipe-no-clear")   # the selection -> top buffer
+    request = {"action": "toggle"}
+    newest = newest_buffer()
+    spoken = lib.agents("show-option", "-gqv", "@spoken_buffer")[1]
+    if newest and (selected or newest[0] != spoken):
+        rc, text = lib.agents("show-buffer", "-b", newest[1])
+        if rc == 0 and text.strip():
+            request = {"action": "read", "text": text, "label": "agentmux"}
+        lib.agents("set-option", "-g", "@spoken_buffer", newest[0])
+    # opencode selects with the mouse itself and copies to the clipboard past tmux (no buffer): what it
+    # copied since the last read is the selection. Only there, so a copy elsewhere doesn't turn a
+    # Claude thread's play / pause into reading it.
+    if request["action"] == "toggle" and lib.agents("display-message", "-p", "-t", pane_id, "#{@harness}")[1] == "opencode":
+        try:
+            clip = subprocess.run(["wl-paste", "--no-newline"], capture_output=True, text=True, timeout=2).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            clip = ""
+        mark = hashlib.sha1(clip.encode()).hexdigest()   # hash() differs per process
+        if clip.strip() and mark != lib.agents("show-option", "-gqv", "@spoken_clip")[1]:
+            request = {"action": "read", "text": clip, "label": "agentmux"}
+        lib.agents("set-option", "-g", "@spoken_clip", mark)
+    project = lib.agents("display-message", "-p", "-t", pane_id, "#{@project}")[1] or \
+        lib.agents("display-message", "-p", "-t", pane_id, "#{pane_current_path}")[1]
+    window = audio_cursor_window(project)
+    if not window:
+        # no VS Code window open: Audio Cursor's standalone reader (bin/speak.js) reads it instead
+        if request["action"] == "read":
+            start_standalone_reader(request["text"])
+        else:
+            lib.agents("display-message", "-d", "3000", "Audio Cursor: select some text to read")
+        return
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+            s.settimeout(5)
+            s.connect(window["socket"])
+            s.sendall((json.dumps(request) + "\n").encode())
+            reply = json.loads(s.makefile().readline() or "{}")
+    except (OSError, ValueError):
+        reply = {"ok": False, "error": "VS Code did not answer"}
+    if not reply.get("ok"):
+        lib.agents("display-message", "-d", "3000", f"Audio Cursor: {reply.get('error', 'failed')}")
+
+
+def newest_buffer():
+    """(identity, name) of the agents server's newest paste buffer, or None. The identity is its
+    name with its creation time: tmux reuses names once old buffers are dropped."""
+    rc, out = lib.agents("list-buffers", "-F", "#{buffer_created}\t#{buffer_name}")
+    rows = [line.split("\t", 1) for line in out.splitlines() if "\t" in line] if rc == 0 else []
+    if not rows:
+        return None
+    num = lambda n: int("".join(c for c in n if c.isdigit()) or 0)   # buffer251 is newer than buffer250
+    created, name = max(rows, key=lambda r: (int(r[0] or 0), num(r[1])))
+    return f"{name}@{created}", name
+
+
+def audio_cursor_window(project):
+    """The VS Code window to read in: the one whose folder is the project (or holds it, or lies in
+    it, the closest first), else the one focused last."""
+    folder = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "audio-cursor")
+    windows = []
+    for name in os.listdir(folder) if os.path.isdir(folder) else []:
+        if not name.endswith(".json"):
+            continue
+        try:
+            w = json.load(open(os.path.join(folder, name)))
+            os.kill(int(w["pid"]), 0)   # a window that has gone leaves its file behind
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if os.path.exists(w.get("socket", "")):
+            windows.append(w)
+    if not windows:
+        return None
+    project = os.path.realpath(project) if project else ""
+
+    def closeness(w):
+        best = -1
+        for f in w.get("folders", []):
+            f = os.path.realpath(f)
+            if f == project:
+                best = max(best, 10 ** 6)
+            elif project.startswith(f + os.sep):
+                best = max(best, len(f))            # the project is inside this folder
+            elif f.startswith(project + os.sep) and project:
+                best = max(best, len(project) - 1)  # this folder is inside the project
+        return best
+
+    # the standalone reader only when no VS Code window is open
+    return max(windows, key=lambda w: (not w.get("standalone"), closeness(w), w.get("focusedAt", 0)))
+
+
+def start_standalone_reader(text):
+    """Audio Cursor without VS Code: bin/speak.js of the newest installed extension, the text on its
+    stdin. It stays up for a while after reading, so the key pauses, resumes and replays it."""
+    import shutil
+    import glob, re
+    vkey = lambda p: [int(n) for n in re.findall(r"\d+", os.path.basename(p))]
+    scripts = sorted(glob.glob(os.path.expanduser("~/.vscode*/extensions/prodigycorp.audio-cursor-*/bin/speak.js")),
+                     key=lambda p: vkey(os.path.dirname(os.path.dirname(p))))
+    node = shutil.which("node") or next(iter(sorted(glob.glob(
+        os.path.expanduser("~/.local/share/mise/installs/node/*/bin/node")), reverse=True)), None)
+    if not scripts or not node:
+        lib.agents("display-message", "-d", "3000",
+                   "Audio Cursor: install the VS Code extension (0.8.5 or later) and node to read aloud")
+        return
+    log = open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "audio-cursor-speak.log"), "a")
+    proc = subprocess.Popen([node, scripts[-1]], stdin=subprocess.PIPE, stdout=log, stderr=log,
+                            start_new_session=True)
+    proc.stdin.write(text.encode())
+    proc.stdin.close()
+
+
+def paste(pane_id):
+    """Ctrl+V in a Codex or agy thread (agents.conf): an image on the clipboard goes to the agent as its
+    own Ctrl+V (Codex pastes images); text is pasted by tmux, bracketed like a terminal paste, since
+    Codex reads Ctrl+V only as an image and agy not at all."""
+    _, types = lib.run(["wl-paste", "--list-types"])
+    kinds = types.split()
+    if any(k.startswith("image/") for k in kinds) or not kinds:
+        lib.agents("send-keys", "-t", pane_id, "C-v")
+        return
+    try:
+        text = subprocess.run(["wl-paste", "-n"], capture_output=True, timeout=5).stdout
+        subprocess.run(lib.AGENTS + ["load-buffer", "-b", "agentmux-paste", "-"], input=text, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return
+    lib.agents("paste-buffer", "-p", "-d", "-b", "agentmux-paste", "-t", pane_id)
+
+
+def help_line():
+    keys = lib.load_settings()["keys"]
+    lib.app("display-message", "-d", "10000", " · ".join(
+        f"{lib.key_label(keys[aid])} {label.lower()}" for aid, label, _, _ in lib.ACTIONS if keys.get(aid))
+        + " · drag borders to resize")
+
+
+def focus_next():
+    """The next part, left to right (Projects, Threads, the thread, terminals), wrapping around."""
+    parts = [p for p in (pane(r) for r in ("projects", "agents", "main", "terms")) if p]
+    if not parts:
+        return
+    if opt("@max"):
+        unmaximize()
+    current = lib.app("display-message", "-p", "#{pane_id}")[1]
+    nxt = parts[(parts.index(current) + 1) % len(parts)] if current in parts else parts[0]
+    lib.app("select-pane", "-t", nxt)
+
+
+def settings():
+    """The settings window (local/lib/panels/agentmuxgui.py, like System Settings); again closes it."""
+    subprocess.Popen(["python3", os.path.expanduser("~/.local/lib/panels/agentmuxgui.py")], start_new_session=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def save_widths():
+    """Remember the sidebar and column widths (after a drag, Ctrl+Alt+←→ or the window resizing). Not
+    while a panel is maximized: those widths are the maximized ones."""
+    if opt("@max"):
+        return
+    s = lib.load_state()
+    w = s.get("widths", {})
+    total = int(lib.app("display-message", "-p", "#{window_width}")[1] or 0)
+    size = lambda p: int(lib.app("display-message", "-p", "-t", p, "#{pane_width}")[1] or 0) if p else 0
+    # the terminal list squeezed below its icons (tmux takes a resize out of the rightmost pane, or a
+    # drag went too far): back to its last width. That resize runs this again, with the right widths.
+    if pane("termlist") and size(pane("termlist")) < MIN["termlist"]:
+        lib.app("resize-pane", "-t", pane("termlist"), "-x", str(list_width()))
+        return
+    # A sidebar is its collapsed strip or between MIN and MAX wide: dragged narrower than MIN it
+    # collapses (dragged MIN wide again it opens), wider than MAX it stops there. The list dragged
+    # narrower than its names collapses, and the terminal keeps MIN_TERM.
+    want = {}
+    # Projects dragged wider takes its columns from Threads (the border they share): Threads gets its own
+    # width back (from the thread's), rather than collapsing as if it had been dragged narrow itself
+    was = lambda r: COLLAPSED if r in s.get("collapsed", []) else widths()[r]
+    if pane("projects") and pane("agents") and size(pane("projects")) > was("projects") \
+            and size(pane("agents")) < was("agents"):
+        want["agents"] = was("agents")
+    for role in ("projects", "agents"):
+        width = size(pane(role))
+        if role in want:
+            continue
+        if pane(role) and width < MIN[role] and width != COLLAPSED:
+            if role not in s.get("collapsed", []):   # first: the resize below runs this again
+                s["collapsed"] = sorted(set(s.get("collapsed", [])) | {role})
+                lib.save_state(s)
+            want[role] = COLLAPSED
+            if role == "projects" and pane("agents"):   # as with its ‹: the columns go to the thread
+                want["agents"] = was("agents")
+        elif pane(role) and width > MAX[role]:
+            want[role] = MAX[role]
+    width = size(pane("termlist"))
+    if pane("termlist") and width < ICONS_ONLY and width != COLLAPSED:
+        s["termlist_collapsed"] = True
+        lib.save_state(s)
+        want["termlist"] = COLLAPSED
+    if pane("terms") and size(pane("terms")) < MIN_TERM:
+        want["terms"] = MIN_TERM
+    want = {role: x for role, x in want.items() if size(pane(role)) != x}
+    if want:
+        for role, x in want.items():   # each resize runs this again, with the right widths
+            lib.app("resize-pane", "-t", pane(role), "-x", str(x))
+        return
+    # collapsed, the list's width isn't one to remember; dragged open far enough for the names, it's
+    # expanded again
+    if s.get("termlist_collapsed") and size(pane("termlist")) >= ICONS_ONLY:
+        s["termlist_collapsed"] = False
+    # the same for a collapsed sidebar dragged open (its strip is narrower than MIN: never remembered)
+    s["collapsed"] = [r for r in s.get("collapsed", []) if size(pane(r)) < MIN[r]]
+    for role in ("projects", "agents", "terms", "termlist"):
+        width = size(pane(role))
+        if width >= MIN.get(role, 8):   # a pane that's gone (or squeezed to nothing) keeps its last width
+            if role == "terms":   # the column: the terminal and its list, as a share of the window
+                width += size(pane("termlist")) + 1 if pane("termlist") else 0
+                width = round(width / total, 2) if total else 0
+            if role != "termlist" or not s.get("termlist_collapsed"):
+                w[role] = width
+    s["widths"] = w
+    lib.save_state(s)
+
+
+def reap():
+    """A viewer left (a VS Code kitty closed, agentmux moved on): threads nobody watches that are just
+    an idle shell are closed, so they don't pile up. Running agents and terminals stay (agentmux shows
+    them)."""
+    for t in lib.threads():
+        if t["kind"] == "agent" and t["attached"] == 0 and t["command"] in lib.SHELLS:
+            lib.agents("kill-session", "-t", f"={t['name']}")
+
+
+def idle():
+    """The middle pane after its thread ended: back to the home screen."""
+    os.execvp("python3", ["python3", f"{HERE}/home.py"])
+
+
+def main(argv):
+    if len(argv) == 1:
+        import shutil
+        if not shutil.which("tmux"):   # only here: every other command comes from tmux or a hook in it
+            sys.exit("agentmux needs tmux: sudo pacman -S tmux")
+        return attach()
+    cmd, args = argv[1], argv[2:]
+    pfile = args[args.index("--prompt-file") + 1:args.index("--prompt-file") + 2] if "--prompt-file" in args else []
+    actions = {
+        "project": lambda: switch_project(args[0]), "show": lambda: show(args[0]),
+        "new-thread": lambda: new_thread(next((a for a in args if not a.startswith("--") and a not in pfile), None),
+                                         pfile[0] if pfile else None),
+        "open": lambda: popup("project"), "first-run": first_run, "new": new_from_desktop,
+        "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
+        "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),
+        "close-thread": close_thread, "collapse-list": lambda: collapse_list(args[0] if args else "collapse"),
+        "collapse": lambda: collapse_side(args[0], args[1] if len(args) > 1 else "toggle"),
+        "close-project": lambda: close_project(args[0]),
+        "kill-thread": lambda: kill_thread(args[0]), "focus": lambda: focus(args[0]),
+        "click": lambda: click(args[0] if args else ""), "save-widths": save_widths, "idle": idle, "reap": reap,
+        "toggle": lambda: toggle(args[0]), "reload": reload, "restore": restore, "quit": lambda: quit_agentmux(args), "maximize": lambda: maximize(args[0] if args else None),
+        "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
+        "clear-notices": lambda: clear_notices(args[0]),
+        "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
+        "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]),
+    }
+    if cmd not in actions:
+        sys.exit(__doc__)
+    actions[cmd]()
+
+
+if __name__ == "__main__":
+    main(sys.argv)

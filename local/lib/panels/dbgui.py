@@ -945,10 +945,14 @@ class Databases(View):
         return True
 
 
+CELL_CHARS = 40   # a table cell's most characters: a wide table stays scannable
+
+
 def _short(text):
-    """A cell on one line: the row view below has it in full."""
-    text = text.replace("\n", " ↵ ")
-    return text if len(text) <= 120 else text[:119] + "…"
+    """A cell on one line, cut at CELL_CHARS (the text itself, not a label's ellipsis: the columns size to
+    their content, an ellipsizing label let them shrink to the header); the row view has it in full."""
+    text = text.replace("\n", " \u21b5 ")
+    return text if len(text) <= CELL_CHARS else text[:CELL_CHARS - 1] + "\u2026"
 
 
 def make():

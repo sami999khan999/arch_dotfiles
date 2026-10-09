@@ -292,10 +292,11 @@ def sync_summary(reps):
 
 
 def set_health(p, h):
-    """A Project's numbers from pj.health()."""
-    p.dirty, p.unpushed, p.main, p.behind = h["dirty"], h["unpushed"], h["main"], h["behind"]
-    p.out_of_date, p.conflicts = h["out_of_date"], h["diverged"] + h["unmerged"]
-    p.to_sync, p.behind_branches, p.new_branches = h["to_sync"], h["behind_branches"], h["new_branches"]
+    """A Project's numbers from pj.health(). Set in one dict update: it's called from git threads, and
+    field by field the tree, painted meanwhile on the main thread, could show half old, half new."""
+    p.__dict__.update(dirty=h["dirty"], unpushed=h["unpushed"], main=h["main"], behind=h["behind"],
+                      out_of_date=h["out_of_date"], conflicts=h["diverged"] + h["unmerged"],
+                      to_sync=h["to_sync"], behind_branches=h["behind_branches"], new_branches=h["new_branches"])
 
 
 def status_lines(path):

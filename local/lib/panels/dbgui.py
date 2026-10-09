@@ -5,7 +5,7 @@
 #
 #   left   the connections; open one (Enter / double-click) for its schemas → tables, keys,
 #          databases → collections, buckets → folders → files. A green dot: connected.
-#   right  the selected table / key / collection / file, a page at a time (Load more), the query box
+#   right  the selected table / key / collection / file, a page at a time (« ‹ page › », the page size), the query box
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once.
 #
@@ -42,6 +42,9 @@ columnview listview > row:hover { background: alpha(#292e42, .35); }
 columnview listview > row:selected { background: alpha(#292e42, .75); color: #c0caf5; }
 columnview listview > row > cell { padding: 3px 8px; }
 .form-label { color: #a9b1d6; min-width: 160px; }
+button.pager-btn { padding: 2px 10px; min-width: 0; font-size: 12pt; }
+button.pager-btn:disabled { background: transparent; color: #3b4261; }
+entry.page-entry { padding: 2px 4px; min-height: 0; }
 """
 
 
@@ -52,6 +55,37 @@ class Row(GObject.Object):
     def __init__(self, cells):
         super().__init__()
         self.cells = cells
+
+
+class Pager:
+    """The pages of what the table shows: a browsed table / key / collection or a query's result.
+    A table pages by offset, so any page can be jumped to; a Redis hash / set / stream pages by a cursor
+    (starts[i]: where page i begins) and a query by its open cursor, so those go page by page (a query's
+    pages are kept, going back doesn't run it again)."""
+
+    def __init__(self, kind, cid, path, size):
+        self.kind, self.cid, self.path, self.size = kind, cid, path, size
+        self.index = 0             # the page shown
+        self.starts = {0: 0}       # browse: page → where it starts (an offset, or a cursor / last id)
+        self.lens = {}             # page → its number of rows (row numbers when pages aren't all `size`)
+        self.seekable = True       # browse by offset: page n starts at n * size
+        self.pages = []            # run: the pages fetched so far
+        self.more = False          # the page shown has a next one
+        self.total = None          # (rows, exact?) when cheap to know
+
+    def first_row(self):
+        if self.kind == "browse" and self.seekable:
+            return self.index * self.size
+        return sum(self.lens.get(i, 0) for i in range(self.index))
+
+    def last_page(self):
+        """The last page's index, when it can be jumped to."""
+        if self.kind == "browse" and self.seekable and self.total and self.total[1]:
+            return max(0, (self.total[0] - 1) // self.size)
+        return None
+
+
+SIZES = [50, 100, 200, 500, 1000]
 
 
 class Live:
@@ -69,7 +103,7 @@ class Databases(View):
     icon = ""
     interval = 5   # refresh(): only closes idle connections
     css = CSS
-    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
+    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
              ("Del", "delete")]
 
     def __init__(self):
@@ -80,7 +114,8 @@ class Databases(View):
         self.open = set()        # (id, path) unfolded in the tree
         self.kids = {}           # (id, path): [Node], fetched once per unfold (F5 again)
         self.sel = None          # (id, Node or None) on the right
-        self.page = None         # how Load more continues: ("browse", id, path, offset) / ("run", id)
+        self.pager = None        # the pages of what the table shows
+        self.size = db.PAGE      # rows a page
         self.queries = {}        # id: the query box's text, kept per connection
         self.armed = 0           # time Delete was pressed once
         self.gen = 0             # bumped when the right side changes: late results are dropped
@@ -145,8 +180,19 @@ class Databases(View):
         self.table = Gtk.ColumnView(model=self.selection, reorderable=False, show_row_separators=False,
                                     show_column_separators=False)
         self.count = label("", "dim", ellipsize=True)
-        self.more_btn = button("Load more", self.load_more, "flat")
-        foot = box(False, 8, self.count, self.more_btn)
+        self.nav = {}
+        for name, text, tip in (("first", "\u00ab", "first page"), ("prev", "\u2039", "previous page ( [ )"),
+                                ("next", "\u203a", "next page ( ] )"), ("last", "\u00bb", "last page")):
+            self.nav[name] = button(text, lambda n=name: self.turn(n), "flat", "pager-btn", tooltip=tip)
+        self.page_entry = Gtk.Entry(width_chars=4, max_width_chars=6, xalign=0.5, tooltip_text="go to page (Enter)")
+        self.page_entry.add_css_class("page-entry")
+        self.page_entry.connect("activate", lambda e: self.jump(e.get_text()))
+        self.page_of = label("", "dim")
+        sizes = dropdown([(n, f"{n} / page") for n in SIZES], self.size, self.resize)
+        sizes.set_tooltip_text("rows a page")
+        foot = box(False, 4, self.count, self.nav["first"], self.nav["prev"], self.page_entry, self.page_of,
+                   self.nav["next"], self.nav["last"], sizes)
+        sizes.set_margin_start(8)
         foot.set_margin_top(6)
 
         self.rowview = Gtk.TextView(editable=False, cursor_visible=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
@@ -354,8 +400,8 @@ class Databases(View):
         for k in [k for k in self.kids if k[0] == cid]:
             del self.kids[k]
         self.open = {k for k in self.open if k[0] != cid}
-        if self.page and self.page[1] == cid:
-            self.page = None
+        if self.pager and self.pager.cid == cid:
+            self.pager = None
         self.paint_tree()
 
     def refresh(self):
@@ -407,7 +453,8 @@ class Databases(View):
         if node and node.leaf:
             self.browse(cid, node.path)
         elif not same_conn or not node:
-            self.fill(db.Result(), keep=False)
+            self.pager = None
+            self.fill(db.Result())
             self.results.set_visible(False)
         if cid in self.live or node:
             gen = self.gen
@@ -428,7 +475,7 @@ class Databases(View):
                 add(button("Disconnect", lambda: self.disconnect(cid), "flat"))
             return
         if node.leaf:
-            add(button("Refresh", lambda: self.browse(cid, node.path), tooltip="F5"))
+            add(button("Refresh", lambda: self.reload_page(cid, node.path), tooltip="F5"))
         if c["kind"] in ("postgres", "sqlite") and node.kind in ("table", "view"):
             name = ".".join(f'"{p}"' for p in node.path)
             add(button("Query it", lambda: self.prefill(f"select * from {name} limit 100"), "flat"))
@@ -453,16 +500,23 @@ class Databases(View):
         self.query.grab_focus()
 
     # ---- results ---------------------------------------------------------------------------------
-    def browse(self, cid, path, offset=0):
-        gen = self.gen
-        self.page = ("browse", cid, path, offset)
+    def browse(self, cid, path):
+        """Show a table / key / collection from its first page, and count its rows (when that's cheap)."""
+        self.pager = pg = Pager("browse", cid, path, self.size)
+        self.show_page(0)
+        self.job(cid, lambda d: d.count(path), lambda n: self.pager is pg and self.counted(n))
 
-        def done(r):
-            if gen != self.gen:
-                return
-            self.page = ("browse", cid, path, r.next_at if r.next_at is not None else offset + len(r.rows))
-            self.fill(r, keep=offset > 0)
-        self.job(cid, lambda d: d.browse(path, offset), done)
+    def reload_page(self, cid, path):
+        """Refresh: the page shown again (and the count), or the first page of something else."""
+        pg = self.pager
+        if not pg or pg.kind != "browse" or (pg.cid, pg.path) != (cid, path):
+            return self.browse(cid, path)
+        self.show_page(pg.index if pg.seekable or pg.index in pg.starts else 0)
+        self.job(cid, lambda d: d.count(path), lambda n: self.pager is pg and self.counted(n))
+
+    def counted(self, n):
+        self.pager.total = n
+        self.paint_pager()
 
     def query_text(self):
         buf = self.query.get_buffer()
@@ -485,33 +539,124 @@ class Databases(View):
         cid, node = self.sel
         path = node.path if node else ()
         gen = self.gen = self.gen + 1
-        self.page = ("run", cid)
+        self.pager = pg = Pager("run", cid, path, self.size)
         started = time.time()
+        size = self.size
 
         def done(r):
             if gen != self.gen:
                 return
-            self.fill(r, keep=False)
+            pg.pages.append(r)
+            pg.lens[0], pg.more = len(r.rows), r.more
+            if not r.more and r.columns:
+                pg.total = (len(r.rows), True)
+            self.fill(r)
             took = f"{time.time() - started:.2f} s"
             self.say(f"{r.message} · {took}" if r.message else took)
-        self.job(cid, lambda d: d.run(text, path), done)
+        self.job(cid, lambda d: d.run(text, path, size), done)
 
-    def load_more(self):
-        if not self.page:
+    # ---- pages -----------------------------------------------------------------------------------
+    def show_page(self, i):
+        """Fetch page i of what's shown (a query's pages already fetched come from memory)."""
+        pg, gen = self.pager, self.gen
+        if pg.kind == "run":
+            if i < len(pg.pages):
+                pg.index, pg.more = i, i < len(pg.pages) - 1 or pg.total is None
+                return self.fill(pg.pages[i])
+            if i != len(pg.pages) or not pg.more:
+                return
+
+            def got(r):
+                if self.pager is not pg or gen != self.gen:
+                    return
+                pg.pages.append(r)
+                pg.index, pg.lens[i], pg.more = i, len(r.rows), r.more
+                if not r.more:
+                    pg.total = (sum(pg.lens.values()), True)
+                self.fill(r)
+            return self.job(pg.cid, lambda d: d.more(pg.size), got)
+        at = i * pg.size if pg.seekable else pg.starts.get(i)
+        if at is None:
             return
-        gen = self.gen
-        if self.page[0] == "browse":
-            _k, cid, path, at = self.page
-            return self.browse(cid, path, at)
-        cid = self.page[1]
-        self.job(cid, lambda d: d.more(), lambda r: gen == self.gen and self.fill(r, keep=True))
 
-    def fill(self, r, keep):
-        """Show a page of rows: new columns (keep=False) or more rows under the ones shown."""
+        def done(r):
+            if self.pager is not pg or gen != self.gen:
+                return
+            if r.next_at is not None:   # a cursor: page i + 1 starts where this one stopped
+                pg.seekable = False
+                pg.starts[i + 1] = r.next_at
+            pg.index, pg.lens[i], pg.more = i, len(r.rows), r.more
+            self.fill(r)
+        self.job(pg.cid, lambda d: d.browse(pg.path, at, pg.size), done)
+
+    def turn(self, where):
+        pg = self.pager
+        if not pg:
+            return
+        i = {"first": 0, "prev": pg.index - 1, "next": pg.index + 1, "last": pg.last_page()}[where]
+        if i is None or i < 0 or (where == "next" and not pg.more):
+            return
+        self.show_page(i)
+
+    def jump(self, text):
+        pg = self.pager
+        try:
+            i = int(text) - 1
+        except ValueError:
+            return self.paint_pager()
+        last = pg.last_page() if pg else None
+        if not pg or i < 0 or (last is not None and i > last) or not (pg.kind == "browse" and pg.seekable):
+            self.say("can't go to that page" if pg and pg.kind == "browse" and pg.seekable
+                     else "this one goes page by page: \u2039 \u203a", "bad")
+            return self.paint_pager()
+        self.show_page(i)
+
+    def resize(self, size):
+        """A new page size: a table starts again at the page with the row now on top; a query keeps its pages
+        and uses the size from the next one (running it again could repeat what it changed)."""
+        self.size = size
+        pg = self.pager
+        if not pg:
+            return
+        if pg.kind == "browse":
+            top = pg.first_row()
+            new = Pager("browse", pg.cid, pg.path, size)
+            new.total = pg.total
+            self.pager = new
+            self.show_page(top // size if pg.seekable else 0)
+        else:
+            pg.size = size
+
+    def paint_pager(self):
+        pg = self.pager
+        has = bool(pg and self.table.get_columns())
+        for w in (*self.nav.values(), self.page_entry, self.page_of):
+            w.set_visible(has)
+        if not has:
+            return
+        n = len(pg.pages[pg.index].rows) if pg.kind == "run" else pg.lens.get(pg.index, 0)
+        first = pg.first_row()
+        total = pg.total
+        last = pg.last_page()
+        if total:
+            pages = -(-total[0] // pg.size) if total[0] else 1
+            of_pages = f"of {pages:,}" if total[1] and (pg.kind == "run" or pg.seekable) else f"of ~{pages:,}"
+            of_rows = f" of {'' if total[1] else '~'}{total[0]:,}"
+        else:
+            of_pages, of_rows = ("" if pg.more else f"of {pg.index + 1}"), ""
+        self.page_entry.set_text(str(pg.index + 1))
+        self.page_entry.set_sensitive(pg.kind == "browse" and pg.seekable)
+        self.page_of.set_text(of_pages)
+        self.count.set_text(f"rows {first + 1:,}\u2013{first + n:,}{of_rows}" if n else f"no rows{of_rows}")
+        self.nav["first"].set_sensitive(pg.index > 0)
+        self.nav["prev"].set_sensitive(pg.index > 0)
+        self.nav["next"].set_sensitive(pg.more)
+        self.nav["last"].set_sensitive(last is not None and last > pg.index)
+
+    def fill(self, r):
+        """Show a page of rows (new columns when they changed: a Mongo page can bring new fields)."""
         self.results.set_visible(True)
-        if not keep or [c.get_title() for c in self.table.get_columns()] != r.columns:
-            if keep and self.store.get_n_items():   # Mongo: a later page brought new fields
-                keep = False
+        if [c.get_title() for c in self.table.get_columns()] != r.columns:
             for col in list(self.table.get_columns()):
                 self.table.remove_column(col)
             for i, title in enumerate(r.columns):
@@ -522,16 +667,18 @@ class Databases(View):
                 col = Gtk.ColumnViewColumn(title=title, factory=f, resizable=True)
                 col.set_expand(len(r.columns) <= 3)
                 self.table.append_column(col)
-        if not keep:
-            self.store.remove_all()
-            self.rowview.get_buffer().set_text("")
-        self.store.splice(self.store.get_n_items(), 0, [Row(cells) for cells in r.rows])
-        n = self.store.get_n_items()
-        self.count.set_text(f"{n} row{'s' * (n != 1)}" + (" shown · more" if r.more else "") if r.columns
-                            else r.message or "")
-        self.more_btn.set_visible(r.more)
-        if not keep and n == 1:
+        self.rowview.get_buffer().set_text("")
+        self.store.splice(0, self.store.get_n_items(), [Row(cells) for cells in r.rows])
+        if r.columns:
+            self.paint_pager()
+        else:   # a statement with no rows (an UPDATE…): its message instead of a pager
+            self.count.set_text(r.message or "")
+            self.paint_pager()
+        if len(r.rows) == 1:
             self.selection.set_selected(0)
+        else:
+            self.selection.set_selected(Gtk.INVALID_LIST_POSITION)
+        GLib.idle_add(lambda: self.table.scroll_to(0, None, Gtk.ListScrollFlags.NONE, None) if self.store.get_n_items() else None)
 
     def show_row(self):
         item = self.selection.get_selected_item()
@@ -775,7 +922,7 @@ class Databases(View):
         elif keyval == Gdk.KEY_F5 and key:
             node = self.node_of(key) if key[1] else None
             if node and node.leaf:
-                self.browse(key[0], node.path)
+                self.reload_page(key[0], node.path)
             elif node:
                 self.kids.pop(key, None)
                 self.open.add(key)
@@ -785,6 +932,8 @@ class Databases(View):
         elif keyval == Gdk.KEY_Delete and self.sel and self.sel[1] and getattr(self, "del_btn", None) \
                 and self.del_btn.get_parent() is not None:
             self.delete_node(self.sel[0], self.sel[1])
+        elif keyval in (Gdk.KEY_bracketleft, Gdk.KEY_bracketright):
+            self.turn("prev" if keyval == Gdk.KEY_bracketleft else "next")
         elif keyval == Gdk.KEY_slash:
             self.filter.grab_focus()
         else:

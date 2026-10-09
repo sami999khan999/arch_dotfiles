@@ -12,9 +12,10 @@ S3 pages), and the panel closes a connection (and its tunnel) after IDLE seconds
 
 Every driver has the same shape, called from one worker thread per connection:
   children(path)          the tree under path (() = the top): [Node]
-  browse(path, offset)    a leaf's contents, a page at a time: Result
-  run(text, path)         the query box, with the selected node as context: Result
-  more()                  the next page of the last run(): Result
+  browse(path, offset, limit)   a page of a leaf's contents: Result (next_at: where a cursor's next page starts)
+  count(path)             (rows, exact?) in a leaf, or None when that isn't cheap
+  run(text, path, limit)  the query box, with the selected node as context: its first page
+  more(limit)             the next page of the last run()
   info(path)              [(key, value)] about a node
   close()
 """
@@ -216,11 +217,32 @@ class Driver:
         if self.tunnel:
             self.tunnel.close()
 
-    def more(self):
+    def more(self, limit=PAGE):
         raise DbError("nothing more")
+
+    def count(self, path):
+        """(rows in the leaf at path, exact?) for "page 3 of 12", or None when it isn't cheap to know."""
+        return None
 
     def info(self, path):
         return []
+
+
+class Lookahead:
+    """A cursor's rows a page at a time, one row read ahead: "more" is then exact (a query that ends on a
+    page boundary has no empty last page)."""
+
+    def __init__(self, it):
+        self.it, self.ahead = iter(it), []
+
+    def take(self, n):
+        rows = self.ahead
+        for r in self.it:
+            rows.append(r)
+            if len(rows) > n:
+                break
+        self.ahead = rows[n:]
+        return rows[:n], bool(self.ahead)
 
 
 def need(module, package):
@@ -270,10 +292,10 @@ class Postgres(Driver):
         except self.pg.Error as e:
             raise DbError(str(e).strip())
 
-    def browse(self, path, offset=0):
+    def browse(self, path, offset=0, limit=PAGE):
         s = self.pg.sql
         query = s.SQL("select * from {}.{} limit {} offset {}").format(
-            s.Identifier(path[0]), s.Identifier(path[1]), s.Literal(PAGE + 1), s.Literal(offset))
+            s.Identifier(path[0]), s.Identifier(path[1]), s.Literal(limit + 1), s.Literal(offset))
         try:
             with self.conn.cursor() as c:
                 c.execute(query)
@@ -281,20 +303,39 @@ class Postgres(Driver):
                 cols = [d.name for d in c.description]
         except self.pg.Error as e:
             raise DbError(str(e).strip())
-        return Result(cols, [[cell(v) for v in r] for r in rows[:PAGE]], len(rows) > PAGE)
+        return Result(cols, [[cell(v) for v in r] for r in rows[:limit]], len(rows) > limit)
 
-    def run(self, text, path):
+    def count(self, path):
+        """Exact (count(*), given 3 s) unless the planner knows the table is huge; then its estimate.
+        Views and never-analyzed tables have no estimate (-1): they're counted too."""
+        est = self.q("select c.reltuples::bigint from pg_class c join pg_namespace n on n.oid = c.relnamespace "
+                     "where n.nspname = %s and c.relname = %s", path)
+        est = est[0][0] if est else -1
+        if est <= 200000:
+            s = self.pg.sql
+            try:
+                with self.conn.transaction(), self.conn.cursor() as c:
+                    c.execute("set local statement_timeout = 3000")
+                    c.execute(s.SQL("select count(*) from {}.{}").format(s.Identifier(path[0]), s.Identifier(path[1])))
+                    return c.fetchone()[0], True
+            except self.pg.Error:
+                pass
+        return (est, False) if est > 0 else None
+
+    def run(self, text, path, limit=PAGE):
         self.drop_cursor()
         try:
             if statement_kind(text) in ("select", "with", "table", "values", "show", "explain"):
                 # a server-side cursor: the rows stay on the server, a page comes over at a time
                 self.cur = self.conn.cursor(name=f"dbclient_{uuid.uuid4().hex[:8]}", withhold=True)
                 self.cur.execute(text)
-                return self.page()
+                # rows come over PAGE at a time whatever the page size: few round trips, little memory
+                self.flat = Lookahead(r for batch in iter(lambda: self.cur.fetchmany(PAGE), []) for r in batch)
+                return self.page(limit)
             with self.conn.cursor() as c:
                 c.execute(text)
                 if c.description:
-                    rows = c.fetchmany(PAGE)
+                    rows = c.fetchmany(limit)
                     return Result([d.name for d in c.description], [[cell(v) for v in r] for r in rows],
                                   message=c.statusmessage or "")
                 return Result(message=f"{c.statusmessage or 'done'}" + (f" · {c.rowcount} rows" if c.rowcount >= 0 else ""))
@@ -302,19 +343,18 @@ class Postgres(Driver):
             self.drop_cursor()
             raise DbError(str(e).strip())
 
-    def page(self):
-        rows = self.cur.fetchmany(PAGE)
+    def page(self, limit):
         cols = [d.name for d in self.cur.description] if self.cur.description else []
-        more = len(rows) == PAGE   # a full page: maybe more (Load more finds out)
+        rows, more = self.flat.take(limit)
         if not more:
             self.drop_cursor()
         return Result(cols, [[cell(v) for v in r] for r in rows], more)
 
-    def more(self):
+    def more(self, limit=PAGE):
         if not self.cur:
             raise DbError("nothing more")
         try:
-            return self.page()
+            return self.page(limit)
         except self.pg.Error as e:
             self.drop_cursor()
             raise DbError(str(e).strip())
@@ -368,15 +408,24 @@ class Sqlite(Driver):
                                  "and name not like 'sqlite_%' order by name").fetchall()
         return [Node((n,), n, t, True) for n, t in rows]
 
-    def browse(self, path, offset=0):
+    def name(self, path):
+        return '"' + path[0].replace('"', '""') + '"'
+
+    def browse(self, path, offset=0, limit=PAGE):
         try:
-            c = self.conn.execute(f'select * from "{path[0].replace(chr(34), chr(34) * 2)}" limit ? offset ?', (PAGE + 1, offset))
+            c = self.conn.execute(f"select * from {self.name(path)} limit ? offset ?", (limit + 1, offset))
         except self.sq.Error as e:
             raise DbError(str(e))
         rows = c.fetchall()
-        return Result([d[0] for d in c.description], [[cell(v) for v in r] for r in rows[:PAGE]], len(rows) > PAGE)
+        return Result([d[0] for d in c.description], [[cell(v) for v in r] for r in rows[:limit]], len(rows) > limit)
 
-    def run(self, text, path):
+    def count(self, path):
+        try:
+            return self.conn.execute(f"select count(*) from {self.name(path)}").fetchone()[0], True
+        except self.sq.Error:
+            return None
+
+    def run(self, text, path, limit=PAGE):
         try:
             self.cur = self.conn.execute(text) if statement_kind(text) else None
         except self.sq.Error as e:
@@ -385,20 +434,20 @@ class Sqlite(Driver):
             n = self.cur.rowcount if self.cur else -1
             self.cur = None
             return Result(message="done" + (f" · {n} rows" if n >= 0 else ""))
-        return self.page()
+        self.flat = Lookahead(self.cur)
+        return self.page(limit)
 
-    def page(self):
-        rows = self.cur.fetchmany(PAGE)
+    def page(self, limit):
         cols = [d[0] for d in self.cur.description]
-        more = len(rows) == PAGE
+        rows, more = self.flat.take(limit)
         if not more:
             self.cur = None
         return Result(cols, [[cell(v) for v in r] for r in rows], more)
 
-    def more(self):
+    def more(self, limit=PAGE):
         if not self.cur:
             raise DbError("nothing more")
-        return self.page()
+        return self.page(limit)
 
     def cancel(self):
         self.conn.interrupt()
@@ -406,7 +455,7 @@ class Sqlite(Driver):
     def info(self, path):
         if not path:
             return []
-        cols = self.conn.execute(f'pragma table_info("{path[0]}")').fetchall()
+        cols = self.conn.execute(f"pragma table_info({self.name(path)})").fetchall()
         return [("columns", ", ".join(f"{c[1]} {c[2]}".strip() for c in cols))]
 
     def close(self):
@@ -430,7 +479,7 @@ class Redis(Driver):
             raise DbError(str(e))
         self.pattern = "*"
         self.cursor = 0     # the key scan's next cursor (0 once it has gone round)
-        self.cmd_rows = None
+        self.reply = None   # a command's reply, paged here (KEYS * can be huge)
 
     def children(self, path, pattern=None):
         """The keys, SCAN a page at a time: path () starts again, ("…",) continues the same scan."""
@@ -456,32 +505,47 @@ class Redis(Driver):
             nodes.append(Node(("…",), "more keys", "more"))
         return nodes
 
-    def browse(self, path, offset=0):
+    def browse(self, path, offset=0, limit=PAGE):
+        """offset: a list / sorted set's index; for a hash or set the SCAN cursor and for a stream the last
+        id seen (those can't jump to a page: the GUI walks them with next_at)."""
         k = path[0]
         try:
             t = self.r.type(k).decode()
             if t == "string":
                 return Result(["value"], [[cell(self.r.get(k))]])
             if t == "hash":
-                cur, items = self.r.hscan(k, offset, count=PAGE)
+                cur, items = self.r.hscan(k, offset or 0, count=limit)
                 return Result(["field", "value"], [[cell(f), cell(v)] for f, v in items.items()], bool(cur), next_at=cur)
             if t == "list":
-                items = self.r.lrange(k, offset, offset + PAGE)
-                return Result(["#", "value"], [[str(offset + i), cell(v)] for i, v in enumerate(items[:PAGE])], len(items) > PAGE)
+                items = self.r.lrange(k, offset, offset + limit)
+                return Result(["#", "value"], [[str(offset + i), cell(v)] for i, v in enumerate(items[:limit])], len(items) > limit)
             if t == "set":
-                cur, items = self.r.sscan(k, offset, count=PAGE)
+                cur, items = self.r.sscan(k, offset or 0, count=limit)
                 return Result(["member"], [[cell(v)] for v in items], bool(cur), next_at=cur)
             if t == "zset":
-                items = self.r.zrange(k, offset, offset + PAGE, withscores=True)
-                return Result(["member", "score"], [[cell(m), str(s)] for m, s in items[:PAGE]], len(items) > PAGE)
+                items = self.r.zrange(k, offset, offset + limit, withscores=True)
+                return Result(["member", "score"], [[cell(m), str(s)] for m, s in items[:limit]], len(items) > limit)
             if t == "stream":
-                items = self.r.xrange(k, count=PAGE)
-                return Result(["id", "fields"], [[cell(i), cell({cell(a): cell(b) for a, b in f.items()})] for i, f in items])
+                items = self.r.xrange(k, min=f"({offset}" if offset else "-", count=limit + 1)
+                rows = [[cell(i), cell({cell(a): cell(b) for a, b in f.items()})] for i, f in items[:limit]]
+                return Result(["id", "fields"], rows, len(items) > limit, next_at=rows[-1][0] if rows else None)
             return Result(message=f"{k}: {t}")
         except self.err as e:
             raise DbError(str(e))
 
-    def run(self, text, path):
+    def count(self, path):
+        k = path[0]
+        try:
+            t = self.r.type(k).decode()
+            if t == "string":
+                return 1, True
+            n = {"hash": self.r.hlen, "list": self.r.llen, "set": self.r.scard, "zset": self.r.zcard,
+                 "stream": self.r.xlen}.get(t)
+            return (n(k), True) if n else None
+        except self.err:
+            return None
+
+    def run(self, text, path, limit=PAGE):
         try:
             args = shlex.split(text)
         except ValueError as e:
@@ -493,10 +557,23 @@ class Redis(Driver):
         except self.err as e:
             raise DbError(str(e))
         if isinstance(out, dict):
-            return Result(["field", "value"], [[cell(a), cell(b)] for a, b in out.items()])
-        if isinstance(out, (list, tuple)):
-            return Result(["#", "value"], [[str(i), cell(v)] for i, v in enumerate(out)])
-        return Result(["result"], [[cell(out)]])
+            self.reply = (["field", "value"], [[cell(a), cell(b)] for a, b in out.items()])
+        elif isinstance(out, (list, tuple)):
+            self.reply = (["#", "value"], [[str(i), cell(v)] for i, v in enumerate(out)])
+        else:
+            return Result(["result"], [[cell(out)]])
+        self.at = 0
+        return self.more(limit)
+
+    def more(self, limit=PAGE):
+        if not self.reply:
+            raise DbError("nothing more")
+        cols, rows = self.reply
+        page, self.at = rows[self.at:self.at + limit], self.at + limit
+        more = self.at < len(rows)
+        if not more:
+            self.reply = None
+        return Result(cols, page, more)
 
     def info(self, path):
         if not path:
@@ -546,12 +623,7 @@ class Mongo(Driver):
         except self.err as e:
             raise DbError(str(e))
 
-    def docs(self, cursor, n):
-        docs = []
-        for d in cursor:
-            docs.append(d)
-            if len(docs) >= n:
-                break
+    def docs(self, docs):
         cols = []
         for d in docs:
             cols += [k for k in d if k not in cols]
@@ -563,14 +635,21 @@ class Mongo(Driver):
             return cell(str(v))
         return cell(self.ju.dumps(v))
 
-    def browse(self, path, offset=0):
+    def browse(self, path, offset=0, limit=PAGE):
         try:
-            cols, rows = self.docs(self.c[path[0]][path[1]].find().skip(offset).limit(PAGE + 1), PAGE + 1)
+            docs = list(self.c[path[0]][path[1]].find().skip(offset).limit(limit + 1))
         except self.err as e:
             raise DbError(str(e))
-        return Result(cols, rows[:PAGE], len(rows) > PAGE)
+        cols, rows = self.docs(docs[:limit])
+        return Result(cols, rows, len(docs) > limit)
 
-    def run(self, text, path):
+    def count(self, path):
+        try:   # from the collection's metadata: no scan
+            return self.c[path[0]][path[1]].estimated_document_count(), True
+        except self.err:
+            return None
+
+    def run(self, text, path, limit=PAGE):
         if len(path) < 2:
             raise DbError("select a collection first")
         try:
@@ -579,22 +658,26 @@ class Mongo(Driver):
             raise DbError(f"not JSON: {e}")
         coll = self.c[path[0]][path[1]]
         try:
-            self.cur = coll.aggregate(q) if isinstance(q, list) else coll.find(q)
-            return self.page()
+            self.cur = Lookahead(coll.aggregate(q) if isinstance(q, list) else coll.find(q))
+            return self.page(limit)
         except self.err as e:
             raise DbError(str(e))
 
-    def page(self):
-        cols, rows = self.docs(self.cur, PAGE)
-        more = len(rows) == PAGE and self.cur.alive
+    def page(self, limit):
+        try:
+            docs, more = self.cur.take(limit)
+        except self.err as e:
+            self.cur = None
+            raise DbError(str(e))
         if not more:
             self.cur = None
+        cols, rows = self.docs(docs)
         return Result(cols, rows, more)
 
-    def more(self):
+    def more(self, limit=PAGE):
         if not self.cur:
             raise DbError("nothing more")
-        return self.page()
+        return self.page(limit)
 
     def info(self, path):
         try:
@@ -652,7 +735,7 @@ class S3(Driver):
             nodes.append(Node((bucket, prefix, "…"), "more", "more"))
         return nodes
 
-    def browse(self, path, offset=0):
+    def browse(self, path, offset=0, limit=PAGE):
         bucket, key = path[0], path[1]
         try:
             head = self.s3.head_object(Bucket=bucket, Key=key)
@@ -688,7 +771,7 @@ class S3(Driver):
         except self.err as e:
             raise DbError(str(e))
 
-    def run(self, text, path):
+    def run(self, text, path, limit=PAGE):
         raise DbError("S3 has no queries: browse the buckets on the left")
 
     def close(self):

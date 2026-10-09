@@ -427,8 +427,12 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   schemas → tables and views, Redis keys (with their type), databases → collections, buckets → folders →
   files. `/` filters what's listed; on a Redis connection, Enter in the filter asks the server for keys
   containing it. Redis keys and S3 files come a page at a time: open *more* for the next.
-- **The right side**: the selected table / key / collection / file, 200 rows at a time (**Load more**),
-  with its size and columns; the selected row in full underneath. The **query box** runs SQL, a Redis
+- **The right side**: the selected table / key / collection / file with its size and columns, a page at a
+  time, and the selected row in full underneath. **Pages**: `«` `‹` `›` `»` (or `[` `]`), *rows 1,201–1,400
+  of 3,000*, a page number to type (Enter), and 50 to 1000 rows a page. A table, a Redis list or sorted set
+  and a Mongo collection jump to any page; a Redis hash / set / stream and a query's result go page by page
+  (a query's pages are kept: going back doesn't run it again; its total shows once the last page is in).
+  Postgres counts a table exactly when that's quick (else the planner's estimate, `~`). The **query box** runs SQL, a Redis
   command (`HGETALL session:42`) or, on a collection, a Mongo filter `{…}` or pipeline `[…]`:
   **Ctrl + Enter** runs it, or just the selected part. **Stop** cancels a long Postgres / SQLite query.
   Full access: what you run applies at once. S3: Download, Upload…, Delete; Redis: Delete (click twice).

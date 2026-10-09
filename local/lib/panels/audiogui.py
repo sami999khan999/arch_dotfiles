@@ -6,10 +6,10 @@
 #   keys       ↑↓ select   ←→ volume   m mute   Enter make default   w wiremix (everything else)
 #
 # Reading and changing the volumes is audiopanel.py's (pactl); this only draws it.
-import os, subprocess, sys
+import os, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
 import audiopanel
 
 CSS = """
@@ -29,7 +29,7 @@ TUI = os.path.expanduser("~/.config/hypr/scripts/tui.sh")
 
 class Audio(View):
     title = "Audio"
-    interval = audiopanel.INTERVAL
+    interval = 0   # no timer: follow() reloads when PipeWire reports a change
     hints = [("↑↓", "select"), ("←→", "volume"), ("m", "mute"), ("Enter", "default"), ("w", "wiremix"),
              ("Esc", "close")]
     css = CSS
@@ -46,6 +46,7 @@ class Audio(View):
         self.widgets = {}       # (kind, id) -> {"row", "name", "scale", "pct", "mute", "default"}
         self.sel = None         # (kind, id) of the selected row, kept across rebuilds
         self.updating = False   # while refresh() moves the sliders, their changes aren't user input
+        self.reload_queued = False
 
     popup = "~/.local/lib/panels/audiogui.py"
 
@@ -66,7 +67,29 @@ class Audio(View):
         wrap.set_margin_bottom(12)
         wrap.set_margin_top(4 if self.compact else 12)
         self.refresh()
+        threading.Thread(target=self.follow, daemon=True).start()
         return scrolled(wrap)
+
+    def follow(self):
+        """pactl subscribe: a sink, source, stream or the defaults changed, reload (once for a burst).
+        It was 5 pactl runs every second; pactl's own runs only show as "client" events, ignored."""
+        while True:
+            p = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True)
+            for line in p.stdout:
+                if " on client " not in line and not self.reload_queued:
+                    self.reload_queued = True
+                    GLib.timeout_add(100, self.reload)
+            p.wait()
+            GLib.idle_add(lambda: self.refresh() and False)   # PipeWire restarted: catch up
+            time.sleep(2)
+
+    def reload(self):
+        self.reload_queued = False
+        self.refresh()
+        if self.on_change:
+            self.on_change()
+        return False
 
     # ---- drawing ---------------------------------------------------------------------------------
     def refresh(self):

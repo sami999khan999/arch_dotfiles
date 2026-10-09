@@ -390,6 +390,7 @@ class View:
     icon = ""                # the Control Center card's header glyph
     footer = True            # False: the window shows no hint line (the Control Center's cards have their own)
     backdrop = True          # False: no blurred / dimmed backdrop behind the popup (the pair popup: you watch the pair)
+    on_change = None         # set by the Control Center: call after updating without refresh() (its card's header)
 
     @property
     def tile_info(self):

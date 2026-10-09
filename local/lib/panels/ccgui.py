@@ -60,6 +60,7 @@ class ControlCenter(View):
         for v, (_, col, row, width) in zip(self.views, TILES):
             v.host = self.host           # say(), typing(), close() go to this window
             v.compact = True
+            v.on_change = lambda v=v: self.paint_chrome(v)   # a card that updates on its own (no timer)
             grid.attach(self.card(v), col, row, width, 1)
         self.focus(self.current)
         GLib.idle_add(self.settle, grid)

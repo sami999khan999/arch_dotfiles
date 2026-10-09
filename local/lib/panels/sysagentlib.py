@@ -350,9 +350,9 @@ TOOLS = {
 }
 
 
-def call(name, args):
+def call(name, args, tools=None):
     """One tool call from the model: (text, is_error); never raises."""
-    t = TOOLS.get(name)
+    t = (tools or TOOLS).get(name)
     if not t:
         return f"no tool {name}", True
     args = {k: v for k, v in (args or {}).items() if k in t["inputSchema"]["properties"]}
@@ -367,11 +367,13 @@ def call(name, args):
 # ---- the gate: MCP over HTTP, for opencode in the model sandbox -------------------------------------
 class Gate:
     """The tool server. url: what opencode connects to (127.0.0.1, a random secret path). on_call(name,
-    args) is called for each tool call (the window shows them)."""
+    args) is called for each tool call (the window shows them). tools: another agent's (dbagent.py), else
+    the System agent's."""
 
-    def __init__(self, on_call=lambda name, args: None):
+    def __init__(self, on_call=lambda name, args: None, tools=None, name="sys"):
         self.token = secrets.token_urlsafe(24)
         self.on_call = on_call
+        self.tools, self.name = tools or TOOLS, name
         gate = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -418,14 +420,14 @@ class Gate:
         method, params, mid = msg.get("method"), msg.get("params") or {}, msg["id"]
         if method == "initialize":
             result = {"protocolVersion": params.get("protocolVersion", "2025-03-26"),
-                      "capabilities": {"tools": {}}, "serverInfo": {"name": "sys", "version": "1"}}
+                      "capabilities": {"tools": {}}, "serverInfo": {"name": self.name, "version": "1"}}
         elif method == "tools/list":
             result = {"tools": [{"name": n, "description": t["description"], "inputSchema": t["inputSchema"]}
-                                for n, t in TOOLS.items()]}
+                                for n, t in self.tools.items()]}
         elif method == "tools/call":
             name, args = params.get("name"), params.get("arguments") or {}
             self.on_call(name, args)
-            text, err = call(name, args)
+            text, err = call(name, args, self.tools)
             result = {"content": [{"type": "text", "text": text}], "isError": err}
         elif method == "ping":
             result = {}
@@ -439,9 +441,9 @@ class Gate:
 
 
 # ---- the model sandbox: opencode with only the gate's tools ---------------------------------------
-def opencode_config(gate_url):
+def opencode_config(gate_url, server="sys", agent="sysread", rules=None):
     """opencode's whole config in the model sandbox: one agent whose every tool is refused but the
-    gate's (sys_*), and the gate as its only MCP server."""
+    gate's (<server>_*), and the gate as its only MCP server."""
     # each by name: a "*": "deny" also hides the gate's tools, whatever allows them after it
     deny = {t: "deny" for t in ("edit", "write", "patch", "apply_patch", "multiedit", "glob", "grep", "list", "task",
                                 "batch", "external_directory", "todowrite", "todoread", "question", "webfetch",
@@ -451,10 +453,10 @@ def opencode_config(gate_url):
     # and they'd only see the model sandbox anyway
     deny.update(bash="ask", read="ask")
     return {"$schema": "https://opencode.ai/config.json", "autoupdate": False, "share": "disabled",
-            "mcp": {"sys": {"type": "remote", "url": gate_url, "enabled": True, "oauth": False}},
-            "permission": {**deny, "sys_*": "allow"},
-            "agent": {"sysread": {"mode": "primary", "description": "read-only system agent", "prompt": RULES,
-                                  "steps": 40, "permission": {**deny, "sys_*": "allow"}}}}
+            "mcp": {server: {"type": "remote", "url": gate_url, "enabled": True, "oauth": False}},
+            "permission": {**deny, f"{server}_*": "allow"},
+            "agent": {agent: {"mode": "primary", "description": "read-only agent", "prompt": rules or RULES,
+                              "steps": 40, "permission": {**deny, f"{server}_*": "allow"}}}}
 
 
 def model():
@@ -488,22 +490,28 @@ def transcript(history):
     return "\n\n".join(f"## {'USER' if r == 'user' else 'YOU (the agent)'}\n{t}" for r, t in items)
 
 
-def ask(question, history, model_name, on_call=lambda name, args: None, stop=None):
+def ask(question, history, model_name, on_call=lambda name, args: None, stop=None, tools=None, server="sys",
+        agent="sysread", rules=None, context=""):
     """Answer question (history: [(role, text)], updated on success). on_call(name, args) for each tool
-    call. (ok, the answer or what went wrong)."""
+    call. Another agent passes its tools, MCP server name, agent name and rules (dbagent.py), and context:
+    a file the model gets with the question (what the user is looking at). (ok, the answer or what went wrong)."""
     if not shutil.which("opencode") or not shutil.which("bwrap"):
         return False, "opencode or bubblewrap isn't installed (setup/packages.txt)"
-    gate = Gate(on_call)
+    gate = Gate(on_call, tools, server)
     tmp = tempfile.mkdtemp(prefix="sysagent-")
     box = "/home/sandbox"
     try:
         with open(os.path.join(tmp, "opencode.json"), "w") as f:
-            json.dump(opencode_config(gate.url), f)
+            json.dump(opencode_config(gate.url, server, agent, rules), f)
         files = []
         if history:
             with open(os.path.join(tmp, "earlier.md"), "w") as f:
                 f.write("# The conversation so far (for context)\n\n" + transcript(history))
             files = ["-f", f"{box}/in/earlier.md"]
+        if context:
+            with open(os.path.join(tmp, "context.md"), "w") as f:
+                f.write(context)
+            files += ["-f", f"{box}/in/context.md"]
         etc = [a for f in ("resolv.conf", "hosts", "nsswitch.conf", "passwd", "ssl", "ca-certificates", "localtime")
                for a in ("--ro-bind-try", f"/etc/{f}", f"/etc/{f}")]
         argv = ["bwrap", "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
@@ -513,7 +521,7 @@ def ask(question, history, model_name, on_call=lambda name, args: None, stop=Non
                 "--setenv", "HOME", box, "--setenv", "PWD", box, "--setenv", "PATH", "/usr/bin",
                 "--setenv", "OPENCODE_CONFIG", f"{box}/in/opencode.json",
                 "--setenv", "OPENCODE_DISABLE_AUTOUPDATE", "1", "--setenv", "OPENCODE_DISABLE_LSP_DOWNLOAD", "1",
-                "opencode", "run", "--standalone", "--format", "json", "--agent", "sysread", "-m", model_name,
+                "opencode", "run", "--standalone", "--format", "json", "--agent", agent, "-m", model_name,
                 *files, question]
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 stdin=subprocess.DEVNULL)

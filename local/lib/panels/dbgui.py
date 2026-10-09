@@ -8,6 +8,8 @@
 #   right  the selected table / key / collection / file, a page at a time (« ‹ page › », the page size), the query box
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once.
+#   Ask    (a, or the sparkles in the header) an AI about this connection and what's selected: dbagent.py,
+#          read-only on a connection of its own; a query it suggests goes in the query box on a click.
 #
 # Each connection has one worker thread (a slow server never freezes the window) and closes, with its
 # tunnel, after dblib.IDLE seconds unused; nothing polls a database.
@@ -15,8 +17,10 @@ import os, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbagent
 import dblib as db
-from gtkkit import Gdk, Gio, GLib, Gtk, View, box, button, clear, dropdown, label, recolor, run, scrolled
+import sysagentgui
+from gtkkit import Gdk, Gio, GLib, Gtk, View, box, button, clear, dropdown, label, recolor, run, scrolled, switch
 from gi.repository import GObject
 
 INDENT = 16
@@ -42,6 +46,9 @@ columnview listview > row:hover { background: alpha(#292e42, .35); }
 columnview listview > row:selected { background: alpha(#292e42, .75); color: #c0caf5; }
 columnview listview > row > cell { padding: 3px 8px; }
 .form-label { color: #a9b1d6; min-width: 160px; }
+.ask-pane { border-left: 1px solid alpha(#3b4261, .7); }
+.ask-about { color: #565f89; font-size: 9pt; }
+button.ask-use { padding: 2px 10px; min-height: 0; font-size: 9pt; }
 button.pager-btn { padding: 2px 10px; min-width: 0; font-size: 12pt; }
 button.pager-btn:disabled { background: transparent; color: #3b4261; }
 entry.page-entry { padding: 2px 4px; min-height: 0; }
@@ -102,8 +109,8 @@ class Databases(View):
     title, subtitle = "Databases", "Postgres · Redis · MongoDB · S3 · SQLite"
     icon = ""
     interval = 5   # refresh(): only closes idle connections
-    css = CSS
-    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
+    css = CSS + sysagentgui.CSS   # the Ask pane draws answers as the System agent does
+    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("a", "ask AI"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
              ("Del", "delete")]
 
     def __init__(self):
@@ -120,13 +127,18 @@ class Databases(View):
         self.armed = 0           # time Delete was pressed once
         self.gen = 0             # bumped when the right side changes: late results are dropped
         self.painting = False    # paint_tree() re-selecting the row: not a pick
+        self.chats = {}          # id: {"history": [(role, text)] for the model, "box": the pane's messages}
+        self.ai_queries = set()  # queries the AI suggested and you put in the query box
+        self.confirm = None      # (text, time): Run pressed once on a write the AI suggested
+        self.asking = None       # the running question's stop event
 
     def conn(self, cid):
         return next((c for c in self.conns if c["id"] == cid), None)
 
     # ---- layout ----------------------------------------------------------------------------------
     def header_extra(self):
-        return [button("+ Connection", lambda: self.form(None), "flat", tooltip="n")]
+        return [button("\U000f0674 Ask", self.toggle_ask, "flat", tooltip="ask an AI about this database (a)"),
+                button("+ Connection", lambda: self.form(None), "flat", tooltip="n")]
 
     def build(self):
         self.filter = Gtk.Entry(placeholder_text="filter (Redis: Enter scans for it)", hexpand=True)
@@ -151,7 +163,9 @@ class Databases(View):
         self.paint_tree()
         self.show_empty()
         GLib.idle_add(lambda: self.tree.grab_focus() and False)
-        return box(False, 0, left, self.stack)
+        self.ask_pane = self.build_ask()
+        self.ask_pane.set_visible(False)
+        return box(False, 0, left, self.stack, self.ask_pane)
 
     def build_browse(self):
         self.heading = label("", "heading", ellipsize=True)
@@ -454,6 +468,7 @@ class Databases(View):
         if not same_conn:
             self.query.get_buffer().set_text(self.queries.get(cid, ""))
         self.paint_actions(c, node)
+        self.paint_ask()
         if node and node.leaf:
             self.browse(cid, node.path)
         elif not same_conn or not node:
@@ -540,6 +555,11 @@ class Databases(View):
         text = (buf.get_text(*sel, False) if sel else self.query_text()).strip()
         if not text and self.conn(self.sel[0])["kind"] != "mongo":
             return
+        if self.ai_write(text):   # the AI's write: a second Run within 5 s, after reading it
+            if not self.confirm or self.confirm[0] != text or time.time() - self.confirm[1] > 5:
+                self.confirm = (text, time.time())
+                return self.say("the AI suggested this and it changes data: read it, then Run again to run it", "bad", 6)
+            self.confirm = None
         cid, node = self.sel
         path = node.path if node else ()
         gen = self.gen = self.gen + 1
@@ -816,6 +836,8 @@ class Databases(View):
             conn = {"kind": k, "name": fields["name"].get_text().strip() or db.KINDS[k][0]}
             if c:
                 conn["id"] = c["id"]
+                if c.get("ai_data"):   # set in the Ask pane, not here: kept
+                    conn["ai_data"] = True
             secrets = {}
             for key, _t, is_secret in db.FIELDS[k] + [("ssh", "", False)]:
                 if key in fields:
@@ -911,6 +933,181 @@ class Databases(View):
         self.paint_tree()
         self.say(f"deleted the connection {c['name']} (the database itself is untouched)")
 
+    # ---- Ask: the AI about this connection --------------------------------------------------------
+    def build_ask(self):
+        self.ask_title = label("Ask", "heading")
+        self.ask_about = label("", "ask-about", ellipsize=True)
+        new = button("New chat", self.new_chat, "flat", tooltip="forget this connection's conversation")
+        close = button("\u2715", self.toggle_ask, "flat", tooltip="close (a)")
+        head = box(False, 6, self.ask_title, Gtk.Box(hexpand=True), new, close)
+        self.ask_log = Gtk.Stack(vexpand=True, transition_type=Gtk.StackTransitionType.NONE)
+        self.ask_scroll = scrolled(self.ask_log)
+        self.ask_status = label("", "ag-looked", ellipsize=True)
+        self.ask_entry = Gtk.Entry(placeholder_text="Ask about this table, its data, a query…", hexpand=True)
+        self.ask_entry.connect("activate", lambda *_: self.send_ask())
+        self.ask_btn = button("Ask", self.send_ask, "primary")
+        self.ai_data = switch(False, self.set_ai_data)
+        privacy = box(False, 8, label("AI sees data", "ask-about"), self.ai_data)
+        self.ai_data_note = label("", "ask-about", wrap=True)
+        pane = box(True, 8, head, self.ask_about, box(True, 2, privacy, self.ai_data_note), self.ask_scroll,
+                   self.ask_status, box(False, 6, self.ask_entry, self.ask_btn), classes=("ask-pane",))
+        for edge in ("top", "start", "end", "bottom"):
+            getattr(pane, f"set_margin_{edge}")(14 if edge != "start" else 0)
+        pane.set_size_request(400, -1)
+        for w in (head, self.ask_about, privacy.get_parent(), self.ask_scroll, self.ask_status):
+            w.set_margin_start(14)
+        pane.get_last_child().set_margin_start(14)
+        return pane
+
+    def toggle_ask(self):
+        show = not self.ask_pane.get_visible()
+        self.ask_pane.set_visible(show)
+        if show:
+            self.paint_ask()
+            self.ask_entry.grab_focus()
+
+    def chat(self, cid):
+        """The connection's conversation (kept while the window is open; the model gets its history)."""
+        if cid not in self.chats:
+            msgs = box(True, 14)
+            msgs.append(label(dbagent_intro(self.conn(cid)), "dim", wrap=True))
+            self.chats[cid] = {"history": [], "box": msgs}
+            self.ask_log.add_named(msgs, cid)
+        return self.chats[cid]
+
+    def paint_ask(self):
+        """The pane follows the selected connection: its own conversation, and what it's about."""
+        if not self.ask_pane.get_visible():
+            return
+        if not self.sel:
+            self.ask_about.set_text("Pick a connection on the left first.")
+            self.ask_entry.set_sensitive(False)
+            return
+        cid, node = self.sel
+        self.chat(cid)
+        self.ask_log.set_visible_child_name(cid)
+        conn = self.conn(cid)
+        self.ask_about.set_text(f"{conn['name']}" + (f" \u203a {self.selected_name()}" if node else ""))
+        self.ask_entry.set_sensitive(self.asking is None)
+        sees = bool(conn.get("ai_data"))
+        self.ai_data.quiet = True
+        self.ai_data.set_active(sees)
+        self.ai_data.quiet = False
+        self.ai_data.set_sensitive(self.asking is None)
+        self.ai_data_note.set_text(
+            "It can read rows and values, and they go to the model." if sees else
+            "Off: it sees names, types, indexes and counts, never rows or values. Turn on to let it read the data "
+            "(sent to the model).")
+
+    def set_ai_data(self, on):
+        """The connection's "AI sees data" switch, kept with the connection (connections.json, this PC only)."""
+        if not self.sel:
+            return
+        conns = db.load()
+        for c in conns:
+            if c["id"] == self.sel[0]:
+                c["ai_data"] = on
+        db.save(conns)
+        self.conns = db.load()
+        self.paint_ask()
+        self.say("the AI can read this connection's data now" if on else "the AI sees the structure only")
+
+    def selected_name(self):
+        """The selected table / collection / key / file as the model should name it."""
+        cid, node = self.sel
+        if not node or node.kind == "more":
+            return ""
+        kind = self.conn(cid)["kind"]
+        if kind in ("postgres", "mongo") and len(node.path) == 2:
+            return f"{node.path[0]}.{node.path[1]}"
+        if kind == "s3":
+            return f"{node.path[0]}/{node.path[1]}"
+        return node.path[0]
+
+    def new_chat(self):
+        if self.sel and self.asking is None:
+            cid = self.sel[0]
+            old = self.chats.pop(cid, None)
+            if old:
+                self.ask_log.remove(old["box"])
+            self.paint_ask()
+
+    def send_ask(self):
+        if self.asking is not None:   # the button says Stop while it thinks
+            return self.asking.set()
+        question = self.ask_entry.get_text().strip()
+        if not question or not self.sel:
+            return
+        cid, node = self.sel
+        conn, chat = self.conn(cid), self.chat(cid)
+        selected = self.selected_name()
+        cols = ", ".join(c.get_title() for c in self.table.get_columns()) if node and node.leaf else ""
+        query = self.query_text()
+        self.ask_entry.set_text("")
+        chat["box"].append(box(True, 4, label("You", "ag-you"), sysagentgui.text_label(GLib.markup_escape_text(question))))
+        self.scroll_ask()
+        stop = self.asking = threading.Event()
+        self.ask_entry.set_sensitive(False)
+        self.ask_btn.set_label("Stop")
+        self.ask_status.set_text("thinking\u2026")
+        looked = []
+
+        def on_call(name, args):
+            looked.append(sysagentgui.call_text(name, args))
+            GLib.idle_add(lambda: self.ask_status.set_text("\u2026 " + looked[-1]) and False)
+
+        def go():
+            ok, text = dbagent.ask(conn, question, chat["history"], selected, cols, query, on_call, stop)
+            GLib.idle_add(lambda: self.answered(cid, ok, text, looked) and False)
+        threading.Thread(target=go, daemon=True).start()
+
+    def answered(self, cid, ok, text, looked):
+        self.asking = None
+        self.ask_btn.set_label("Ask")
+        self.ask_status.set_text("")
+        chat = self.chats.get(cid)
+        if chat:
+            msg = box(True, 6, label("AI", "ag-ai"), sysagentgui.rendered(text, bad=not ok), classes=("ag-msg",))
+            for q in dbagent.queries(text) if ok else []:
+                first = q.splitlines()[0]
+                use = button("\u21b3 Put in query box", lambda q=q, c=cid: self.use_query(c, q), "flat", "ask-use",
+                             tooltip=first[:200])
+                use.set_halign(Gtk.Align.START)
+                msg.append(use)
+            if looked:
+                msg.append(label("looked at: " + " \u00b7 ".join(looked)[:400], "ag-looked", wrap=True))
+            chat["box"].append(msg)
+            self.scroll_ask()
+        self.paint_ask()
+        self.ask_entry.grab_focus()
+
+    def use_query(self, cid, q):
+        """A suggested query into the query box (the connection's): the user reads it and runs it, or not.
+        It's remembered as the AI's: a write among it then needs a second Run (the AI may have been steered
+        by what's in the data)."""
+        self.ai_queries.add(q.strip())
+        if not self.sel or self.sel[0] != cid:
+            self.queries[cid] = q
+            return self.say(f"in {self.conn(cid)['name']}'s query box")
+        self.prefill(q)
+        self.say("in the query box: read it, then Ctrl+Enter runs it")
+
+    def ai_write(self, text):
+        """True when text came from the AI (or contains a query that did) and doesn't only read."""
+        if not any(q in text or text in q for q in self.ai_queries):
+            return False
+        kind = self.conn(self.sel[0])["kind"]
+        if kind in ("postgres", "sqlite"):
+            return any(dbagent.db.statement_kind(part) not in dbagent.SQL_KINDS
+                       for part in text.split(";") if part.strip())
+        if kind == "redis":
+            return text.split()[0].upper() not in dbagent.REDIS_READ if text.split() else False
+        return False   # Mongo's box only finds and aggregates; S3 has none
+
+    def scroll_ask(self):
+        adj = self.ask_scroll.get_vadjustment()
+        GLib.timeout_add(60, lambda: adj.set_value(adj.get_upper()) and False)
+
     # ---- keys ------------------------------------------------------------------------------------
     def leave_text(self):
         self.tree.grab_focus()
@@ -939,6 +1136,8 @@ class Databases(View):
             self.delete_node(self.sel[0], self.sel[1])
         elif keyval in (Gdk.KEY_bracketleft, Gdk.KEY_bracketright):
             self.turn("prev" if keyval == Gdk.KEY_bracketleft else "next")
+        elif keyval == Gdk.KEY_a:
+            self.toggle_ask()
         elif keyval == Gdk.KEY_slash:
             self.filter.grab_focus()
         else:
@@ -954,6 +1153,15 @@ def _short(text):
     their content, an ellipsizing label let them shrink to the header); the row view has it in full."""
     text = text.replace("\n", " \u21b5 ")
     return text if len(text) <= CELL_CHARS else text[:CELL_CHARS - 1] + "\u2026"
+
+
+def dbagent_intro(conn):
+    return (f"Ask about {conn['name']}: what a table holds, why a query is slow, which index would help, a "
+            "query for something… It reads on a connection of its own and can't change anything; a query it "
+            "suggests goes in the query box when you click, and you run it (a write needs a second Run). "
+            "It never gets the host, user or password. The model is remote (opencode's, the System agent's "
+            "choice): free models may keep what they're sent, so unless \"AI sees data\" is on it only "
+            "gets the structure.")
 
 
 def make():

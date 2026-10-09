@@ -109,6 +109,14 @@ def blocks(text):
     return out
 
 
+def looked_label(what):
+    """A "read: …" line (a tool call): one line, cut to the window with the whole call in its tooltip. A
+    long query didn't wrap, so it widened the window past its size, to the whole screen."""
+    w = label(f"read: {what}", "ag-looked", ellipsize=True)
+    w.set_tooltip_text(what)
+    return w
+
+
 def text_label(markup, *classes):
     w = label("", *classes, wrap=True)
     w.set_markup(markup)
@@ -292,7 +300,7 @@ class SysAgent(View):
             self.paint_message(m)
         if self.busy == self.chat["id"]:
             self.waiting = box(True, 4, label("thinking…", "ag-looked"),
-                               *[label(f"read: {w}", "ag-looked") for w in self.looked], classes=("ag-msg",))
+                               *[looked_label(w) for w in self.looked], classes=("ag-msg",))
             self.log.append(self.waiting)
         GLib.idle_add(self.to_bottom)
 
@@ -307,7 +315,7 @@ class SysAgent(View):
         copy = Gtk.Button(label="Copy", css_classes=["flat", "ag-copy"], tooltip_text="copy the whole answer")
         copy.connect("clicked", lambda b, t=m["text"]: self.copy(b, t))
         self.log.append(box(True, 6, box(False, 8, name, copy), rendered(lib.clean(m["text"]), not m.get("ok", True)),
-                            *[label(f"read: {w}", "ag-looked") for w in m.get("looked", [])], classes=("ag-msg",)))
+                            *[looked_label(w) for w in m.get("looked", [])], classes=("ag-msg",)))
 
     def copy(self, btn, text):
         btn.get_clipboard().set(text)
@@ -343,7 +351,7 @@ class SysAgent(View):
                     return False
                 self.looked.append(what)
                 if self.chat["id"] == chat["id"]:
-                    self.waiting.append(label(f"read: {what}", "ag-looked"))
+                    self.waiting.append(looked_label(what))
                     self.to_bottom()
                 return False
             GLib.idle_add(show)

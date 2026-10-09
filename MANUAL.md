@@ -362,7 +362,8 @@ how each branch stands against main.
 `Ctrl+Enter` commits; the subject's length beside it, amber past 72), the changed files (untick what stays
 out; each with its `+`/`−` lines, the name before its folder; a filter, and *All* / *None* for the files
 it shows; `Space` ticks the selected one), and on the right the selected file's diff (a click on a file,
-or `↑↓` in the list); *Push it to GitHub after* (the button says *Commit & push N files*). A normal
+or `↑↓` in the list: each line numbered, added / removed lines tinted, a header saying where each change
+starts, a long line wrapped under its text); *Push it to GitHub after* (the button says *Commit & push N files*). A normal
 `git commit`: the project's hooks run. **Write it for me** has a free model write the message from the
 ticked files' changes, in the style of the repo's recent commits, through `opencode run` (the free tier only
 works from inside opencode). The dropdown beside it picks the model from opencode's free ones

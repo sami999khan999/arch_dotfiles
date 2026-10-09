@@ -5,10 +5,11 @@
 #          me: a free model through opencode, picked in the dropdown beside it and kept for next time),
 #          the changed files (all ticked: untick what stays out; a filter, All / None for what it shows,
 #          each file's +/- lines), Push it after
-#   right  the selected file's diff (a click on a file, or ↑↓ in the list)
+#   right  the selected file's diff (a click on a file, or ↑↓ in the list): each line numbered, added / removed
+#          ones tinted, a header per hunk; a long line wraps under its text, not under the numbers
 # A normal git commit, so the project's hooks run; the Projects panel sees the result by itself (its live
 # look at git).
-import os, sys, threading
+import os, re, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, GLib, Gtk, Pango, View, box, button, dropdown, label, recolor, run, scrolled
@@ -85,7 +86,7 @@ class Commit(View):
         self.models = box(False, 0)
         self.paint_models([self.model])
         threading.Thread(target=lambda: GLib.idle_add(self.paint_models, pj.ai_models()), daemon=True).start()
-        top = box(False, 8, label("Message", "dim"), label(""), self.models, self.write)
+        top = box(False, 8, label("Message", "dim"), label(""), self.write, self.models)
         top.get_first_child().get_next_sibling().set_hexpand(True)
         self.counter = label("", "dim", xalign=1.0)
         self.counter.set_tooltip_text(f"the subject line's length: keep it under {SUBJECT_MAX}")
@@ -148,8 +149,19 @@ class Commit(View):
                                  wrap_mode=Gtk.WrapMode.WORD_CHAR)
         self.diff.add_css_class("commit-diff")
         dbuf = self.diff.get_buffer()
-        for tag, colour in (("add", "#9ece6a"), ("del", "#f7768e"), ("hunk", "#7aa2f7"), ("meta", "#565f89")):
-            dbuf.create_tag(tag, foreground=recolor(colour))
+
+        def tint(colour, alpha):
+            rgba = Gdk.RGBA()
+            rgba.parse(recolor(colour))
+            rgba.alpha = alpha
+            return rgba
+        dbuf.create_tag("add", foreground=recolor("#9ece6a"), paragraph_background_rgba=tint("#9ece6a", .08))
+        dbuf.create_tag("del", foreground=recolor("#f7768e"), paragraph_background_rgba=tint("#f7768e", .08))
+        dbuf.create_tag("hunk", foreground=recolor("#7aa2f7"), paragraph_background_rgba=tint("#292e42", .9),
+                        pixels_above_lines=10, pixels_below_lines=4)
+        dbuf.create_tag("meta", foreground=recolor("#565f89"))
+        dbuf.create_tag("num", foreground=recolor("#444b6a"))   # made after add / del, so it wins over them
+        self.gutter = dbuf.create_tag("line")   # the hanging indent: its width is set when a diff is painted
         self.diff_title = label("", "dim", ellipsize=True)
         self.diff_title.set_ellipsize(Pango.EllipsizeMode.START)
         right = box(True, 10, self.diff_title, box(True, 0, scrolled(self.diff), classes=("diff-box",)))
@@ -256,17 +268,34 @@ class Commit(View):
         threading.Thread(target=go, daemon=True).start()
 
     def paint_diff(self, text):
+        """The diff, readable: no git header (the title above names the file), a line per hunk saying where
+        it starts, then each line with its number (the new file's; the old one's for a removed line)."""
         lines = text.splitlines()
         more = len(lines) - DIFF_MAX
         buf = self.diff.get_buffer()
         buf.set_text("")
         it = buf.get_end_iter()
+        width = self.diff.create_pango_layout("0" * 6).get_pixel_size()[0]   # "1234 +": the gutter
+        self.gutter.set_property("indent", -width)   # Pango's negative indent: the lines after the first
+        old = new = 1
         for l in lines[:DIFF_MAX]:
-            tag = ("meta" if l.startswith(("diff --git", "index ", "--- ", "+++ ", "new file", "deleted file",
-                                           "similarity", "rename ", "old mode", "new mode", "Binary"))
-                   else "hunk" if l.startswith("@@") else "add" if l.startswith("+")
-                   else "del" if l.startswith("-") else None)
-            buf.insert_with_tags_by_name(it, l + "\n", tag) if tag else buf.insert(it, l + "\n")
+            if l.startswith(("diff --git", "index ", "--- ", "+++ ")):
+                continue
+            hunk = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@ ?(.*)", l)
+            if hunk:
+                old, new, where = int(hunk[1]), int(hunk[2]), hunk[3].strip()
+                buf.insert_with_tags_by_name(it, f"line {new}" + (f" · {where}" if where else "") + "\n",
+                                             "hunk", "line")
+                continue
+            sign = l[:1]
+            if sign not in ("+", "-", " "):   # new file mode, rename …, \ No newline at end of file
+                buf.insert_with_tags_by_name(it, l + "\n", "meta", "line")
+                continue
+            tag = {"+": "add", "-": "del"}.get(sign)
+            num = old if sign == "-" else new
+            old, new = old + (sign != "+"), new + (sign != "-")
+            buf.insert_with_tags_by_name(it, f"{num:>4} ", "num", "line", *([tag] if tag else []))
+            buf.insert_with_tags_by_name(it, f"{sign}{l[1:]}\n", "line", *([tag] if tag else []))
         if more > 0:
             buf.insert_with_tags_by_name(it, f"… {more} more lines", "meta")
         if not lines:

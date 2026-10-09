@@ -12,7 +12,7 @@ after a real change. The buttons have no tooltip: GTK hides a tooltip on every c
 while clicking a button to cycle its windows (the group count by the title shows the same).
 Started by waybar itself (custom/wsbar, which prints nothing and stays hidden).
 """
-import json, os, signal, socket, subprocess, time
+import json, os, signal, socket, subprocess, sys, time
 
 WORKSPACES = range(1, 11)
 CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
@@ -22,11 +22,8 @@ REFRESH = (b"workspace", b"createworkspace", b"destroyworkspace", b"focusedmon",
            b"closewindow", b"movewindow", b"urgent", b"configreloaded")
 
 
-def hypr(what):
-    try:
-        return json.loads(subprocess.run(["hyprctl", what, "-j"], capture_output=True, text=True).stdout)
-    except (json.JSONDecodeError, OSError):
-        return None
+sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+from hyprsock import query as hypr   # the socket, not a hyprctl process per question
 
 
 last = None   # what the buttons show now, to skip updates that change nothing

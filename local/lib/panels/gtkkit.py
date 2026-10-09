@@ -489,22 +489,8 @@ def window_blur():
     return int(blur["size"]) * int(blur["passes"]) if blur["enabled"] not in (False, "false", 0) else 0
 
 
-def hypr_socket(request):
-    """One request on Hyprland's control socket (what hyprctl sends: "j/clients", "dispatch …"),
-    its reply as text ("" if Hyprland isn't there)."""
-    import socket
-    path = f"{os.environ.get('XDG_RUNTIME_DIR', '/tmp')}/hypr/{os.environ.get('HYPRLAND_INSTANCE_SIGNATURE', '')}/.socket.sock"
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-            sock.settimeout(1)
-            sock.connect(path)
-            sock.sendall(request.encode())
-            reply = b""
-            while chunk := sock.recv(65536):
-                reply += chunk
-        return reply.decode(errors="replace")
-    except OSError:
-        return ""
+sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+from hyprsock import request as hypr_socket   # one request ("j/clients", "dispatch …"), its reply as text
 
 
 def hypr_events(win, wanted, on_event):

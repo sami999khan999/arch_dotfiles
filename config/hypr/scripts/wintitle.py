@@ -6,7 +6,7 @@ an ellipsizing label than move the centre island. Cutting the text here instead 
 its full width; MAX keeps the centre section compact, so it stays put as titles change length.
 Prints one JSON line per change (return-type json).
 """
-import json, os, re, socket, subprocess, time
+import json, os, re, socket, sys, time
 
 MAX = 30  # max width of the title, in characters (longer ones end in …)
 
@@ -21,11 +21,8 @@ CLEANUP = [
 POPUPS = ("TUI.float", "panels.")   # popup panels (and the backdrop behind one), as in wsgroups
 
 
-def hypr(what):
-    try:
-        return json.loads(subprocess.run(["hyprctl", what, "-j"], capture_output=True, text=True).stdout or "null")
-    except json.JSONDecodeError:
-        return None
+sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+from hyprsock import query as hypr   # the socket, not a hyprctl process per question
 
 
 def focused():

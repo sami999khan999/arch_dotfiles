@@ -31,11 +31,8 @@ def hypr(*args):
     return subprocess.run(["hyprctl", *args], capture_output=True, text=True).stdout
 
 
-def query(what):
-    try:
-        return json.loads(hypr(what, "-j") or "null")
-    except json.JSONDecodeError:
-        return None
+sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+from hyprsock import query   # the socket: the bar asks on every window event, hyprctl was a process each
 
 
 def dispatch(lua):

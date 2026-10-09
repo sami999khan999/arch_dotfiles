@@ -144,11 +144,11 @@ hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, siz
 hl.window_rule({ match = { class = ".*" }, opacity = "0.97 0.97" })
 hl.window_rule({ match = { class = "^(zoom|vlc|mpv|imv|org\\.kde\\.kdenlive|com\\.obsproject\\.Studio|steam_app.*|gamescope)$" }, opacity = "1 1" })
 
--- The backdrop behind a GUI popup (gtkkit.py, System Settings → Appearance → Panels): a window over
--- the whole screen that draws it blurred itself (Hyprland's blur is one strength for everything), so
--- no blur of its own; its bar strip is see-through. Focusable: with follow_mouse = 2 hovering doesn't
--- take the focus, and a click must land on it (it closes the popup). Not tagged floating-window
--- (that one centres and sizes the panels).
+-- The backdrop behind a GUI popup (gtkkit.py, System Settings → Appearance → Panels): a see-through,
+-- darkened window over the whole screen, blurred by Hyprland like every window (one blur for windows
+-- and panels: Appearance → Blur). Focusable: with follow_mouse = 2 hovering doesn't take the focus, and
+-- a click must land on it (it closes the popup). Not tagged floating-window (that one centres and
+-- sizes the panels).
 hl.window_rule({
     match       = { class = "^(panels\\..*)$", title = "^(panels-backdrop)$" },
     float       = true,
@@ -157,7 +157,6 @@ hl.window_rule({
     border_size = 0,
     no_shadow   = true,
     animation   = "popin 100%",   -- fades in and out with the popup, no zoom
-    no_blur     = true,
     opacity     = "1.0 override 1.0 override",
 })
 

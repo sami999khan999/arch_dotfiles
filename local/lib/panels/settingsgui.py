@@ -232,20 +232,17 @@ class Settings(View):
         p.append(setting_row("Dim behind the scratchpad", "How dark the screen gets behind Super + S",
                              slider(0, 1, 0.05, g("decoration:dim_special"), self.hypr("decoration:dim_special"))))
         self.heading(p, "Blur")
-        p.append(setting_row("Blur", "Blurs what's behind translucent windows and the bar",
+        p.append(setting_row("Blur", "Blurs what's behind translucent windows, panels and the bar",
                              switch(g("decoration:blur:enabled"), self.hypr("decoration:blur:enabled"))))
         p.append(setting_row("Blur size", None,
                              spin(1, 20, 1, g("decoration:blur:size"), self.hypr("decoration:blur:size"))))
         p.append(setting_row("Blur passes", "More is smoother and costs more GPU",
                              spin(1, 6, 1, g("decoration:blur:passes"), self.hypr("decoration:blur:passes"))))
         self.heading(p, "Panels")
-        on, blur, darken = backdrop_setting()
+        on, darken = backdrop_setting()
         p.append(setting_row("Blur behind panels", "While a panel (Settings, shortcuts, sound…) is open, the screen "
-                             "behind it is blurred and darkened; a click there closes the panel",
+                             "behind it is blurred with the window blur above and darkened; a click there closes it",
                              switch(on, lambda v: self.panels("backdrop", v))))
-        p.append(setting_row("Panel blur", "How blurry, in pixels; 0 only darkens. Separate from the window "
-                             "blur above",
-                             slider(0, 40, 1, blur, lambda v: self.panels("blur", int(v)), fmt="{:.0f} px")))
         p.append(setting_row("Panel darken", "How much darker the screen gets behind a panel",
                              slider(0, 0.8, 0.05, darken, lambda v: self.panels("darken", v), fmt="{:.0%}")))
         p.append(label("Changes show from the next panel you open.", "setting-sub", wrap=True))

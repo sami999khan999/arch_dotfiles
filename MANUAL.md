@@ -597,13 +597,13 @@ window classes, green / amber / red levels, key hints at the bottom. The popups 
 key or waybar click) closes it, and so does `Esc`. The hints at the bottom list each panel's keys.
 A click anywhere outside a text field (a search box…) leaves it, so the panel's keys work again
 (`leave_text` in `gtkkit.py`; Projects goes back to its list).
-While a popup is open the screen behind it is blurred and darkened, the bar excepted (a full-screen
-window under it showing a screenshot taken as it opened, blurred by GTK: Hyprland's blur is one
-strength for everything; `Backdrop` in `gtkkit.py`, `panels-backdrop` in `modules/windowrules.lua`);
-a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
+While a popup is open the screen behind it is blurred and darkened, the bar excepted (a see-through,
+darkened full-screen window under it that Hyprland blurs like every window, so panels and windows have
+the same blur, set in one place: Settings → Appearance → Blur; `Backdrop` in `gtkkit.py`,
+`panels-backdrop` in `modules/windowrules.lua`); a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
 and it's still there over its backdrop (it's pinned above the backdrop, so that click can't cover it,
-and unpinned while another workspace shows). Settings → Appearance → Panels: on / off, blur (0–40 px)
-and darkness.
+and unpinned while another workspace shows). Settings → Appearance → Panels: on / off and darkness (the
+blur is Appearance → Blur's, the windows').
 The pair popup (`Super + Alt + P`) has none: you watch the pair while you change it.
 
 | Panel | Opens with | Does |

@@ -17,8 +17,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Graphene", "1.0")
-gi.require_version("Gsk", "4.0")
-from gi.repository import Gdk, Gio, GLib, Graphene, Gsk, Gtk, Pango
+from gi.repository import Gdk, Gio, GLib, Graphene, Gtk, Pango
 
 # The colour theme (local/bin/theme): everything here is written in Tokyo Night's colours and goes
 # through recolor() (CSS, markup, cairo colours via rgbf), which does nothing while Tokyo Night is active.
@@ -450,71 +449,29 @@ HYPR_SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")
 
 
 def backdrop_setting():
-    """What goes behind a popup, from System Settings → Appearance → Panels: (on, blur px, darken 0-1)."""
+    """What goes behind a popup, from System Settings → Appearance → Panels: (on, darken 0-1). Its blur is
+    the windows' (Hyprland's, Appearance → Blur): the backdrop is a see-through window Hyprland blurs."""
     import json
     try:
         p = json.load(open(HYPR_SETTINGS)).get("panels", {})
     except (OSError, ValueError):
         p = {}
     on = p.get("backdrop", True) not in (False, "off")
-    return on, max(0, int(p.get("blur", 12))), max(0.0, min(float(p.get("darken", 0.25)), 0.9))
+    return on, max(0.0, min(float(p.get("darken", 0.25)), 0.9))
 
 
-def pad_edges(pb, p):
-    """The picture with p pixels more on every side, repeating its edge pixels: blurred, the edges
-    then stay as they are instead of fading out."""
-    from gi.repository import GdkPixbuf
-    if p <= 0:
-        return pb
-    w, h, near = pb.get_width(), pb.get_height(), GdkPixbuf.InterpType.NEAREST
-    out = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, pb.get_has_alpha(), 8, w + 2 * p, h + 2 * p)
-    pb.copy_area(0, 0, w, h, out, p, p)
-    for sx, sy, sw, sh, dx, dy, dw, dh in (
-            (0, 0, 1, h, 0, p, p, h), (w - 1, 0, 1, h, w + p, p, p, h),            # left, right
-            (0, 0, w, 1, p, 0, w, p), (0, h - 1, w, 1, p, h + p, w, p),            # top, bottom
-            (0, 0, 1, 1, 0, 0, p, p), (w - 1, 0, 1, 1, w + p, 0, p, p),            # corners
-            (0, h - 1, 1, 1, 0, h + p, p, p), (w - 1, h - 1, 1, 1, w + p, h + p, p, p)):
-        pb.new_subpixbuf(sx, sy, sw, sh).scale_simple(dw, dh, near).copy_area(0, 0, dw, dh, out, dx, dy)
-    return out
-
-
-def screen_below_bar(blur):
-    """A screenshot of the focused monitor without the bar (grim), ready to blur: (texture, the area
-    it covers in the window (x, y, w, h), where to draw the texture (a little larger: its edges are
-    repeated outward so the blur doesn't fade them), the GTK blur radius still to apply, the
-    monitor's (width, height)), or Nones.
-    A big blur is mostly done here, by shrinking with an averaging filter (GdkPixbuf's BILINEAR
-    integrates over the area) and stretching back up: cheap, and GTK's GL blur misdraws big radii
-    (40 px showed the screen zoomed in). The picture is drawn 1:1 over the screen, so the windows
-    keep their places and gaps under the blur."""
-    import json, math, subprocess
-    gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import GdkPixbuf
+def window_blur():
+    """Hyprland's window blur as a radius in px (0 when off), for blurs GTK draws itself (a dialog over
+    a panel's own content): size × passes, which looks about as soft as Hyprland's at the usual settings.
+    Its values are settings.json's over modules/decorations.lua's."""
+    import json
+    blur = {"enabled": True, "size": 6, "passes": 3}   # modules/decorations.lua
     try:
-        mons = json.loads(subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, text=True).stdout)
-        m = next(m for m in mons if m["focused"])
-        left, top, right, bottom = m["reserved"]
-        scale = m["scale"]
-        w, h = round(m["width"] / scale) - left - right, round(m["height"] / scale) - top - bottom
-        png = subprocess.run(["grim", "-l", "0", "-g", f"{m['x'] + left},{m['y'] + top} {w}x{h}", "-"],
-                             capture_output=True, timeout=2).stdout
-        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
-        loader.write(png)
-        loader.close()
-        shot = loader.get_pixbuf()
-        shrink = max(1.0, blur / 4)   # what's left for GTK: about a quarter, at most 10 px
-        gtk_blur = min(blur, 10) if shrink > 1 else blur
-        if shrink > 1:
-            shot = shot.scale_simple(max(1, round(shot.get_width() / shrink)),
-                                     max(1, round(shot.get_height() / shrink)), GdkPixbuf.InterpType.BILINEAR)
-        kx, ky = w / shot.get_width(), h / shot.get_height()   # screen px per picture px
-        p = math.ceil(gtk_blur * 2 / min(kx, ky)) if gtk_blur else 0
-        shot = pad_edges(shot, p)
-        draw = (left - p * kx, top - p * ky, w + 2 * p * kx, h + 2 * p * ky)
-        return (Gdk.Texture.new_for_pixbuf(shot), (left, top, w, h), draw, gtk_blur,
-                (left + w + right, top + h + bottom))
-    except Exception:
-        return None, None, None, 0, None
+        h = json.load(open(HYPR_SETTINGS)).get("hypr", {})
+        blur.update({k.split(":")[-1]: v for k, v in h.items() if k.startswith("decoration:blur:")})
+    except (OSError, ValueError):
+        pass
+    return int(blur["size"]) * int(blur["passes"]) if blur["enabled"] not in (False, "false", 0) else 0
 
 
 def hypr_socket(request):
@@ -536,29 +493,18 @@ def hypr_socket(request):
 
 
 class Backdrop(Gtk.Widget):
-    """The screen as it was when the popup opened, blurred (Hyprland has one blur strength for
-    everything, so this one's its own: screen_below_bar) and darkened. The bar's strip stays clear:
-    the live bar is above it."""
+    """Behind a popup: the screen darkened, and blurred by Hyprland (the backdrop window is see-through
+    and gets the windows' blur: modules/windowrules.lua), so a popup's blur is every window's. Live, not
+    a picture: what plays behind keeps moving, blurred. The bar's strip stays clear (the bar is above)."""
 
-    def __init__(self, blur, darken):
+    def __init__(self, darken):
         super().__init__(hexpand=True, vexpand=True)
-        self.texture, self.rect, self.draw, self.blur, self.screen = screen_below_bar(blur)
         self.darken = darken
 
     def do_snapshot(self, snap):
-        x, y, w, h = self.rect or (0, 0, self.get_width(), self.get_height())
-        area = Graphene.Rect().init(x, y, w, h)
-        snap.push_clip(area)
-        if self.texture:
-            if self.blur:
-                snap.push_blur(self.blur)
-            snap.append_scaled_texture(self.texture, Gsk.ScalingFilter.LINEAR, Graphene.Rect().init(*self.draw))
-            if self.blur:
-                snap.pop()
         dark = Gdk.RGBA()
-        dark.parse(recolor(f"rgba(22, 22, 30, {self.darken if self.texture else max(self.darken, 0.3)})"))
-        snap.append_color(dark, area)
-        snap.pop()
+        dark.parse(recolor(f"rgba(22, 22, 30, {self.darken})"))
+        snap.append_color(dark, Graphene.Rect().init(0, 0, self.get_width(), self.get_height()))
 
 
 class ViewHost:
@@ -626,17 +572,17 @@ class ViewHost:
             self.win.present()
 
     def make_backdrop(self):
-        """A window over the whole screen, under the popup, showing it blurred (Backdrop). Titled
-        "panels-backdrop": modules/windowrules.lua sizes it. A click on it closes the popup."""
-        on, blur, darken = backdrop_setting()
+        """A window over the whole screen, under the popup, darkening it (Backdrop; Hyprland blurs it).
+        Titled "panels-backdrop": modules/windowrules.lua sizes it. A click on it closes the popup."""
+        on, darken = backdrop_setting()
         if not on:
             return None
         win = Gtk.ApplicationWindow(application=self.app, title="panels-backdrop", decorated=False)
         win.add_css_class("backdrop")
-        backdrop = Backdrop(blur, darken)
-        if backdrop.screen:   # full size from its first frame: Hyprland stretches a smaller first
-            win.set_default_size(*backdrop.screen)   # frame to the rule's size (a zoomed-in corner)
-        win.set_child(backdrop)
+        mon = self.focused_monitor()
+        if mon:   # full size from its first frame: Hyprland stretches a smaller first frame to the rule's
+            win.set_default_size(*mon)   # size (a zoomed-in corner)
+        win.set_child(Backdrop(darken))
         click = Gtk.GestureClick()
         click.connect("pressed", lambda *_: self.close_from_backdrop())
         win.add_controller(click)
@@ -644,6 +590,15 @@ class ViewHost:
         keys.connect("key-pressed", self._on_key)
         win.add_controller(keys)
         return win
+
+    def focused_monitor(self):
+        """The focused monitor's size in layout px (width, height), or None."""
+        import json
+        try:
+            m = next(m for m in json.loads(hypr_socket("j/monitors") or "[]") if m["focused"])
+            return round(m["width"] / m["scale"]), round(m["height"] / m["scale"])
+        except (ValueError, StopIteration, KeyError, ZeroDivisionError):
+            return None
 
     def popup_client(self):
         import json

@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, box, button, clear, dropdown, label, recolor, rgbf, rule_heading, wrap_box,
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, window_blur, box, button, clear, dropdown, label, recolor, rgbf, rule_heading, wrap_box,
                     run, scrolled, switch)
 from keys import fuzzy
 from keysgui import marked
@@ -442,11 +442,12 @@ class Projects(View):
         self.content = box(False, 0, left, self.pages)
         overlay = Gtk.Overlay(child=self.content)
         overlay.add_overlay(self.dim)
-        # behind a popup the panel is blurred and darkened like the screen behind every other popup, by
-        # the same setting (System Settings → Appearance → Panels)
-        on, blur, dark = backdrop_setting()
+        # behind a dialog the panel is blurred (the windows' blur, Appearance → Blur) and darkened like the
+        # screen behind a popup (Appearance → Panels)
+        on, dark = backdrop_setting()
+        blur = window_blur()
         css = Gtk.CssProvider()
-        css.load_from_string(recolor(f".blurred {{ filter: blur({max(blur // 2, 1) if on else 0}px); }}\n"
+        css.load_from_string(recolor(f".blurred {{ filter: blur({max(blur // 2, 1) if on and blur else 0}px); }}\n"
                                      f".dialog-dim {{ background: alpha(#16161e, {min(dark + 0.3, 0.9) if on else 0.72}); }}"))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_USER + 2)
         return overlay

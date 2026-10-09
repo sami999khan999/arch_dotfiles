@@ -41,6 +41,10 @@ CSS = """
 window.panel { background: alpha(#16161e, .85); color: #c0caf5; font-family: "JetBrainsMono Nerd Font"; font-size: 10pt; }
 window.panel * { border-radius: 0; }
 window.backdrop { background: transparent; }   /* behind a popup: Backdrop draws it */
+/* Hyprland's blur behind every panel window and the backdrop. GTK 4.24 takes part in the Wayland blur
+   protocol (ext-background-effect) and asks for no blur unless the window has a backdrop-filter: without
+   this, what's behind showed through sharp. The strength is Hyprland's (Appearance → Blur), not this px */
+window.panel, window.backdrop { backdrop-filter: blur(10px); }
 
 /* every window has the Control Center card's chrome: icon + bold title, details on the right,
    an underline that's blue under the title, key hints on the last line */

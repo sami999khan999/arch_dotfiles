@@ -250,9 +250,9 @@ The program is `local/bin/codesync`.
 Every project in `~/code`, with its git remotes, is recorded in a list, so one command brings them all
 back on a new PC or after losing the SSD. The Projects panel browses them: workspace 5's app (a tiled window, class `sami.projects`, like Docker), reached with **Super + Ctrl + P**, `Super + 5` or its workspace button in waybar.
 
-`~/code` is arranged by status: `active/` (worked on this month), `paused/`, `archive/` (finished or
-dropped; `archive/exercises/` the small practice ones), `templates/`, `forks/`, `notes/`, and `inbox/`
-(scratch: not recorded, not backed up).
+`~/code` is flat: each project is `~/code/<name>`, and its status (Active, Paused, Done…) is in the list,
+not in a folder. A folder holds only the repos of one project (`potherbazar/frontend`, `potherbazar/backend`).
+Besides those: `templates/`, `notes`, and `inbox/` (scratch: not recorded, not backed up).
 
 **The list** is `~/code/.projects/projects.json`, a git repo of its own, **private** on GitHub
 (`code-projects`): it names private and organisation repos, so it never goes in this public repo. It has
@@ -266,8 +266,9 @@ A folder you move is recorded as moved; a project that isn't on this PC stays li
 | `projects clone [<list url>]` | **new PC:** fetch the list (from the URL, else your `code-projects`), then clone every listed project that's missing into its folder, with a local branch for every remote branch. Projects already there are left alone. `projects clone <path>` for one |
 | `projects scan` | record `~/code` now (`-n`: only show what would change) |
 | `projects new <folder>/<name> [--template <t>] [--github <owner>] [--public]` | a new project: git + a first commit (from `templates/<t>`), a GitHub repo (private unless `--public`), recorded |
-| `projects add <url> [path]` | clone a repo (default `active/<name>`) and record it |
+| `projects add <url> [path]` | clone a repo (default `~/code/<name>`) and record it |
 | `projects forget <path>` | drop a project from the list |
+| `projects mark <path> <status>` | set its status: `in-progress`, `active`, `testing`, `blocked`, `planned`, `idea`, `paused`, `done` (`none` clears it) |
 | `projects init` | once, ever: create the private repo (already done) |
 
 **Local only** projects (a folder with files and no git remote) can't be cloned back: only the SSD and
@@ -277,7 +278,11 @@ the HDD have them. The panel and `projects` mark them in amber; put them in git 
 a repo has a repo icon in the folders' icon column and shows its branch when it isn't on main, ● when it has uncommitted changes; a cloud for one that
 isn't cloned; ⚠ local only; it follows the list, so `projects delete` / `move` on the command line show
 up in a couple of seconds); `/` searches; the dropdown above the search shows one GitHub account's or
-org's projects only (or other remotes', or the local-only folders), in every section. On the right, the selected project:
+org's projects only (or other remotes', or the local-only folders), in every section. Under the tabs, **Sort**:
+*by folder* (the tree), *by status* (a section per status, under way first: In progress, Active, Testing, Blocked,
+Planned, Idea, Paused, Done (folded), then No status), or *Only …* one status's projects. A project's status is the
+dropdown left of Pin on its page (or `projects mark`); its row shows it at the right end, in its colour. Statuses
+are in the list, so every PC has them, and follow a project that moves. On the right, the selected project:
 
 - **State**: its branch, then `in sync` / `↑N to push` / `↓N to pull` / `diverged` / `no upstream`, changed
   files, and when it last fetched. Selecting a project whose last fetch is over 10 minutes old fetches it in
@@ -319,7 +324,7 @@ or files to merge by hand). Each tab says how many it would show; an empty one i
 the end of the tabs syncs every project. A row says what needs doing in words, under the name: *17
 changed · 3 to push · 5 to pull · 2 new branches · ⚠ 1 to merge* (hover for the details), with the branch
 checked out at the right when it isn't the main one. In a filtered tab the projects are one flat list
-(active, paused, … archive last), with their folder in front of the name (pin a project with *Pin* or `p`;
+(by name, or by status with *Sort: by status*), with their folder in front of the name (pin a project with *Pin* or `p`;
 pins are in the list, so every PC has them). When the panel
 opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
 current.

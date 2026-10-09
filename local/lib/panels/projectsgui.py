@@ -34,9 +34,7 @@ AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
 HIT = recolor("#7aa2f7")   # matched letters, as in the shortcut list
 HISTORY = 300              # commits in the graph
 STALE = 600                # seconds: an older fetch is redone when the project is selected
-FOLDED = {"archive", "templates", "forks"}   # groups that start folded
-# a filtered list (Changes, Behind, Conflicts) is in this order of top folders (others after, by name)
-TOPS = ["active", "paused", "templates", "forks", "archive"]
+FOLDED = {"templates"}   # groups that start folded
 MAX_BRANCH_ROWS = 6       # local branches in a project's branch table (the Branches tab has them all)
 STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer ago than this are fetched
 # the list's tabs (1-4): every project, or only those that need something: work not on GitHub yet
@@ -45,6 +43,12 @@ FILTERS = [("all", "All"), ("changes", "Changes"), ("behind", "Behind"), ("confl
 EMPTY = {"changes": "Everything is committed and pushed.", "behind": "Everything is up to date with GitHub.",
          "conflicts": "Nothing to merge by hand."}
 G_PIN = "\U000f0403"             # a pinned project (nf-md-pin)
+# a project's status (projects mark; the dropdown on its page): its name and colour, in pj.STATUSES' order
+STATUS = {"in-progress": ("In progress", "#7aa2f7"), "active": ("Active", "#9ece6a"), "testing": ("Testing", "#73daca"),
+          "blocked": ("Blocked", "#f7768e"), "planned": ("Planned", "#7dcfff"), "idea": ("Idea", "#bb9af7"),
+          "paused": ("Paused", "#e0af68"), "done": ("Done", "#737aa2")}
+BY_STATUS = "\u00a7status"       # the sort dropdown's "by status" (its other values: a folder tree, one status)
+FOLDED.add(f"{BY_STATUS}/done")   # by status, Done starts folded
 INDENT = 18 + 8                  # a tree level: .pj-glyph's width + the rows' spacing
 G_OPEN, G_SHUT = "", ""         # folder open / closed
 G_REPO = "\uf401"                # a git repo (nf-oct-repo), in the folders' icon column
@@ -377,6 +381,8 @@ class Projects(View):
         self.start = None             # the New form's "Start from" (None until it's built)
         self.gh_admin = {}            # owner/name -> may this account delete it on GitHub
         self.pinned = pj.load()["pinned"]
+        self.marks = pj.load()["status"]   # rel -> its status (STATUS)
+        self.sort = ""                # the sort dropdown: "" the folders, BY_STATUS, or one status's projects only
 
     # ---- layout ----------------------------------------------------------------------------------
     def header_extra(self):
@@ -412,7 +418,8 @@ class Projects(View):
                                tooltip="Sync every project: GitHub's changes down, every branch (never merges, "
                                        "pushes or touches uncommitted work)")
         bar.append(self.sync_btn)
-        top = box(True, 6, self.org_box, self.search, bar)
+        self.sort_box = box(False, 0)   # the sort dropdown, under the tabs (paint_sort)
+        top = box(True, 6, self.org_box, self.search, bar, self.sort_box)
         top.set_margin_bottom(8)
         left = box(True, 0, top, scrolled(self.tree))
         left.add_css_class("side")
@@ -434,6 +441,7 @@ class Projects(View):
                 getattr(page, f"set_margin_{edge}")(20)
 
         self.paint_orgs()
+        self.paint_sort()
         self.paint_tree()
         if os.path.exists(pj.LIST):
             self.pages.set_visible_child_name("empty")
@@ -589,7 +597,10 @@ class Projects(View):
     def reload(self, select=None):
         self.list_seen = self.list_stamp()
         self.projects = load_projects()
+        data = pj.load()
+        self.pinned, self.marks = data["pinned"], data["status"]
         self.paint_orgs()
+        self.paint_sort()
         if select:
             self.selected = None
             parts = select.split("/")
@@ -654,9 +665,36 @@ class Projects(View):
         self.paint_tree()
         self.focus_list()
 
+    def paint_sort(self):
+        """The sort dropdown: the folder tree, sections by status, or one status's projects only (with
+        how many have it). A status no project has any more goes back to the folders."""
+        counts = {}
+        for p in self.projects:
+            if p.rel in self.marks:
+                counts[self.marks[p.rel]] = counts.get(self.marks[p.rel], 0) + 1
+        if self.sort in STATUS and self.sort not in counts:
+            self.sort = ""
+        clear(self.sort_box)
+        dd = dropdown([("", "Sort: by folder"), (BY_STATUS, "Sort: by status")]
+                      + [(k, f"Only {name.lower()}  {counts[k]}") for k, (name, _c) in STATUS.items() if k in counts],
+                      self.sort, self.pick_sort)
+        dd.set_tooltip_text("the list by folder or by status (set on a project's page), or one status only")
+        dd.set_hexpand(True)
+        self.sort_box.append(dd)
+
+    def pick_sort(self, key):
+        self.sort = key
+        self.paint_tree()
+        self.focus_list()
+
+    def status_rank(self, rel):
+        st = self.marks.get(rel)
+        return pj.STATUSES.index(st) if st in STATUS else len(pj.STATUSES)
+
     def shown(self):
-        """The projects the owner filter lets through."""
-        return [p for p in self.projects if not self.org or owner_of(p) == self.org]
+        """The projects the owner filter and the sort dropdown's one status let through."""
+        return [p for p in self.projects if (not self.org or owner_of(p) == self.org)
+                and (self.sort not in STATUS or self.marks.get(p.rel) == self.sort)]
 
     # ---- the tree --------------------------------------------------------------------------------
     def needing(self, projects):
@@ -684,9 +722,10 @@ class Projects(View):
             items = self.needing(projects)[self.filter]
             if not items:
                 return [("hint", EMPTY[self.filter], 0, None)]
-            top = lambda r: r.split("/")[0] if "/" in r else ""
-            rank = lambda r: (top(r) != "", TOPS.index(top(r)) if top(r) in TOPS else len(TOPS), r)
+            rank = (lambda r: (self.status_rank(r), r)) if self.sort == BY_STATUS else None
             return [("project", r, 0, "where") for r in sorted(items, key=rank)]
+        if self.sort == BY_STATUS:
+            return self.status_layout(projects)
         by_rel = {p.rel: p for p in projects}
         pinned = [r for r in self.pinned if r in by_rel]
         out = [("project", r, 0, "pinned") for r in pinned]
@@ -705,6 +744,21 @@ class Projects(View):
                     hidden = True
             if not hidden:
                 out.append(("project", p.rel, len(parts) - 1, None))
+        return out
+
+    def status_layout(self, projects):
+        """Sort by status: a section per status, under way first, then those with none; each project once
+        (pinned or not), with its folder."""
+        out = []
+        for key in pj.STATUSES + [""]:
+            rels = sorted(p.rel for p in projects if self.marks.get(p.rel, "") == key)
+            if not rels:
+                continue
+            group = f"{BY_STATUS}/{key or 'none'}"
+            name, colour = STATUS.get(key, ("No status", "#565f89"))
+            out.append(("group", group, 0, (name, colour, len(rels))))
+            if group not in self.folded:
+                out += [("project", r, 0, "where") for r in rels]
         return out
 
     def set_filter(self, key):
@@ -727,7 +781,7 @@ class Projects(View):
     def paint_tree(self, keep_scroll=False):
         # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
         self.paint_filters()
-        seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned), self.filter,
+        seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned), tuple(sorted(self.marks.items())), self.filter,
                 tuple((p.rel, p.kind, p.branch, p.dirty, p.unpushed, p.out_of_date, p.to_sync, p.conflicts) for p in self.projects))
         if keep_scroll and seen == self.tree_seen:
             return False
@@ -744,9 +798,14 @@ class Projects(View):
                 row.add_css_class("hint-row")
             elif kind == "group":
                 shut = key in self.folded
-                n = sum(p.rel.startswith(key + "/") and p.rel not in self.pinned for p in self.shown())
-                line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"),
-                           label(os.path.basename(key), "bold"), label(str(n), "dim"))
+                if extra:   # a status's section: its name in its colour
+                    name, colour, n = extra
+                    title = label(f"<span foreground='{recolor(colour)}'>{GLib.markup_escape_text(name)}</span>",
+                                  "bold", markup=True)
+                else:
+                    n = sum(p.rel.startswith(key + "/") and p.rel not in self.pinned for p in self.shown())
+                    title = label(os.path.basename(key), "bold")
+                line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"), title, label(str(n), "dim"))
                 row = Gtk.ListBoxRow(child=line)
                 row.add_css_class("group-row")
             else:
@@ -803,10 +862,16 @@ class Projects(View):
         text.set_hexpand(True)
         line = box(False, 8, label(glyph, gclass, "pj-glyph"), text)
         if right:
-            branch = label(right, rclass)
+            branch = label(right, rclass, ellipsize=True)
+            branch.set_max_width_chars(14)   # a long branch name doesn't squeeze the project's
+            branch.set_xalign(1.0)
             if p.kind == "repo":
                 branch.set_tooltip_text(f"checked out: {right} (not the main branch)")
             line.append(branch)
+        # its status at the right end, lined up down the list (by status, its section says it)
+        if p.rel in self.marks and self.marks[p.rel] in STATUS and self.sort != BY_STATUS:
+            name, colour = STATUS[self.marks[p.rel]]
+            line.append(label(f"<span foreground='{recolor(colour)}'>{name.lower()}</span>", "pj-status", markup=True))
         s = lambda n, one, many: f"{n} {one if n == 1 else many}"
         parts, tips = [], []
         for show, words, colour, tip in (
@@ -965,6 +1030,10 @@ class Projects(View):
         if p.kind == "missing":   # nothing here: only the list entry (a repo that's gone, say)
             self.manage.append(button("Forget", self.ask_forget, "flat", "danger", tooltip="drop it from the list"))
         else:
+            mark = dropdown([("", "No status")] + [(k, name) for k, (name, _c) in STATUS.items()],
+                            self.marks.get(p.rel, ""), lambda key, rel=p.rel: self.set_mark(rel, key))
+            mark.set_tooltip_text("its status: the list shows it, Sort: by status groups by it (on every PC)")
+            self.manage.append(mark)
             pinned = p.rel in self.pinned
             self.manage.append(button("Unpin" if pinned else "Pin", self.toggle_pin, "flat",
                                       tooltip="p: " + ("off the Pinned section" if pinned else "first in the list, on every PC")))
@@ -1369,6 +1438,21 @@ class Projects(View):
                 GLib.idle_add(lambda: self.say(f"{p.name}: {problem}", "bad") and False)
         threading.Thread(target=save, daemon=True).start()
 
+    def set_mark(self, rel, key):
+        """A project's status from its page's dropdown: shown at once, saved to the list in a thread."""
+        if key:
+            self.marks[rel] = key
+        else:
+            self.marks.pop(rel, None)
+        self.paint_sort()
+        self.paint_tree(keep_scroll=True)
+
+        def save():
+            problem = pj.mark(rel, key)
+            if problem:
+                GLib.idle_add(lambda: self.say(f"{os.path.basename(rel)}: {problem}", "bad") and False)
+        threading.Thread(target=save, daemon=True).start()
+
     # ---- the popups: move, delete, delete on GitHub, forget ------------------------------------------
     def open_dialog(self, title, *widgets, focus=None, handlers=(), width=560):
         """handlers: (widget, handler id) pairs, disconnected when the popup goes: a list being
@@ -1716,12 +1800,12 @@ class Projects(View):
         for e in (self.new_name, self.new_url, self.new_folder):
             e.set_text("")
         here = self.current()
-        group = os.path.dirname(here.rel) if here else "active"
+        # ~/code itself, or the selected project's folder when it's one of several repos (frontend + backend)
+        group = os.path.dirname(here.rel) if here else ""
         folders = pj.groups()
-        self.folder = group if group in folders else "active" if "active" in folders else \
-            (folders[0] if folders else NEW_FOLDER)
+        self.folder = group if group in folders else ""
         clear(self.folder_box)
-        self.folder_box.append(dropdown([(f, f) for f in folders] + [(NEW_FOLDER, NEW_FOLDER)], self.folder,
+        self.folder_box.append(dropdown([("", "~/code")] + [(f, f) for f in folders] + [(NEW_FOLDER, NEW_FOLDER)], self.folder,
                                         lambda f: (setattr(self, "folder", f), self.new_preview())))
         tdir = f"{pj.ROOT}/templates"
         templates = sorted(n for n in os.listdir(tdir) if not n.startswith(".")) if os.path.isdir(tdir) else []
@@ -1767,8 +1851,8 @@ class Projects(View):
         self.url_row.set_visible(cloning)
         self.gh_rows.set_visible(not cloning)
         folder, name = self.new_rel()
-        rel = f"{folder}/{name}"
-        problem = ("a name" if not name else "a folder" if not folder else
+        rel = f"{folder}/{name}" if folder else name
+        problem = ("a name" if not name else "a folder" if self.folder == NEW_FOLDER and not folder else
                    "a URL" if cloning and not self.new_url.get_text().strip() else "")
         exists = not problem and os.path.exists(f"{pj.ROOT}/{rel}")
         if problem:
@@ -1787,7 +1871,7 @@ class Projects(View):
         if self.busy or not self.create_btn.get_sensitive():
             return
         folder, name = self.new_rel()
-        rel = f"{folder}/{name}"
+        rel = f"{folder}/{name}" if folder else name
         start, url = self.start, self.new_url.get_text().strip()
         owner = self.owner if self.gh_switch.get_active() else ""
         private = self.private_switch.get_active()
@@ -2043,6 +2127,8 @@ class Projects(View):
             self.switch_tab(order[(order.index(self.tab) + 1) % 4])
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row and row.kind in ("group", "project"):
             group = row.key if row.kind == "group" else os.path.dirname(row.key)
+            if self.sort == BY_STATUS and row.kind == "project":
+                group = f"{BY_STATUS}/{self.marks.get(row.key) or 'none'}"
             if group and not self.search.get_text() and self.filter == "all":
                 self.fold(group, shut=keyval == Gdk.KEY_Left)
         elif Gdk.KEY_1 <= keyval <= Gdk.KEY_4:

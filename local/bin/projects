@@ -18,9 +18,12 @@
                        a new project: git init + a first commit (from templates/<t> if given), a GitHub
                        repo under <owner> (private unless --public), and record it
   projects add <url> [path]
-                       clone a repo into ~/code/<path> (default active/<repo name>) and record it
+                       clone a repo into ~/code/<path> (default <repo name>) and record it
   projects pin <path> / unpin <path>
                        pin a project (first in the Projects panel; pins are in the list, every PC has them)
+  projects mark <path> <status>
+                       set a project's status (idea, planned, active, in-progress, testing, paused, blocked,
+                       done; none clears it): the Projects panel shows it and sorts by it; in the list
   projects sync [path…] [-n]
                        bring every project (or those) up to date with GitHub: fetch, a local branch for
                        every branch there, fast-forward the ones only behind. Never merges, pushes or
@@ -48,7 +51,7 @@ functions.
 
 Scan rules: a folder with a .git is a project (its insides aren't searched); a folder with files of its
 own and no git is a "local only" project (no remote: only the SSD and the HDD have it); a folder with
-only folders in it is a group (active/, archive/exercises/…) and is searched. A listed project whose
+only folders in it is a group (potherbazar/: one project's frontend and backend repos) and is searched. A listed project whose
 folder is gone stays listed (maybe just not cloned on this PC), unless its URL turned up somewhere
 else: then it moved. inbox/ is scratch and isn't recorded.
 
@@ -75,6 +78,8 @@ JOBS = 4                      # status checks at once
 # clones at once: GitHub gives each connection only ~0.2 MB/s from here (the line does 19 MB/s), and
 # connections add up (1 clone 0.17 MB/s, 4 at once 0.83), so a restore runs many side by side
 CLONE_JOBS = 12
+# a project's status (mark; the Projects panel's dropdown), in the order the panel sorts by: under way first
+STATUSES = ["in-progress", "active", "testing", "blocked", "planned", "idea", "paused", "done"]
 
 DIM, RED, GREEN, AMBER, BOLD, RESET = "\033[2m", "\033[31m", "\033[32m", "\033[33m", "\033[1m", "\033[0m"
 if not sys.stdout.isatty():
@@ -104,7 +109,7 @@ def load():
     except (OSError, ValueError):
         data = {}
     return {"version": 1, "projects": data.get("projects", []), "local_only": data.get("local_only", []),
-            "pinned": data.get("pinned", []), "ai_model": data.get("ai_model", "")}
+            "pinned": data.get("pinned", []), "status": data.get("status", {}), "ai_model": data.get("ai_model", "")}
 
 
 def save(data):
@@ -625,6 +630,7 @@ def scan(dry=False, quiet=False):
     to = dict(moved)
     listed = {e["path"] for e in new["projects"]} | {e["path"] for e in new["local_only"]}
     new["pinned"] = [r for r in (to.get(r, r) for r in old["pinned"]) if r in listed]
+    new["status"] = {to.get(r, r): st for r, st in old["status"].items() if to.get(r, r) in listed}
     new["ai_model"] = old["ai_model"]
     before = {e["path"]: e for e in old["projects"]}
     after = {e["path"]: e for e in new["projects"]}
@@ -808,8 +814,11 @@ def move(rel, new):
         return False, f"{', '.join(busy)} running in it: close {'them' if len(busy) > 1 else 'it'} first"
     move_project(rel, new)
     data = load()
-    if rel in data["pinned"]:   # a local-only project's move isn't seen as one by the scan: say it here
+    # a local-only project's move isn't seen as one by the scan: its pin and status follow it here
+    if rel in data["pinned"] or rel in data["status"]:
         data["pinned"] = [new if r == rel else r for r in data["pinned"]]
+        if rel in data["status"]:
+            data["status"][new] = data["status"].pop(rel)
         save(data)
     scan(quiet=True)
     return True, f"moved to {new}"
@@ -869,6 +878,25 @@ def pin(rel, on=True):
     return commit(f"{'pin' if on else 'unpin'} {rel}")
 
 
+def mark(rel, status):
+    """Set a project's status (one of STATUSES; "" or none clears it). In the list, so every PC has it.
+    Returns a problem, or ""."""
+    rel, data = rel.strip("/"), load()
+    status = "" if status == "none" else status
+    if status and status not in STATUSES:
+        return f"no status {status}: {', '.join(STATUSES)} or none"
+    if rel not in {e["path"] for e in data["projects"]} | {e["path"] for e in data["local_only"]}:
+        return f"not listed: {rel}"
+    if data["status"].get(rel, "") == status:
+        return ""
+    if status:
+        data["status"][rel] = status
+    else:
+        data["status"].pop(rel)
+    save(data)
+    return commit(f"{rel}: {status or 'no status'}")
+
+
 def delete_git(rel):
     """Remove the project's .git: its files stay, as a local-only project. (ok, message)."""
     path = f"{ROOT}/{rel.strip('/')}"
@@ -892,6 +920,7 @@ def delete(rel):
     data["projects"] = [e for e in data["projects"] if e["path"] != rel]
     data["local_only"] = [e for e in data["local_only"] if e["path"] != rel]
     data["pinned"] = [r for r in data["pinned"] if r != rel]
+    data["status"].pop(rel, None)
     save(data)
     problem = commit(f"delete {rel}")
     return True, f"deleted {rel}" + (f" ({problem})" if problem else "")
@@ -1056,7 +1085,7 @@ def kebab(name):
 
 
 def add(url, rel=None):
-    rel = rel or "active/" + kebab(repo_name(url))
+    rel = rel or kebab(repo_name(url))
     if os.path.exists(f"{ROOT}/{rel}"):
         sys.exit(f"{ROOT}/{rel} already exists")
     ok, detail = clone_one({"path": rel, "url": url})
@@ -1109,6 +1138,7 @@ def forget(*rels):
         sys.exit(f"not listed: {' '.join(rels)}")
     data["projects"] = [e for e in data["projects"] if e["path"] not in gone]
     data["pinned"] = [r for r in data["pinned"] if r not in gone]
+    data["status"] = {r: st for r, st in data["status"].items() if r not in gone}
     save(data)
     problem = commit("forget " + ", ".join(gone))
     print("forgot " + ", ".join(gone) + (f"  {AMBER}{problem}{RESET}" if problem else ""))
@@ -1184,6 +1214,13 @@ def main():
     elif cmd in ("pin", "unpin") and args:
         problem = pin(args[0], cmd == "pin")
         print(f"{cmd}ned {args[0]}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))
+    elif cmd == "mark" and len(args) == 2:
+        if args[1] not in STATUSES + ["none"]:
+            sys.exit(f"no status {args[1]}: {', '.join(STATUSES)} or none")
+        problem = mark(*args)
+        if problem.startswith("not listed"):
+            sys.exit(problem)
+        print(f"{args[0]}: {args[1]}" + (f"  {AMBER}{problem}{RESET}" if problem else ""))
     elif cmd == "move" and len(args) == 2:
         ok, msg = move(*args)
         print(msg) if ok else sys.exit(msg)

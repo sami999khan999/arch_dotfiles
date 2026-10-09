@@ -214,8 +214,16 @@ def recount():
         _recount()
 
 
+def covered():
+    """A fullscreen window over the bar (a video): nothing of the bar shows, so nothing to measure."""
+    ws = (wsgroups.query("activeworkspace") or {}).get("id")
+    return any(c["workspace"]["id"] == ws and c.get("fullscreen") == 2 for c in wsgroups.query("clients") or [])
+
+
 def _recount():
     s = state
+    if s["playing"] and covered():   # its fullscreen>> event recounts once it's gone
+        return
     measured = measured_gap() if s["playing"] else None
     gap = measured if measured is not None else modelled_gap()
     s["measured"] = measured is not None
@@ -312,7 +320,7 @@ def follow_windows():
     """Hyprland's event socket: the title and the group count change with the focused window."""
     sock = os.path.join(RUN, "hypr", os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
     wanted = (b"activewindow>>", b"windowtitle>>", b"workspace>>", b"openwindow>>", b"closewindow>>",
-              b"movewindow>>")
+              b"movewindow>>", b"fullscreen>>")
     while True:
         read_windows()
         recount()
@@ -385,12 +393,17 @@ def read_rest():
 
 
 def tick():
-    """Indicators, the clock's view and the style: every second (and at once on SIGUSR1 / SIGUSR2)."""
+    """The clock's view and the style every second, the indicators every 10 (pgrep; toggle.sh sends
+    SIGUSR1 when one changes), all of them at once on SIGUSR1 / SIGUSR2."""
+    n = 0
     while True:
-        read_rest()
+        if n % 10 == 0:
+            read_rest()
+        else:
+            state["clock"] = len(clock.plain_text(clock.load()["long"]))
         state["style"] = read_style()
         recount()
-        WAKE.wait(1)
+        n = 0 if WAKE.wait(1) else n + 1
         WAKE.clear()
 
 

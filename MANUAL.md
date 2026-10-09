@@ -312,14 +312,15 @@ button above opens `gh auth login`. *Start a new list instead* creates the priva
 header shows **Clone missing (N)**, which uses the same progress list. The panel notices projects
 cloned or removed outside it (`projects clone` / `delete` in a terminal) within a couple of seconds.
 
-**The list on the left** has three sections, each folding with a click (or Enter): **Pinned** (pin a
-project with *Pin* or `p`; pins are in the list, so every PC has them), **Changes** (every repo with
-uncommitted changes or commits on no remote) and **All projects** (the folder tree). A project's row says
-what needs doing: `● 3` uncommitted changes, `↑2` commits to push, `main ↓4` its main branch is behind
-GitHub (just `↓4` when main is the branch checked out), then the branch checked out when it isn't main.
-Inside a section the projects sit under their top folder (active, paused, … archive last, folded at first:
-old work doesn't bury what you're on), one line each, with the folder in front when the name alone
-doesn't say it (`cipher-safe/backend`, `business-management-nft/v1`). When the panel
+**The list on the left** has tabs (`1`–`4`): **All** (the pinned projects first, with a pin, then the
+folder tree; each project once, folders fold with a click, Enter or ← →), **Changes** (uncommitted work or
+commits on no remote), **Behind** (GitHub has commits or branches you don't) and **Conflicts** (branches
+or files to merge by hand). Each tab says how many it would show; an empty one is greyed out. **Sync** at
+the end of the tabs syncs every project. A row says what needs doing in words, under the name: *17
+changed · 3 to push · 5 to pull · 2 new branches · ⚠ 1 to merge* (hover for the details), with the branch
+checked out at the right when it isn't the main one. In a filtered tab the projects are one flat list
+(active, paused, … archive last), with their folder in front of the name (pin a project with *Pin* or `p`;
+pins are in the list, so every PC has them). When the panel
 opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
 current.
 

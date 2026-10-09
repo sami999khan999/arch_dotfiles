@@ -35,16 +35,16 @@ HIT = recolor("#7aa2f7")   # matched letters, as in the shortcut list
 HISTORY = 300              # commits in the graph
 STALE = 600                # seconds: an older fetch is redone when the project is selected
 FOLDED = {"archive", "templates", "forks"}   # groups that start folded
-# inside a section the projects are under their top folder, in this order (others after, by name); old
-# work (archive) starts folded there too, so the active projects aren't lost among 50 archived ones
+# a filtered list (Changes, Behind, Conflicts) is in this order of top folders (others after, by name)
 TOPS = ["active", "paused", "templates", "forks", "archive"]
-FOLDED |= {f"{sec}/archive" for sec in ("§changes", "§outdated", "§conflicts")}
 MAX_BRANCH_ROWS = 6       # local branches in a project's branch table (the Branches tab has them all)
 STALE_ALL = 3600          # seconds: when the panel opens, repos fetched longer ago than this are fetched
-# the tree's sections, each folds: pinned projects, work not on GitHub yet, GitHub ahead of you (Sync
-# brings it), what needs merging by hand, and all of them
-SECTIONS = [("§pinned", "Pinned"), ("§changes", "Changes"), ("§outdated", "Out of date"),
-            ("§conflicts", "Conflicts"), ("§all", "All projects")]
+# the list's tabs (1-4): every project, or only those that need something: work not on GitHub yet
+# (uncommitted or unpushed), GitHub ahead of you (Sync brings it), what needs merging by hand
+FILTERS = [("all", "All"), ("changes", "Changes"), ("behind", "Behind"), ("conflicts", "Conflicts")]
+EMPTY = {"changes": "Everything is committed and pushed.", "behind": "Everything is up to date with GitHub.",
+         "conflicts": "Nothing to merge by hand."}
+G_PIN = "\U000f0403"             # a pinned project (nf-md-pin)
 INDENT = 18 + 8                  # a tree level: .pj-glyph's width + the rows' spacing
 G_OPEN, G_SHUT = "", ""         # folder open / closed
 G_REPO = "\uf401"                # a git repo (nf-oct-repo), in the folders' icon column
@@ -56,13 +56,13 @@ NEW_FOLDER = "New folder…"
 CSS = """
 .tree > row { padding: 3px 10px; }
 .tree > row.group-row { padding-top: 6px; }
-/* a section's header: the same space above and below its title, the divider on its top edge, every
-   header the same height (Sync all is fitted into it) */
-.tree > row.section-row { padding: 8px 10px; min-height: 0; }
-.tree > row.section-row:not(:first-child) { border-top: 1px solid alpha(#3b4261, .5); }
-.section-title { font-weight: 700; color: #a9b1d6; }
-button.section-btn { padding: 0 8px; min-height: 0; margin: -3px -8px -3px 0; }
-.tree > row.hint-row { padding: 0 10px 8px 36px; }
+.tree > row.hint-row { padding: 14px 10px; }
+/* the tabs over the list: tighter than a page's, so four and Sync fit the column */
+.pj-filters { padding: 0; }
+.pj-filters .tab { padding: 6px 8px; }
+.pj-filters .tab:disabled { color: #3b4261; background: transparent; }
+button.pj-sync { padding: 4px 10px; }
+.pj-status { font-size: 9pt; }
 .pj-glyph { min-width: 18px; }
 .graph > row { padding: 0 10px 0 0; min-height: 24px; }
 .graph > row:hover, .branch-list > row:hover { background: alpha(#292e42, .45); }
@@ -371,6 +371,7 @@ class Projects(View):
         self.branch_names = []        # for the graph's branch filter
         self.org = ""                 # the tree's owner filter: an owner_of() key ("" = every owner)
         self.syncing = False          # Sync all is running
+        self.filter = "all"           # the list's tab (FILTERS)
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
         self.start = None             # the New form's "Start from" (None until it's built)
@@ -401,7 +402,17 @@ class Projects(View):
         click.connect("released", self.tree_clicked)
         self.tree.add_controller(click)
         self.org_box = box(False, 0)   # the owner filter, above the search (paint_orgs)
-        top = box(True, 6, self.org_box, self.search)
+        self.filter_btns = {}
+        bar = box(False, 0, classes=("tabs", "pj-filters"))
+        for i, (key, _name) in enumerate(FILTERS, 1):
+            self.filter_btns[key] = button("", lambda k=key: self.set_filter(k), "tab", tooltip=str(i))
+            bar.append(self.filter_btns[key])
+        bar.append(Gtk.Box(hexpand=True))
+        self.sync_btn = button("\uf021 Sync", self.sync_all, "flat", "pj-sync",
+                               tooltip="Sync every project: GitHub's changes down, every branch (never merges, "
+                                       "pushes or touches uncommitted work)")
+        bar.append(self.sync_btn)
+        top = box(True, 6, self.org_box, self.search, bar)
         top.set_margin_bottom(8)
         left = box(True, 0, top, scrolled(self.tree))
         left.add_css_class("side")
@@ -648,9 +659,18 @@ class Projects(View):
         return [p for p in self.projects if not self.org or owner_of(p) == self.org]
 
     # ---- the tree --------------------------------------------------------------------------------
+    def needing(self, projects):
+        """{tab: [rel]}: the projects each filter tab shows."""
+        repos = [p for p in projects if p.kind == "repo"]
+        return {"all": [p.rel for p in projects],
+                "changes": [p.rel for p in repos if p.dirty or p.unpushed],
+                "behind": [p.rel for p in repos if p.out_of_date],
+                "conflicts": [p.rel for p in repos if p.conflicts]}
+
     def layout(self):
-        """[(kind, key, depth, extra)] in on-screen order: kind is section, hint, group or project. A
-        search is one flat list of matches, best first; else the three sections, each folding."""
+        """[(kind, key, depth, extra)] in on-screen order: kind is hint, group or project. A search is one
+        flat list of matches, best first. All: the pinned projects, then the folders (each project once);
+        another tab: just its projects, flat, by top folder."""
         q = self.search.get_text().strip()
         projects = self.shown()
         if q:
@@ -660,31 +680,20 @@ class Projects(View):
                 if m:
                     found.append((-m[0], p.rel, m))
             return [("project", rel, 0, m) for _, rel, m in sorted(found)]
+        if self.filter != "all":
+            items = self.needing(projects)[self.filter]
+            if not items:
+                return [("hint", EMPTY[self.filter], 0, None)]
+            top = lambda r: r.split("/")[0] if "/" in r else ""
+            rank = lambda r: (top(r) != "", TOPS.index(top(r)) if top(r) in TOPS else len(TOPS), r)
+            return [("project", r, 0, "where") for r in sorted(items, key=rank)]
         by_rel = {p.rel: p for p in projects}
         pinned = [r for r in self.pinned if r in by_rel]
-        repos = [p for p in projects if p.kind == "repo"]
-        changes = [p.rel for p in repos if p.dirty or p.unpushed]
-        outdated = [p.rel for p in repos if p.out_of_date]
-        clashing = [p.rel for p in repos if p.conflicts]
-        out = []
-        for key, items, hint in (("§pinned", pinned, "Pin a project to keep it here (p)"),
-                                 ("§changes", changes, "Everything is committed and pushed"),
-                                 ("§outdated", outdated, "Everything is up to date with GitHub"),
-                                 ("§conflicts", clashing, "Nothing to merge by hand")):
-            out.append(("section", key, 0, len(items)))
-            if key in self.folded:
-                continue
-            if not items:
-                out.append(("hint", hint, 0, None))
-            elif key == "§pinned":   # a few, chosen: no sub-headings
-                out += [("project", r, 0, "where") for r in items]
-            else:
-                out += self.by_top(key, items)
-        out.append(("section", "§all", 0, len(projects)))
-        if "§all" in self.folded:
-            return out
+        out = [("project", r, 0, "pinned") for r in pinned]
         groups = set()
         for p in projects:
+            if p.rel in pinned:   # it's at the top already
+                continue
             parts = p.rel.split("/")
             hidden = False
             for i in range(1, len(parts)):
@@ -698,26 +707,27 @@ class Projects(View):
                 out.append(("project", p.rel, len(parts) - 1, None))
         return out
 
-    def by_top(self, section, items):
-        """A section's projects under a sub-heading per top folder (active, paused, … archive last); a
-        project right in ~/code (notes) comes first, without one."""
-        tops = {}
-        for r in items:
-            tops.setdefault(r.split("/")[0] if "/" in r else "", []).append(r)
-        rank = lambda t: TOPS.index(t) if t in TOPS else TOPS.index("archive") - 0.5   # archive stays last
-        order = sorted(tops, key=lambda t: (t != "", rank(t), t))
-        out = []
-        for t in order:
-            if t:
-                out.append(("sub", f"{section}/{t}", 0, len(tops[t])))
-                if f"{section}/{t}" in self.folded:
-                    continue
-            out += [("project", r, 1 if t else 0, "where") for r in tops[t]]
-        return out
+    def set_filter(self, key):
+        self.filter = key
+        self.paint_tree()
+        self.focus_list()
+
+    def paint_filters(self):
+        """The tabs: each with how many it would show (an empty one greyed out), the current one marked."""
+        counts = {k: len(v) for k, v in self.needing(self.shown()).items()}
+        for key, name in FILTERS:
+            b = self.filter_btns[key]
+            n = counts[key]
+            b.set_label(f"{name} {n}" if n or key == "all" else name)
+            b.set_sensitive(bool(n) or key in ("all", self.filter))
+            (b.add_css_class if key == self.filter else b.remove_css_class)("on")
+        self.sync_btn.set_label("Syncing\u2026" if self.syncing else "\uf021 Sync")
+        self.sync_btn.set_sensitive(not self.syncing)
 
     def paint_tree(self, keep_scroll=False):
         # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
-        seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned),
+        self.paint_filters()
+        seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned), self.filter,
                 tuple((p.rel, p.kind, p.branch, p.dirty, p.unpushed, p.out_of_date, p.to_sync, p.conflicts) for p in self.projects))
         if keep_scroll and seen == self.tree_seen:
             return False
@@ -727,36 +737,14 @@ class Projects(View):
         clear(self.tree)
         self.rows = {}
         by_rel = {p.rel: p for p in self.projects}
-        titles = dict(SECTIONS)
-        first, picked, under = None, False, None
+        first, picked = None, False
         for kind, key, depth, extra in self.layout():
-            if kind in ("section", "sub"):
-                under = key if kind == "sub" else None
-            if kind == "sub":   # a top folder inside a section: folds like a group
-                shut = key in self.folded
-                line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"),
-                           label(key.split("/", 1)[1], "bold"), label(str(extra), "dim"))
-                row = Gtk.ListBoxRow(child=line)
-                row.add_css_class("group-row")
-            elif kind == "section":
-                shut = key in self.folded
-                line = box(False, 8, label("▸" if shut else "▾", "dim", "pj-glyph", xalign=0.5),   # centred over the folders' icons
-                           label(titles[key], "section-title"), label(str(extra), "dim"))
-                if key == "§outdated":   # Sync all, at the right of its header
-                    line.get_last_child().set_hexpand(True)
-                    sync = button("Syncing…" if self.syncing else "Sync all", self.sync_all, "flat", "section-btn",
-                                  tooltip="every project: GitHub's changes down, every branch (never merges, "
-                                          "pushes or touches uncommitted work)")
-                    sync.set_sensitive(not self.syncing)
-                    line.append(sync)
-                row = Gtk.ListBoxRow(child=line, selectable=False)
-                row.add_css_class("section-row")
-            elif kind == "hint":
-                row = Gtk.ListBoxRow(child=label(key, "dim"), selectable=False, activatable=False)
+            if kind == "hint":
+                row = Gtk.ListBoxRow(child=label(key, "dim", wrap=True), selectable=False, activatable=False)
                 row.add_css_class("hint-row")
             elif kind == "group":
                 shut = key in self.folded
-                n = sum(p.rel.startswith(key + "/") for p in self.shown())
+                n = sum(p.rel.startswith(key + "/") and p.rel not in self.pinned for p in self.shown())
                 line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"),
                            label(os.path.basename(key), "bold"), label(str(n), "dim"))
                 row = Gtk.ListBoxRow(child=line)
@@ -766,12 +754,11 @@ class Projects(View):
                 self.rows.setdefault(key, []).append(row)
                 first = first or row
             row.kind, row.key = kind, key
-            row.group = under if kind == "project" and extra == "where" else None   # what ← folds
             # a level is a glyph and its gap: a folder's rows start right under the folder's name
             row.get_child().set_margin_start(depth * INDENT)
             self.tree.append(row)
             if kind == "project" and key == self.selected and not picked:
-                self.tree.select_row(row)   # a project in two sections: the first is the selected one
+                self.tree.select_row(row)
                 picked = True
         if self.search.get_text().strip() and first:
             self.tree.select_row(first)
@@ -784,8 +771,9 @@ class Projects(View):
         return False
 
     def project_line(self, p, match):
-        """A project's row: its icon, name (with where it is, in a section or a search), then what
-        needs doing (● changed files, ↑ unpushed commits, main ↓ behind GitHub) and its branch."""
+        """A project's row: its icon (a pin when pinned), its name (with its folder in a filtered list or a
+        search), the branch at the right when it isn't the main one; under it, in words, what needs doing:
+        17 changed · 3 to push · 5 to pull · 2 new branches · ⚠ 1 to merge. Nothing to do: one line."""
         if p.kind == "repo":
             # the branch only when it isn't main: that's the case worth seeing (main on every row was noise)
             # (main isn't known until its health is in: main / master stand for it till then)
@@ -795,11 +783,12 @@ class Projects(View):
             glyph, gclass, right, rclass = G_MISSING, "dim", "not cloned", "dim"
         else:
             glyph, gclass, right, rclass = G_LOCAL, "amber", "local only", "amber"
-        if match == "where":   # in a section: one line, its folder (dim) unless the name already says it
-            inner = p.rel.split("/", 1)[1] if "/" in p.rel else p.rel
-            parent = os.path.basename(os.path.dirname(inner))   # cipher-safe/backend, …-nft/v1
-            if parent and parent.replace("-", "_") in p.name.replace("-", "_"):   # housefind/housefind_1
-                parent = ""
+        if match == "pinned":
+            glyph, gclass = G_PIN, "accent"
+        if match in ("where", "pinned"):   # out of its folder: the folder (dim) before the name
+            parent = os.path.dirname(p.rel)
+            if parent and os.path.basename(parent).replace("-", "_") in p.name.replace("-", "_"):   # housefind/housefind_1
+                parent = os.path.dirname(parent)
             name = text = label((f"<span foreground='{recolor('#565f89')}'>{GLib.markup_escape_text(parent)}/</span>"
                                  if parent else "") + GLib.markup_escape_text(p.name), markup=True, ellipsize=True)
             name.set_ellipsize(Pango.EllipsizeMode.START)   # a long path loses its start, never the name
@@ -813,25 +802,33 @@ class Projects(View):
         name.set_max_width_chars(10)   # the column keeps its width: long names ellipsize instead
         text.set_hexpand(True)
         line = box(False, 8, label(glyph, gclass, "pj-glyph"), text)
-        if p.rel in self.pinned and match != "where":   # in All projects: it's pinned too
-            line.append(label("\U000f0403", "dim"))
-        s = lambda n: "s" * (n > 1)
-        for show, text_, cls, tip in (
-                (p.dirty, f"● {p.dirty}", "amber", f"{p.dirty} uncommitted change{s(p.dirty)}"),
-                (p.unpushed, f"↑{p.unpushed}", "amber", f"{p.unpushed} commit{s(p.unpushed)} on no remote: push"),
-                # ↓ counts commits, as everywhere else (the page's "main ↓3"); new branches are their own badge
-                (p.to_sync, f"↓{p.to_sync}", "cyan", "behind GitHub: " + ", ".join(
-                    f"{b} ↓{n}" for b, n in sorted(p.behind_branches.items())) + " (Sync brings them down)"),
-                (p.new_branches, f"+{p.new_branches} new", "cyan",
-                 f"{p.new_branches} branch{'es' * (p.new_branches > 1)} on GitHub not here yet (Sync makes them)"),
-                (p.conflicts, f"⚠ {p.conflicts}", "red", "needs merging by hand: see its Conflicts tab")):
-            if show:
-                badge = label(text_, cls)
-                badge.set_tooltip_text(tip)
-                line.append(badge)
         if right:
-            line.append(label(right, rclass))
-        return line
+            branch = label(right, rclass)
+            if p.kind == "repo":
+                branch.set_tooltip_text(f"checked out: {right} (not the main branch)")
+            line.append(branch)
+        s = lambda n, one, many: f"{n} {one if n == 1 else many}"
+        parts, tips = [], []
+        for show, words, colour, tip in (
+                (p.dirty, s(p.dirty, "changed", "changed"), "#e0af68", s(p.dirty, "uncommitted change", "uncommitted changes")),
+                (p.unpushed, s(p.unpushed, "to push", "to push"), "#e0af68",
+                 s(p.unpushed, "commit on no remote yet", "commits on no remote yet")),
+                (p.to_sync, s(p.to_sync, "to pull", "to pull"), "#7dcfff", "behind GitHub: " + ", ".join(
+                    f"{b} ↓{n}" for b, n in sorted(p.behind_branches.items())) + " (Sync brings them down)"),
+                (p.new_branches, s(p.new_branches, "new branch", "new branches"), "#7dcfff",
+                 "on GitHub, not here yet (Sync makes them)"),
+                (p.conflicts, "\u26a0 " + s(p.conflicts, "to merge", "to merge"), "#f7768e",
+                 "needs merging by hand: see its Conflicts tab")):
+            if show:
+                parts.append(f"<span foreground='{recolor(colour)}'>{GLib.markup_escape_text(words)}</span>")
+                tips.append(f"{words}: {tip}")
+        if not parts:
+            return line
+        status = label(f"<span foreground='{recolor('#3b4261')}'> \u00b7 </span>".join(parts), "pj-status",
+                       markup=True, ellipsize=True)
+        status.set_tooltip_text("\n".join(tips))
+        status.set_margin_start(INDENT)   # under the name, past the icon
+        return box(True, 2, line, status)
 
     def tree_clicked(self, gesture, _n, x, y):
         hit = self.tree.pick(x, y, Gtk.PickFlags.DEFAULT)
@@ -840,7 +837,7 @@ class Projects(View):
         if isinstance(hit, Gtk.Button):
             return   # a button in a section's header (Sync all): it does its own thing, no folding
         row = self.tree.get_row_at_y(int(y))
-        if row and row.kind in ("group", "sub", "section"):
+        if row and row.kind == "group":
             self.fold(row.key)
 
     def fold(self, key, shut=None):
@@ -859,9 +856,9 @@ class Projects(View):
             i += 1
 
     def activated(self, row):
-        if row.kind in ("group", "sub", "section"):
+        if row.kind == "group":
             self.fold(row.key)
-        else:
+        elif row.kind == "project":
             self.open_code()
 
     def picked(self, row):
@@ -2044,10 +2041,12 @@ class Projects(View):
         elif keyval == Gdk.KEY_Tab and page == "detail" and self.tabs_bar.get_visible():
             order = ["changes", "conflicts", "graph", "branches"]
             self.switch_tab(order[(order.index(self.tab) + 1) % 4])
-        elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row:
-            group = row.key if row.kind in ("group", "sub") else row.group or os.path.dirname(row.key)
-            if group and not self.search.get_text():
+        elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row and row.kind in ("group", "project"):
+            group = row.key if row.kind == "group" else os.path.dirname(row.key)
+            if group and not self.search.get_text() and self.filter == "all":
                 self.fold(group, shut=keyval == Gdk.KEY_Left)
+        elif Gdk.KEY_1 <= keyval <= Gdk.KEY_4:
+            self.set_filter(FILTERS[keyval - Gdk.KEY_1][0])
         elif keyval == Gdk.KEY_n:
             self.show_new()
         elif keyval == Gdk.KEY_t:

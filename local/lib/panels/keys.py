@@ -192,7 +192,9 @@ def read_agentmux():
     """agentmux's keys as remapped in its settings (config/agentmux/settings.json)."""
     try:
         import sys
-        sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
+        lib_dir = os.path.expanduser("~/.local/lib/agentmux")
+        if lib_dir not in sys.path:   # refresh() calls this every few seconds
+            sys.path.insert(0, lib_dir)
         import lib
         keys = lib.load_settings()["keys"]
     except Exception:

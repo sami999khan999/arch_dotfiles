@@ -13,8 +13,9 @@ The summary comes from fastfetch's JSON (fastfetch --format json). Layout, by th
   from BAGEL   the bagel (about 36 % of the width, as tall as the window allows) beside the summary
   from NARROW  the summary alone, full width
   below        nothing (agentmux's terminal column, a VS Code kitty: it would only wrap)
-The sections (a heading and its rows, no border) fill the width they get: system and desktop side by
-side when both fit, hardware below; the bars grow with them, a value too long is cut with "…".
+The summary: user@host and the date, OS · WM · uptime, a rule, the facts (software | hardware, two
+columns from TWO_COLS wide, else one), a rule, the levels (memory, swap, disks) as bars to the right
+edge with their numbers aligned. It is at most MAX_W wide; a value too long is cut with "…".
 
   greet            animated (a still frame when the output isn't a terminal)
   greet --still    no animation
@@ -205,100 +206,105 @@ def shell():
 
 
 def sections(f):
-    """[(title, icon, [(icon, key, value)])]: value is text, or ("bar", used, total) for a level."""
-    up = (get(f, "Uptime", "uptime", default=0) or 0) // 1000
-    days, hours, mins = up // 86400, up % 86400 // 3600, up % 3600 // 60
-    uptime = (f"{days} d " if days else "") + (f"{hours} h " if hours or days else "") + f"{mins} min"
+    """(software, hardware, levels): two columns of facts [(icon, key, text)] and the levels
+    [(icon, key, used, total)]. The OS, WM and uptime are in the header, not here."""
     pkgs = get(f, "Packages", default={}) or {}
     font = get(f, "TerminalFont", "font", default={}) or {}
     cpu = get(f, "CPU", default={}) or {}
     freq = (cpu.get("frequency") or {}).get("max")
+    threads = (cpu.get("cores") or {}).get("logical")
     gpus = [g["name"] for g in (get(f, "GPU", default=[]) or []) if g.get("type") != "Integrated" and g.get("name")]
-    shows = [f"{d['output']['width']}x{d['output']['height']} @ {round(d['output']['refreshRate'])} Hz"
+    shows = [f"{d['output']['width']}×{d['output']['height']} @ {round(d['output']['refreshRate'])} Hz"
              for d in (get(f, "Display", default=[]) or []) if d.get("output")]
     mem = get(f, "Memory", default={}) or {}
     swaps = get(f, "Swap", default=[]) or []
     disks = [d for d in (get(f, "Disk", default=[]) or [])
              if d.get("mountpoint") == "/" or str(d.get("mountpoint", "")).startswith("/mnt/")]
     ip = next((i.get("ipv4") for i in (get(f, "LocalIp", default=[]) or []) if i.get("ipv4")), None)
-    theme = ", ".join(t for t in (get(f, "Theme", "theme2"), get(f, "Theme", "theme1")) if t)
-    joined = lambda *parts: " ".join(str(p) for p in parts if p) or None
+    # names without their noise: "Intel(R) Core(TM)", "-Regular", "[GTK2/3/4]"
+    cpu_name = " ".join((cpu.get("cpu") or "").replace("(R)", "").replace("(TM)", "").split())
+    font_name = (font.get("name") or "").removesuffix("-Regular")
+    themes = [t.split(" [")[0] for t in (get(f, "Theme", "theme2"), get(f, "Theme", "theme1")) if t]
+    joined = lambda *parts, sep=" ": sep.join(str(p) for p in parts if p) or None
 
-    system = [("", "os", joined(get(f, "OS", "name"), get(f, "Kernel", "architecture"))),
-              ("", "kernel", get(f, "Kernel", "release")),
-              ("\U000f03d7", "packages", f"{pkgs['all']} (pacman)" if pkgs.get("all") else None),
-              ("\U000f0954", "uptime", uptime)]
-    desktop = [("", "wm", joined(get(f, "WM", "prettyName"), get(f, "WM", "version"))),
-               ("", "terminal", joined(get(f, "Terminal", "prettyName"), get(f, "Terminal", "version"))),
-               ("", "shell", shell()),
-               ("", "font", font.get("pretty") or joined(font.get("name"), font.get("size") and f"{font['size']}pt")),
-               ("\U000f03d8", "theme", theme or None)]
-    hardware = [("", "cpu", joined(cpu.get("cpu"), cpu.get("cores") and f"({cpu['cores'].get('logical')})",
-                                         freq and f"@ {freq / 1000:.2f} GHz") if cpu.get("cpu") else None),
+    software = [("", "kernel", get(f, "Kernel", "release")),
+                ("\U000f03d7", "packages", pkgs.get("all") and f"{pkgs['all']} pacman"),
+                ("", "terminal", joined(get(f, "Terminal", "prettyName"), get(f, "Terminal", "version"))),
+                ("", "shell", shell()),
+                ("", "font", joined(font_name, font.get("size") and f"{font['size']}pt")),
+                ("\U000f03d8", "theme", joined(*themes, sep=" · "))]
+    hardware = [("", "cpu", joined(cpu_name, threads and f"×{threads}", freq and f"@ {freq / 1000:.2f} GHz")
+                 if cpu_name else None),
                 *[("\U000f0379", "gpu", g) for g in gpus],
                 *[("\U000f0379", "display", d) for d in shows],
-                ("", "memory", ("bar", mem["used"], mem["total"]) if mem.get("total") else None),
-                ("\U000f04b9", "swap", ("bar", sum(s["used"] for s in swaps), sum(s["total"] for s in swaps))
-                 if sum(s.get("total", 0) for s in swaps) else None),
-                *[("\U000f02ca", d["mountpoint"], ("bar", d["bytes"]["used"], d["bytes"]["total"])) for d in disks],
                 ("\U000f0200", "network", ip)]
-    return [(t, icon, [r for r in rows if r[2]]) for t, icon, rows in
-            (("system", "", system), ("desktop", "", desktop), ("hardware", "", hardware))]
+    levels = [("", "memory", mem.get("used"), mem.get("total")),
+              ("\U000f04b9", "swap", sum(s.get("used", 0) for s in swaps), sum(s.get("total", 0) for s in swaps)),
+              *[("\U000f02ca", d["mountpoint"], d["bytes"]["used"], d["bytes"]["total"]) for d in disks]]
+    return [r for r in software if r[2]], [r for r in hardware if r[2]], [l for l in levels if l[3]]
 
 
-# ---- the sections ---------------------------------------------------------------------------------
-def section(title, icon, rows, w, key_w):
-    """A section exactly w cells wide, no border: a heading (icon, bold title, a thin rule to the
-    right edge, as on the GTK panels), then a row per fact (icon, the key in grey, the value in
-    white; a level is a bar and aligned numbers), then a blank line."""
-    head = f"{fg(ACCENT)}{icon}  {fg(SUB)}{BOLD}{title}{RESET} "
-    out = [head + f"{fg(LINE)}{'─' * max(w - width(head), 0)}{RESET}"]
-    room = w - (2 + 1 + 2 + key_w)   # after "  icon  key"
-    levels = [v for _, _, v in rows if isinstance(v, tuple)]
-    num_w = max((len(f"{v[1] / 2 ** 30:.1f}") for v in levels), default=0)
-    tot_w = max((len(f"{v[2] / 2 ** 30:.1f}") for v in levels), default=0)
-    tail_w = num_w + 3 + tot_w + 4 + 6            # "used / total GiB  100%"
-    cells = max(6, min(36, room - tail_w - 2))
-    for icon_, key, value in rows:
-        lead = f"  {fg(ACCENT)}{icon_}  {fg(MUTED)}{key:<{key_w}}"
-        if isinstance(value, tuple):
-            _, used, total = value
-            pct = used / total if total else 0
-            colour = GREEN if pct < .6 else AMBER if pct < .85 else RED
-            n = round(pct * cells)
-            text = (f"{fg(colour)}{'━' * n}{fg(LINE)}{'━' * (cells - n)}{RESET}  "
-                    f"{fg(TEXT)}{used / 2 ** 30:>{num_w}.1f}{fg(MUTED)} / {fg(TEXT)}{total / 2 ** 30:>{tot_w}.1f}"
-                    f"{fg(MUTED)} GiB  {fg(colour)}{pct * 100:>3.0f}%{RESET}")
-        else:
-            text = f"{fg(TEXT)}{cut(value, room)}{RESET}"
-        body = lead + text
-        out.append(body + " " * max(w - width(body), 0))
-    return out + [" " * w]
+# ---- the summary -------------------------------------------------------------------------------
+MAX_W = 92      # wider, the summary only gets sparser: it stays this wide
+TWO_COLS = 76   # from this width the facts are two columns, software | hardware
+
+
+def fact(row, w, key_w):
+    """A fact in exactly w cells: the icon in accent, the key in grey, the value in white."""
+    icon, key, value = row
+    body = f"{fg(ACCENT)}{icon}  {fg(MUTED)}{key:<{key_w}}{fg(TEXT)}{cut(value, w - 3 - key_w)}{RESET}"
+    return body + " " * max(w - width(body), 0)
+
+
+def level(row, w, key_w, num_w, tot_w):
+    """A level in w cells: icon, key, a bar filling the room, then used / total and the percentage,
+    right-aligned so the levels line up under each other."""
+    icon, key, used, total = row
+    pct = used / total if total else 0
+    colour = GREEN if pct < .6 else AMBER if pct < .85 else RED
+    tail = (f"  {fg(TEXT)}{used / 2 ** 30:>{num_w}.1f}{fg(MUTED)} / {total / 2 ** 30:>{tot_w}.1f} GiB"
+            f"  {fg(colour)}{pct * 100:>3.0f}%{RESET}")
+    cells = max(w - 3 - key_w - width(tail), 4)
+    n = round(pct * cells)
+    return (f"{fg(ACCENT)}{icon}  {fg(MUTED)}{key:<{key_w}}"
+            f"{fg(colour)}{'━' * n}{fg(LINE)}{'━' * (cells - n)}{RESET}" + tail)
 
 
 def panel(f, w):
-    """The summary, w cells wide: a header, then the sections (two side by side when they fit)."""
-    secs = sections(f)
-    key_w = max(len(k) for _, _, rows in secs for _, k, _ in rows) + 2
+    """The summary, at most MAX_W cells wide: who, what and when, a rule, the facts (two columns
+    when they fit), a rule, the levels."""
+    w = min(w, MAX_W)
+    software, hardware, levels = sections(f)
     t = f.get("Title") or {}
     user, host = t.get("userName", os.environ.get("USER", "")), t.get("hostName", os.uname().nodename)
-    sub = " · ".join(x for x in (get(f, "OS", "prettyName"), joined_wm(f)) if x)
-    left = (f"{fg(ACCENT)}{BOLD}{user}{RESET}{fg(MUTED)}@{fg(ACCENT)}{BOLD}{host}{RESET}"
-            + (f"  {fg(MUTED)}{sub}{RESET}" if sub else ""))
+    left = f"{fg(ACCENT)}{BOLD}{user}{RESET}{fg(MUTED)}@{fg(ACCENT)}{BOLD}{host}{RESET}"
     when = time.strftime("%A %d %B")
     if width(left) + len(when) + 2 > w:
         when = ""
-    out = [left + " " * max(w - width(left) - len(when), 1) + f"{fg(MUTED)}{when}{RESET}", ""]
-    half = (w - GAP) // 2
-    first, second, hardware = secs
-    if half >= key_w + 38:   # each of the two still holds a whole line
-        a, b = section(*first, half, key_w), section(*second, w - GAP - half, key_w)
-        for i in range(max(len(a), len(b))):
-            out.append((a[i] if i < len(a) else " " * half) + " " * GAP
-                       + (b[i] if i < len(b) else " " * (w - GAP - half)))
+    up = (get(f, "Uptime", "uptime", default=0) or 0) // 1000
+    days, hours, mins = up // 86400, up % 86400 // 3600, up % 3600 // 60
+    uptime = "up " + (f"{days} d " if days else "") + (f"{hours} h " if hours or days else "") + f"{mins} min"
+    sub = cut(" · ".join(x for x in (get(f, "OS", "prettyName"), joined_wm(f), uptime) if x), w)
+    rule = f"{fg(LINE)}{'─' * w}{RESET}"
+    out = [left + " " * max(w - width(left) - len(when), 1) + f"{fg(MUTED)}{when}{RESET}",
+           f"{fg(SUB)}{sub}{RESET}", rule]
+
+    keys = lambda rows: max((len(r[1]) for r in rows), default=0) + 2
+    if w >= TWO_COLS:
+        # software takes what it needs (at most half), hardware the rest: the CPU is the longest
+        kw_s, kw_h = keys(software), keys(hardware)
+        left = min(3 + kw_s + max((width(r[2]) for r in software), default=0), (w - GAP) // 2)
+        for i in range(max(len(software), len(hardware))):
+            a = fact(software[i], left, kw_s) if i < len(software) else " " * left
+            b = fact(hardware[i], w - GAP - left, kw_h) if i < len(hardware) else ""
+            out.append(a + " " * GAP + b)
     else:
-        out += section(*first, w, key_w) + section(*second, w, key_w)
-    return out + section(*hardware, w, key_w)[:-1]
+        out += [fact(r, w, keys(software + hardware)) for r in software + hardware]
+    if levels:
+        num_w = max(len(f"{l[2] / 2 ** 30:.1f}") for l in levels)
+        tot_w = max(len(f"{l[3] / 2 ** 30:.1f}") for l in levels)
+        out += [rule] + [level(l, w, keys(levels), num_w, tot_w) for l in levels]
+    return out
 
 
 def joined_wm(f):

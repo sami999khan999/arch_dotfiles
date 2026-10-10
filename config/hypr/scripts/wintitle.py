@@ -5,10 +5,18 @@ Replaces waybar's hyprland/window. That module ellipsizes inside GTK, and GTK wo
 an ellipsizing label than move the centre island. Cutting the text here instead gives the label
 its full width; MAX keeps the centre section compact, so it stays put as titles change length.
 Prints one JSON line per change (return-type json).
+
+With a long title and the play button the right section fills the bar: while the busy-CPU warning shows
+(custom/load, loadwatch.py) the title gives up its width, or the power button went off the screen.
+loadwatch.py writes its text to $XDG_RUNTIME_DIR/loadwatch.json and sends SIGUSR1 to the pids in
+$XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
 """
-import json, os, re, socket, sys, time
+import json, os, re, signal, socket, sys, time
 
 MAX = 30  # max width of the title, in characters (longer ones end in …)
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+LOAD_STATE = os.path.join(RUN, "loadwatch.json")
+PID_DIR = os.path.join(RUN, "waybar-wintitle")
 
 CLEANUP = [
     re.compile(r"^[^\w(]+\s+"),                      # spinner / status glyphs: "✳ Claude Code"
@@ -37,13 +45,23 @@ def focused():
     return next((c for c in recent if not c["class"].startswith(POPUPS) and c["workspace"]["id"] == ws), {})
 
 
+def room():
+    """Characters the busy-CPU warning takes while it shows: its text (11px, a little narrower than the
+    title's characters) and its padding."""
+    try:
+        text = json.load(open(LOAD_STATE)).get("text", "")
+    except (OSError, ValueError):
+        return 0
+    return len(text) + 1 if text else 0
+
+
 def title():
     t = focused().get("title", "").strip()
     for rx in CLEANUP:
         t = rx.sub("", t)
-    full = t
-    if len(t) > MAX:
-        t = t[:MAX - 1].rstrip() + "…"
+    full, most = t, MAX - room()
+    if len(t) > most:
+        t = t[:most - 1].rstrip() + "…"
     return {"text": t, "tooltip": full if full != t else "", "class": "empty" if not t else "window"}
 
 
@@ -60,6 +78,11 @@ def main():
             print(out, flush=True)
             last = out
 
+    os.makedirs(PID_DIR, exist_ok=True)
+    me = os.path.join(PID_DIR, str(os.getpid()))   # loadwatch signals by pid: a name match hits editors too
+    open(me, "w").close()
+    signal.signal(signal.SIGUSR1, lambda *_: emit())   # the warning came or went: the title's room changed
+    signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
     while True:
         emit()
         try:

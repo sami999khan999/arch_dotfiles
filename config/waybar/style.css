@@ -195,7 +195,7 @@ window#waybar {
   padding: 0 12px;
 }
 
-#custom-idle-indicator {
+#custom-idle-indicator, #custom-load {
   font-size: 11px;
   padding: 0 6px;
 }

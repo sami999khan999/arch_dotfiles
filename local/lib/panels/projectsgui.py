@@ -865,6 +865,7 @@ class Projects(View):
         if right:
             branch = label(right, rclass, ellipsize=True)
             branch.set_max_width_chars(14)   # a long branch name doesn't squeeze the project's
+            branch.set_hexpand(False)   # the spare width is the name's (sharing it cut names that fit)
             branch.set_xalign(1.0)
             if p.kind == "repo":
                 branch.set_tooltip_text(f"checked out: {right} (not the main branch)")
@@ -909,7 +910,7 @@ class Projects(View):
     def fold(self, key, shut=None):
         shut = key not in self.folded if shut is None else shut
         (self.folded.add if shut else self.folded.discard)(key)
-        self.paint_tree()
+        self.paint_tree(keep_scroll=True)   # the list stays where it was: the folded group under the pointer
         self.select_rel(key)
 
     def select_rel(self, key):

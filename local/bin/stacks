@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""stacks — Docker Compose stacks you aren't using: a notification offers to stop them.
+
+  stacks                 the running stacks: their project folder, in use or idle for how long
+  stacks check           (stacks.timer, every 15 min) ask about each stack idle for IDLE_MIN minutes
+  stacks enable|disable  the timer (setup/install.sh enables it where Docker is installed)
+
+In use: a program outside Docker works in the stack's project (its working folder is inside it): an
+editor, an agent, a dev server, a shell. The project is the git repo around the stack's compose folder
+(the com.docker.compose.project.working_dir label: often infra/ or docker/ inside it). It never stops
+anything by itself: the notification's Stop runs `docker compose -p NAME stop`, as the Docker panel's
+Stop all, and it asks once per idle stretch. What it saw: ~/.local/state/stacks.json.
+"""
+import json, os, subprocess, sys, time
+
+IDLE_MIN = 60
+HOME = os.path.expanduser("~")
+CODE = os.environ.get("PROJECTS_ROOT", os.path.join(HOME, "code"))
+COMPOSE_FILES = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")
+STATE = os.path.expanduser("~/.local/state/stacks.json")
+UNITS = os.path.expanduser("~/.config/systemd/user")
+SERVICE = """[Unit]
+Description=stacks: offer to stop the Docker Compose stacks nobody is using (see stacks)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/stacks check
+# the questions (stacks ask, one per idle stack) wait for an answer after the check has ended
+KillMode=process
+"""
+TIMER = """[Unit]
+Description=stacks check every 15 minutes
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def running():
+    """{project: (compose folder, containers running)} of the Compose stacks that are up."""
+    try:
+        out = subprocess.run(["docker", "ps", "--format", '{{.Label "com.docker.compose.project"}}\t'
+                              '{{.Label "com.docker.compose.project.working_dir"}}'],
+                             capture_output=True, text=True, timeout=15).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    stacks = {}
+    for line in out.splitlines():
+        name, _, folder = line.partition("\t")
+        if name:
+            stacks[name] = (folder, stacks.get(name, ("", 0))[1] + 1)
+    return stacks
+
+
+def listed():
+    """The projects' folders from the project list (local/bin/projects), longest first."""
+    try:
+        data = json.load(open(os.path.join(CODE, ".projects", "projects.json")))
+    except (OSError, ValueError):
+        return []
+    rels = [p["path"] for p in data.get("projects", []) if p.get("path")] + list(data.get("local_only", []))
+    return sorted((os.path.join(CODE, r) for r in rels if isinstance(r, str)), key=len, reverse=True)
+
+
+def project_root(folder):
+    """The project a compose folder belongs to: the git repo around it (it may be infra/ inside it), else
+    the listed project it's in. A folder that has since moved (the label keeps the old path) or gone (a
+    deleted worktree whose stack still runs): the listed project named in that path, else "" (gone)."""
+    d = os.path.realpath(folder)
+    # a compose file: still the stack's folder. An empty one can be Docker's own doing: a container
+    # restarted with a bind mount whose source had moved gets that path made again, empty, as root
+    if any(os.path.exists(os.path.join(d, f)) for f in COMPOSE_FILES):
+        while d not in ("/", HOME):
+            if os.path.exists(os.path.join(d, ".git")):
+                return d
+            d = os.path.dirname(d)
+        return next((p for p in listed() if folder == p or folder.startswith(p + "/")), folder)
+    parts = folder.split("/")
+    return next((p for p in listed() if os.path.basename(p) in parts and os.path.isdir(p)), "")
+
+
+def users(root):
+    """The programs working inside root (their cwd in it), as projects.busy_in finds them."""
+    found = set()
+    for pid in os.listdir("/proc"):
+        if pid.isdigit() and int(pid) != os.getpid():
+            try:
+                cwd = os.readlink(f"/proc/{pid}/cwd")
+                if cwd == root or cwd.startswith(root + "/"):
+                    found.add(open(f"/proc/{pid}/comm").read().strip())
+            except OSError:
+                pass
+    return sorted(found)
+
+
+def load():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(state):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    tmp = f"{STATE}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=1)
+    os.replace(tmp, STATE)
+
+
+def look():
+    """Update when each running stack was last in use; [(name, root, containers, idle minutes, users)]."""
+    state, now, out = load(), time.time(), []
+    stacks = running()
+    for name, (folder, n) in stacks.items():
+        root = project_root(folder) if folder else ""
+        who = users(root) if root else []
+        seen = state.setdefault(name, {"used": now, "asked": 0})
+        if who:
+            seen.update(used=now, asked=0)   # in use: a new idle stretch starts after this
+        out.append((name, root, n, (now - seen["used"]) / 60, who))
+    for gone in set(state) - set(stacks):   # stopped: forget it, its next run starts fresh
+        del state[gone]
+    save(state)
+    return out
+
+
+def check():
+    state = load()
+    for name, root, n, idle, _ in look():
+        if idle >= IDLE_MIN and not load()[name].get("asked"):
+            state = load()
+            state[name]["asked"] = time.time()
+            save(state)
+            subprocess.Popen([sys.argv[0], "ask", name, str(n), str(int(idle)), root], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def ask(name, n, idle, root):
+    """The notification; Stop stops the stack. Closing it (or letting it time out) keeps it running."""
+    hours = f"{int(idle) // 60} h" if int(idle) >= 120 else f"{idle} min"
+    why = f"nothing open in {os.path.basename(root)} for {hours}" if root else "its project folder is gone"
+    r = subprocess.run(["notify-send", "-a", "stacks", "-i", "docker", "--action=stop=Stop", "--wait",
+                        f"Docker: {name} is idle", f"{n} container{'s' * (int(n) != 1)} running, {why}"],
+                       capture_output=True, text=True)
+    if r.stdout.strip() == "stop":
+        done = subprocess.run(["docker", "compose", "-p", name, "stop"], capture_output=True, text=True)
+        msg = f"{name} stopped" if done.returncode == 0 else f"{name}: {done.stderr.strip().splitlines()[-1:]}"
+        subprocess.run(["notify-send", "-a", "stacks", "-t", "4000", "Docker", msg])
+
+
+def show():
+    stacks = look()
+    if not stacks:
+        print("no Compose stacks running")
+    for name, root, n, idle, who in stacks:
+        state = f"in use ({', '.join(who[:4])})" if who else f"idle {idle:.0f} min"
+        print(f"{name:18} {n:3} running   {root.replace(HOME, '~') or '(folder gone)':40} {state}")
+
+
+def enable():
+    os.makedirs(UNITS, exist_ok=True)
+    for unit, text in (("stacks.service", SERVICE), ("stacks.timer", TIMER)):
+        with open(os.path.join(UNITS, unit), "w") as f:
+            f.write(text)
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "stacks.timer"], check=True)
+    print(f"stacks: idle Docker stacks are checked every 15 min (asks after {IDLE_MIN} min unused)")
+
+
+def disable():
+    subprocess.run(["systemctl", "--user", "disable", "--now", "stacks.timer"])
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
+    if cmd == "ask" and len(sys.argv) == 6:
+        return ask(*sys.argv[2:])
+    actions = {"show": show, "check": check, "enable": enable, "disable": disable}
+    if cmd not in actions:
+        sys.exit(__doc__)
+    actions[cmd]()
+
+
+if __name__ == "__main__":
+    main()

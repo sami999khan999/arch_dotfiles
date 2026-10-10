@@ -447,7 +447,8 @@ PORT_COLUMNS = [
 # the Apps table, as PORT_COLUMNS: (title, text of a row, css class of a row or None, sort key, width, right-aligned)
 KINDS = {"app": "app", "agent": "agent thread", "service": "service", "container": "container", "system": "system"}
 APP_COLUMNS = [
-    ("Name", lambda d: d["name"], lambda d: "bold" if d["cpu"] >= 100 else None, lambda d: d["name"].lower(), 0, False),
+    # Name fixed, Busy with takes the rest: two columns sharing the spare width by their text moved on every refresh
+    ("Name", lambda d: d["name"], lambda d: "bold" if d["cpu"] >= 100 else None, lambda d: d["name"].lower(), 28, False),
     ("Kind", lambda d: KINDS[d["kind"]], lambda d: "accent" if d["kind"] == "agent" else "dim", lambda d: d["kind"], 12, False),
     ("CPU", lambda d: f"{d['cpu']:.1f}%", lambda d: "amber" if d["cpu"] >= 100 else None, lambda d: d["cpu"], 8, True),
     ("Memory", lambda d: sysmon.size(d["mem"]), lambda d: None, lambda d: d["mem"], 9, True),

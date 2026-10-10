@@ -29,4 +29,7 @@ hyprctl reload >/dev/null 2>&1 || true
 if [ "$(git rev-parse -q HEAD:config/themes 2>/dev/null || true)" != "$themes_before" ] && command -v theme >/dev/null; then
   theme apply "$(theme current)" && echo "colour theme: $(theme current)"
 fi
+# what the desktop costs, once this sync has settled in: a notification only if it got heavier
+systemd-run --user --on-active=3min --collect -u dotperf-after-sync "$HOME/.local/bin/dotperf" --quiet \
+  >/dev/null 2>&1 || true   # (a sync within 3 min of the last: already queued)
 echo "dotfiles synced with GitHub"

@@ -135,6 +135,9 @@ def describe(path, pids=()):
     # an app's own scopes: app-com.google.Chrome-3129674, app-com.microsoft.VSCode-164068, kitty-1353-0
     if m := re.fullmatch(r"(?:app-)?(?:[a-z]+\.)*([A-Za-z][\w-]*?)(?:-\d+)+\.scope", leaf):
         return {"Chrome": "Chrome", "VSCode": "VS Code"}.get(m.group(1), m.group(1)), "app"
+    if leaf.startswith("dbus-") and pids:   # a D-Bus activated service (the file dialogs' portal)
+        prog = label_of(pids[0])
+        return TITLES.get(prog, prog), "service"
     if m := re.fullmatch(r"(?:app-)?(.+?)(?:@.*)?\.service", leaf):
         name = m.group(1).replace("\\x2d", "-")
         system = path.startswith("system.slice") or "user@" not in path

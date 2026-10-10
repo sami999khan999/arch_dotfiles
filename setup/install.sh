@@ -102,6 +102,17 @@ else
   say "ok"
 fi
 
+# user timers, written by the tools themselves (idempotent, no questions): dotperf once a day, stacks
+# (idle Docker stacks) every 15 min where Docker is installed
+head_ "background checks (systemd user timers)"
+if (( DRY )); then
+  say "would enable dotperf.timer$(command -v docker >/dev/null && echo ' and stacks.timer')"
+else
+  "$REPO/local/bin/dotperf" enable >/dev/null
+  if command -v docker >/dev/null; then "$REPO/local/bin/stacks" enable >/dev/null; fi
+  say "ok"
+fi
+
 if (( PKGS )); then
   if (( DRY )); then
     head_ "dev toolchains"

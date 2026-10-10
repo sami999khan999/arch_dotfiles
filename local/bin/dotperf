@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""dotperf — what the desktop itself costs at idle, and a warning when that gets worse.
+
+  dotperf              measure for a minute and compare with this PC's baseline (a table)
+  dotperf --save       ... and make this run the new baseline
+  dotperf --quiet      no table: a notification only when something got worse (the timer, dotsync)
+  dotperf enable|disable   dotperf.timer: once a day (setup/install.sh enables it)
+
+The desktop is every cgroup running a program from this repo (linked into ~/.local/bin, ~/.local/lib,
+~/.config/hypr/scripts): the bar's scripts, each panel, the agentmux sidebars, codesync. Per part: CPU
+(its cgroup's cpu.stat: finished processes count too), the processes it starts a minute (new pids
+in /proc, each credited to its cgroup) and its private memory. The first run is the baseline
+(~/.local/state/dotperf/baseline.json, per PC). Worse: CPU over twice the baseline + 0.5 points, 30
+more new processes a minute, or memory over 1.5 × (and 20 MB) more. It doesn't measure a busy PC
+(other work above BUSY % of all cores) nor a desktop that has just started: it tries again later.
+"""
+import json, os, subprocess, sys, time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib/panels"))
+import usage
+
+HOME = os.path.expanduser("~")
+# this repo (the script is local/bin/dotperf in it): ~/.local/bin, ~/.local/lib… link into it
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))) + "/"
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME", f"{HOME}/.local/state"), "dotperf")
+BASELINE = os.path.join(STATE, "baseline.json")
+SECONDS = 60
+BUSY = 70          # % of all cores used by everything else: too busy to measure
+SETTLE = 180       # s: a part's processes must be this old (a panel starting up isn't idle)
+UNITS = os.path.expanduser("~/.config/systemd/user")
+SERVICE = """[Unit]
+Description=dotperf: what the desktop costs at idle, a notification when it got worse (see dotperf)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dotperf --quiet
+Nice=10
+"""
+TIMER = """[Unit]
+Description=dotperf once a day
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target
+"""
+RED, AMBER, DIM, RESET = "\033[38;2;247;118;142m", "\033[38;2;224;175;104m", "\033[38;2;86;95;137m", "\033[0m"
+
+
+def ours(pid):
+    """The dotfiles program a process runs (its executable, or the script its interpreter runs), or None.
+    Not a path anywhere in its arguments: a shell command or a browser tab can mention one."""
+    args = [a for a in usage.read(f"/proc/{pid}/cmdline").split("\0") if a][:2]
+    return next((a for a in args if a.startswith("/") and os.path.realpath(a).startswith(REPO)), None)
+
+
+def parts():
+    """{cgroup: (name, [pids])} of the desktop's parts: the cgroups running a program from these dotfiles.
+    Not an agentmux thread (your agents' work) nor a terminal (its CPU is what it shows)."""
+    out = {}
+    for path in usage.leaves():
+        pids = usage.read(f"{usage.ROOT}/{path}/cgroup.procs").split()
+        mine = [(p, prog) for p in pids if int(p) != os.getpid() and (prog := ours(p))]
+        if not mine:
+            continue
+        name, kind = usage.describe(path, pids)
+        if kind == "agent" or name == "kitty":
+            continue
+        if path.rsplit("/", 1)[-1].startswith("tmux-spawn-"):   # agentmux's own panes: by their script
+            name = "agentmux " + os.path.basename(mine[0][1])
+        out[path] = (name, pids)
+    return out
+
+
+def private_mb(pids):
+    total = 0
+    for pid in pids:
+        for line in usage.read(f"/proc/{pid}/smaps_rollup").splitlines():
+            if line.startswith(("Private_Clean", "Private_Dirty")):
+                total += int(line.split()[1])
+    return total / 1024
+
+
+def age(pids):
+    """Seconds a part has been running: since the oldest of its processes started (not its short ones,
+    codesync's rsync runs)."""
+    boot = time.time() - float(usage.read("/proc/uptime").split()[0])
+    hz, ages = os.sysconf("SC_CLK_TCK"), []
+    for pid in pids:
+        f = usage.read(f"/proc/{pid}/stat")
+        if f:
+            ages.append(time.time() - (boot + int(f[f.rindex(")") + 2:].split()[19]) / hz))
+    return max(ages, default=SETTLE)
+
+
+def busy_elsewhere(ours, seconds=5):
+    """% of all cores used by everything but the desktop's parts, over a few seconds."""
+    def ticks():
+        v = [int(x) for x in usage.read("/proc/stat").split("\n", 1)[0].split()[1:]]
+        return sum(v), v[3] + v[4], sum(usage.usec(p) for p in ours)
+    a = ticks()
+    time.sleep(seconds)
+    b = ticks()
+    total = (b[0] - a[0]) / os.sysconf("SC_CLK_TCK") * 1e6   # all cores, µs
+    busy = total - (b[1] - a[1]) / os.sysconf("SC_CLK_TCK") * 1e6
+    return max(busy - (b[2] - a[2]), 0) / total * 100 if total else 0
+
+
+def measure(found):
+    """{name: {cpu, new, mem}} over SECONDS: CPU from the cgroups, new processes by watching /proc."""
+    start = {p: usage.usec(p) for p in found}
+    seen, new = set(os.listdir("/proc")), {p: 0 for p in found}
+    t0 = time.time()
+    while time.time() - t0 < SECONDS:
+        now = set(os.listdir("/proc"))
+        for pid in now - seen:
+            if pid.isdigit():
+                cg = usage.cgroup_of(pid)
+                if cg in new:
+                    new[cg] += 1
+        seen = now
+        time.sleep(0.003)
+    dt = time.time() - t0
+    result = {}
+    for path, (name, pids) in found.items():
+        r = result.setdefault(name, {"cpu": 0.0, "new": 0.0, "mem": 0.0})
+        r["cpu"] += (usage.usec(path) - start[path]) / dt / 10_000
+        r["new"] += new[path] / dt * 60
+        r["mem"] += private_mb(usage.read(f"{usage.ROOT}/{path}/cgroup.procs").split())
+    return result
+
+
+def worse(now, base):
+    """[(name, what got worse)] against the baseline."""
+    out = []
+    for name, r in now.items():
+        b = base.get(name)
+        if b is None:   # a new part: only if it's already heavy
+            if r["cpu"] > 1 or r["new"] > 30:
+                out.append((name, f"new, {r['cpu']:.1f}% CPU, {r['new']:.0f} processes a minute"))
+            continue
+        if r["cpu"] > 2 * b["cpu"] + 0.5:
+            out.append((name, f"CPU {r['cpu']:.1f}% (was {b['cpu']:.1f}%)"))
+        if r["new"] > b["new"] + 30:
+            out.append((name, f"{r['new']:.0f} processes a minute (was {b['new']:.0f})"))
+        if r["mem"] > 1.5 * b["mem"] and r["mem"] - b["mem"] > 20:
+            out.append((name, f"memory {r['mem']:.0f} MB (was {b['mem']:.0f} MB)"))
+    return out
+
+
+def table(now, base, bad):
+    flagged = {n for n, _ in bad}
+    print(f"{'Part':28} {'CPU %':>12} {'new / min':>14} {'memory MB':>15}")
+    for name in sorted(now, key=lambda n: -now[n]["cpu"]):
+        r, b = now[name], base.get(name)
+        col = lambda k, f: (f"{f.format(r[k])} ({f.format(b[k])})" if b else f.format(r[k]))
+        line = f"{name[:28]:28} {col('cpu', '{:.1f}'):>12} {col('new', '{:.0f}'):>14} {col('mem', '{:.0f}'):>15}"
+        print(f"{RED if name in flagged else ''}{line}{RESET if name in flagged else ''}")
+    print(f"{DIM}(baseline in brackets){RESET}")
+    for name, what in bad:
+        print(f"{RED}worse: {name}: {what}{RESET}")
+
+
+def later(minutes, why, quiet):
+    """Not now (busy, or just started): the timer's run tries again in a while."""
+    if quiet:
+        subprocess.run(["systemd-run", "--user", f"--on-active={minutes}min", "--collect", "-u",
+                        f"dotperf-retry-{int(time.time())}", os.path.abspath(sys.argv[0]), "--quiet"],
+                       capture_output=True)
+    print(f"dotperf: {why}; " + (f"trying again in {minutes} min" if quiet else "try again later"))
+
+
+def run(save, quiet):
+    found = parts()
+    if not found:
+        sys.exit("dotperf: none of the desktop's parts is running")
+    if min(age(pids) for _, pids in found.values()) < SETTLE:
+        return later(10, "the desktop has just started", quiet)
+    elsewhere = busy_elsewhere(list(found))
+    if elsewhere > BUSY:
+        return later(60, f"the PC is busy ({elsewhere:.0f}% of all cores on other work)", quiet)
+    if not quiet:
+        print(f"measuring {len(found)} parts for {SECONDS} s…", flush=True)
+    now = measure(found)
+    try:
+        base = json.load(open(BASELINE))["parts"]
+    except (OSError, ValueError, KeyError):
+        base, save = {}, True   # the first run is the baseline
+    bad = worse(now, base) if base else []
+    if not quiet:
+        table(now, base, bad)
+    if bad and quiet:
+        body = "\n".join(f"{n}: {w}" for n, w in bad[:4]) + "\nRun dotperf for the table"
+        subprocess.run(["notify-send", "-a", "dotperf", "-u", "normal", "The desktop got heavier", body])
+    if save:
+        os.makedirs(STATE, exist_ok=True)
+        with open(BASELINE, "w") as f:
+            json.dump({"saved": time.time(), "parts": now}, f, indent=1)
+        if not quiet:
+            print("saved as this PC's baseline")
+
+
+def enable():
+    os.makedirs(UNITS, exist_ok=True)
+    for unit, text in (("dotperf.service", SERVICE), ("dotperf.timer", TIMER)):
+        with open(os.path.join(UNITS, unit), "w") as f:
+            f.write(text)
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", "dotperf.timer"], check=True, capture_output=True)
+    print("dotperf: measured once a day (a notification only when the desktop got heavier)")
+
+
+def main():
+    args = sys.argv[1:]
+    if args[:1] == ["enable"]:
+        return enable()
+    if args[:1] == ["disable"]:
+        return subprocess.run(["systemctl", "--user", "disable", "--now", "dotperf.timer"])
+    if any(a not in ("--save", "--quiet") for a in args):
+        sys.exit(__doc__)
+    run("--save" in args, "--quiet" in args)
+
+
+if __name__ == "__main__":
+    main()

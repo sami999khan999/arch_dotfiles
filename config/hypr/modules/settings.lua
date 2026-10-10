@@ -3,17 +3,28 @@
 -- module that sets it decides again. Required last in hyprland.lua, so these values win.
 
 hl.config({
+    animations = {
+        enabled = true,
+    },
     cursor = {
         zoom_factor = 1.0,
     },
     decoration = {
-        dim_special = 0.2,
+        blur = {
+            passes = 5,
+            size = 1,
+        },
+        dim_special = 1.0,
+        shadow = {
+            enabled = true,
+            range = 10,
+        },
     },
     input = {
         accel_profile = "adaptive",
         follow_mouse = 2,
         natural_scroll = false,
-        sensitivity = -0.75,
+        sensitivity = -0.7,
     },
 })
 

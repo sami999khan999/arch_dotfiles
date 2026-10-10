@@ -7,18 +7,24 @@
     "h24": false
   },
   "hypr": {
+    "animations:enabled": true,
     "cursor:zoom_factor": 1.0,
-    "decoration:dim_special": 0.2,
+    "decoration:blur:passes": 5,
+    "decoration:blur:size": 1,
+    "decoration:dim_special": 1.0,
+    "decoration:shadow:enabled": true,
+    "decoration:shadow:range": 10,
     "input:accel_profile": "adaptive",
     "input:follow_mouse": 2,
     "input:natural_scroll": false,
-    "input:sensitivity": -0.75
+    "input:sensitivity": -0.7
   },
   "nightlight": {
     "temp": 6500
   },
   "panels": {
-    "blur": 20
+    "backdrop": true,
+    "darken": 0.3
   },
   "wallpaper": {
     "mode": "fill"

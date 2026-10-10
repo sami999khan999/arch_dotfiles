@@ -4,6 +4,9 @@
 # (compact: the Overview only).
 #
 #   Overview    CPU, memory and the NVIDIA GPU: a summary, a graph of the last 90 s, the details
+#   Apps        CPU by what caused it: each app, service, Docker container and agentmux thread, its
+#               finished processes counted too (usage.py: cgroups), what in it is busy; Enter: its
+#               processes (a container: the Docker panel). The bar's busy warning opens this tab
 #   Processes   every running process: sort by a column, search, End process / Kill (click twice)
 #   Storage     each drive: model, SSD / HDD, read / write now, how busy it is, each partition's usage
 #   Ports       what's listening: port, this PC only / the network, the program, its project in
@@ -11,7 +14,7 @@
 #               twice; a Docker container is stopped). "Show all" adds UDP, the system's and the
 #               random high ports apps (VS Code, Chrome, the agents) open for themselves
 #
-#   1-4  tabs     /  search processes     Delete  end the selected process / close the selected port
+#   1-5  tabs     /  search processes     Delete  end the selected process / close the selected port
 #
 # Everything is read in a background thread (nvidia-smi alone takes a moment), so the window
 # never stutters; the CPU / temperature / memory helpers are sysmon.py's (the terminal version).
@@ -23,11 +26,11 @@ from gi.repository import GObject
 from datetime import datetime
 from gtkkit import (Gdk, Gio, GLib, Gtk, View, box, button, clear, hint_markup, label, level, recolor, rgbf, rule_heading,
                     run, scrolled)
-import sysmon
+import sysmon, usage
 
 HISTORY = 60          # samples kept for the graphs (× INTERVAL = 90 s)
 HOT = 85              # percent: from here a number turns red
-TABS = ["Overview", "Processes", "Storage", "Ports"]
+TABS = ["Overview", "Apps", "Processes", "Storage", "Ports"]
 CODE = os.path.expanduser("~/code")
 ACCENT, TRACK = rgbf("#6b8fe0"), rgbf("#292e42")
 RED = rgbf("#f7768e")
@@ -266,6 +269,8 @@ class Sampler:
         self.cpu, self.mem, self.gpu = (deque(maxlen=HISTORY) for _ in range(3))
         self.want_procs = False   # only read every process while the Processes tab is shown
         self.want_ports = False   # the same for the listening sockets (Ports, and Processes' port tags)
+        self.want_apps = False    # and the cgroups, while Apps is shown
+        self.usage = None
         self.docker, self.docker_at = {}, 0
         self.t0, self.i0 = sysmon.cpu_ticks()
         self.c0 = core_ticks()
@@ -320,9 +325,16 @@ class Sampler:
         self.gpu.append(num(g["utilization.gpu"]) if g else 0.0)
         one, five, threads = sysmon.load()
         nprocs = sum(1 for p in os.listdir("/proc") if p.isdigit())
+        apps = None   # not shown, or the first reading of a run (no CPU use yet: two readings needed)
+        if self.want_apps:
+            first, self.usage = self.usage is None, self.usage or usage.Sampler()
+            rows = self.usage.sample()
+            apps = None if first else rows
+        else:
+            self.usage = None
         snap = dict(cpu=cpu, cores=cores, temp=sysmon.cpu_temp(), mhz=cpu_mhz(), mem=mi, used=used, gpu=g, procs=procs,
                     drives=self.drives, rates=rates, busy=busy, load=(one, five), nprocs=nprocs, threads=threads,
-                    ports=ports)
+                    ports=ports, apps=apps, new_per_min=self.usage.new_per_min if apps else 0)
         with self.lock:
             self.snap = snap
 
@@ -432,12 +444,25 @@ PORT_COLUMNS = [
     ("Command", lambda d: d["cmd"], lambda d: "dim", lambda d: d["cmd"], 0, False)]
 
 
+# the Apps table, as PORT_COLUMNS: (title, text of a row, css class of a row or None, sort key, width, right-aligned)
+KINDS = {"app": "app", "agent": "agent thread", "service": "service", "container": "container", "system": "system"}
+APP_COLUMNS = [
+    ("Name", lambda d: d["name"], lambda d: "bold" if d["cpu"] >= 100 else None, lambda d: d["name"].lower(), 0, False),
+    ("Kind", lambda d: KINDS[d["kind"]], lambda d: "accent" if d["kind"] == "agent" else "dim", lambda d: d["kind"], 12, False),
+    ("CPU", lambda d: f"{d['cpu']:.1f}%", lambda d: "amber" if d["cpu"] >= 100 else None, lambda d: d["cpu"], 8, True),
+    ("Memory", lambda d: sysmon.size(d["mem"]), lambda d: None, lambda d: d["mem"], 9, True),
+    ("Processes", lambda d: str(d["procs"]), lambda d: "dim", lambda d: d["procs"], 9, True),
+    ("Busy with", lambda d: "  ".join(f"{n} {p:.0f}%" for n, p in d["top"]), lambda d: "dim",
+     lambda d: d["top"][0][1] if d["top"] else 0, 0, False)]
+
+
 class System(View):
     title = "System"
     popup = "~/.local/lib/panels/sysgui.py"
     icon = "\U000f035b"   # as the terminal card
     interval = sysmon.INTERVAL
     css = CSS
+    start_tab = "Overview"   # main(): --tab Apps (the bar's busy warning)
 
     def __init__(self):
         super().__init__()
@@ -459,11 +484,13 @@ class System(View):
     def hints(self):
         if self.compact:
             return []
-        h = [("1-4", "tabs")]
+        h = [("1-5", "tabs")]
         if self.tab == "Processes":
             h += [("/", "search"), ("click a column", "sort"), ("Delete", "end process"), ("Enter", "its ports")]
         elif self.tab == "Ports":
             h += [("Enter", "open"), ("Delete", "close the port")]
+        elif self.tab == "Apps":
+            h += [("click a column", "sort"), ("Enter", "its processes")]
         return h + [("Esc", "close")]
 
     def sample_loop(self):
@@ -501,6 +528,7 @@ class System(View):
             return self.build_card()
         self.pages = Gtk.Stack(transition_type=Gtk.StackTransitionType.NONE, vexpand=True)
         self.pages.add_named(self.build_overview(), "Overview")
+        self.pages.add_named(self.build_apps(), "Apps")
         self.pages.add_named(self.build_processes(), "Processes")
         self.pages.add_named(scrolled(self.build_storage()), "Storage")
         self.pages.add_named(self.build_ports(), "Ports")
@@ -510,13 +538,14 @@ class System(View):
             b = button(t, lambda t=t: self.switch(t), "tab", tooltip=str(i))
             self.tab_buttons[t] = b
             bar.append(b)
-        self.switch("Overview")
+        self.switch(self.start_tab if self.start_tab in TABS else "Overview")
         return box(True, 0, bar, self.pages)
 
     def switch(self, tab):
         self.tab = tab
         self.sampler.want_procs = tab == "Processes"
         self.sampler.want_ports = tab == "Ports"
+        self.sampler.want_apps = tab == "Apps"
         self.pages.set_visible_child_name(tab)
         for t, b in self.tab_buttons.items():
             (b.add_css_class if t == tab else b.remove_css_class)("on")
@@ -524,6 +553,8 @@ class System(View):
             GLib.idle_add(lambda: self.table.grab_focus() and False)
         elif tab == "Ports":
             GLib.idle_add(lambda: self.port_table.grab_focus() and False)
+        elif tab == "Apps":
+            GLib.idle_add(lambda: self.app_table.grab_focus() and False)
         if self.host:
             self.host.show_hints()
 
@@ -749,6 +780,76 @@ class System(View):
         self.port_pages.add_named(self.port_empty, "empty")
         return box(True, 0, top, self.port_pages)
 
+    def build_apps(self):
+        """CPU by what caused it (usage.py): one row per app, service, container or agentmux thread, kept
+        from one refresh to the next as in Processes."""
+        self.app_store = Gio.ListStore(item_type=Proc)
+        self.app_table = Gtk.ColumnView(reorderable=False, show_row_separators=False)
+        cpu_col = None
+        for title, text, cls, sort_key, width, right in APP_COLUMNS:
+            factory = Gtk.SignalListItemFactory()
+            factory.connect("setup", lambda _f, item, right=right:
+                            item.set_child(label("", xalign=1.0 if right else 0.0, ellipsize=not right)))
+            factory.connect("bind", self.bind_port_cell, text, cls)
+            factory.connect("unbind", self.unbind_cell)
+            col = Gtk.ColumnViewColumn(title=title, factory=factory, expand=not width)
+            if width:
+                col.set_fixed_width(width * 9 + 16)
+            col.set_sorter(Gtk.CustomSorter.new(lambda a, b, _u, k=sort_key: (k(a.d) > k(b.d)) - (k(a.d) < k(b.d))))
+            self.app_table.append_column(col)
+            cpu_col = col if title == "CPU" else cpu_col
+        self.app_sorted = Gtk.SortListModel(model=self.app_store, sorter=self.app_table.get_sorter())
+        self.app_sel = Gtk.SingleSelection(model=self.app_sorted, autoselect=False, can_unselect=True)
+        self.app_table.set_model(self.app_sel)
+        self.app_table.sort_by_column(cpu_col, Gtk.SortType.DESCENDING)
+        align_titles(self.app_table, [c[5] for c in APP_COLUMNS])
+        self.app_table.connect("activate", lambda *_: self.app_processes())   # Enter / double click
+        self.app_summary = label("Measuring…", "dim")
+        self.app_summary.set_hexpand(True)
+        top = box(False, 10, self.app_summary)
+        for edge in ("top", "start", "end"):
+            getattr(top, f"set_margin_{edge}")(16 if edge == "top" else 20)
+        top.set_margin_bottom(8)
+        return box(True, 0, top, scrolled(inset(self.app_table)))
+
+    def paint_apps(self, s):
+        if s["apps"] is None:
+            return
+        fresh = {r["path"]: r for r in s["apps"] if r["cpu"] >= 0.05 or r["kind"] in ("app", "agent", "container")}
+        for i in range(self.app_store.get_n_items() - 1, -1, -1):
+            if self.app_store.get_item(i).d["path"] not in fresh:
+                self.app_store.remove(i)
+        known = set()
+        for i in range(self.app_store.get_n_items()):
+            row = self.app_store.get_item(i)
+            row.d = fresh[row.d["path"]]
+            known.add(row.d["path"])
+            row.emit("changed")
+        new = [Proc(r) for k, r in fresh.items() if k not in known]
+        if new:
+            self.app_store.splice(self.app_store.get_n_items(), 0, new)
+        vadj = self.app_table.get_vadjustment()
+        at_top = not vadj or vadj.get_value() < 1
+        self.app_table.get_sorter().changed(Gtk.SorterChange.DIFFERENT)
+        if at_top and self.app_sorted.get_n_items():   # GTK keeps the top row in view as rows move: the busiest first
+            self.app_table.scroll_to(0, None, Gtk.ListScrollFlags.NONE, None)
+        total = sum(r["cpu"] for r in s["apps"])
+        self.app_summary.set_text(f"CPU {total / os.cpu_count():.0f}% · {s['new_per_min']:.0f} new processes a minute · "
+                                  f"load {s['load'][0]}   (a row's CPU: 100% is one whole core)")
+
+    def app_processes(self):
+        """Enter on a row: its processes (a container: the Docker panel, which knows it better)."""
+        pos = self.app_sel.get_selected()
+        item = self.app_sorted.get_item(pos) if pos != Gtk.INVALID_LIST_POSITION else None
+        if not item:
+            return
+        d = item.d
+        if d["kind"] == "container":
+            subprocess.Popen([os.path.expanduser("~/.local/bin/wsgroups"), "go", "9"], start_new_session=True)
+            return
+        self.switch("Processes")
+        self.search.set_text(d["top"][0][0] if d["top"] else d["name"].split(" ")[0])
+
     def build_storage(self):
         self.storage = box(True, 0, classes=("sys-page",))
         return self.storage
@@ -767,6 +868,8 @@ class System(View):
         if not self.compact:
             if self.tab == "Processes":
                 self.paint_processes(s)
+            elif self.tab == "Apps":
+                self.paint_apps(s)
             elif self.tab == "Ports":
                 self.paint_ports(s)
             elif self.tab == "Storage":
@@ -1160,7 +1263,7 @@ class System(View):
         if self.compact or self.typing():
             return False
         name = Gdk.keyval_name(keyval) or ""
-        if name in ("1", "2", "3", "4"):
+        if name in ("1", "2", "3", "4", "5"):
             self.switch(TABS[int(name) - 1])
             return True
         if name == "slash":
@@ -1182,7 +1285,10 @@ def make():
 
 
 def main():
-    run(make(), "panels.system", (980, 680))
+    view = make()
+    if "--tab" in sys.argv[1:-1]:
+        view.start_tab = sys.argv[sys.argv.index("--tab") + 1]
+    run(view, "panels.system", (980, 680))
 
 
 if __name__ == "__main__":

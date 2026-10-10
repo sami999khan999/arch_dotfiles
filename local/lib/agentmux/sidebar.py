@@ -17,15 +17,19 @@ import os, subprocess, sys, textwrap, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
+sys.path.insert(0, os.path.expanduser("~/.local/lib/panels"))
+import usage   # a thread's CPU, from its pane's cgroup (each tmux pane is one): file reads only
 from term import CLOSE, PAD, App, Line, fit, header, is_close, is_fold, rule, width
 
 AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
 FS, RS = "\x1f", "\x1e"   # field / record separators inside the subscription value
 SUB = ("#{S:" + FS.join(["#{session_name}", "#{@project}", "#{@harness}", "#{@kind}", "#{pane_title}",
                          "#{session_attached}", "#{pane_current_command}", "#{session_created}",
-                         "0", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}"]) + RS + "}")
+                         "0", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}", "#{pane_pid}"]) + RS + "}")
 # "0": lib.FIELDS' activity, not shown here; #{session_activity} changed on every redraw of an agent's
-# screen (an idle one's too), and each change rebuilt the sidebars
+# screen (an idle one's too), and each change rebuilt the sidebars. #{pane_pid} never changes (no
+# extra updates): its cgroup is where the thread's CPU is read
+BUSY_CPU = 10   # % of one core: a thread using this much shows it, e.g. "· vitest 180%"
 # needs: a permission prompt or question waits for you; working: the agent is running; done: it
 # finished since you last looked at that thread; idle: waiting for you, already seen; shell: it quit
 STATE_GLYPH = {"needs": ("!", "red"), "error": ("✗", "red"), "working": ("◐", "green"), "done": ("✓", "amber"),
@@ -91,6 +95,9 @@ class Sidebar(App):
         self.close_ys = {}    # screen row -> the row whose × is drawn there (the selected and the hovered one)
         self.hover = None     # the row under the pointer
         self.last_state = {}  # thread -> its state on the previous update (to see work finish)
+        self.cpu = {}         # thread -> (pct, busiest command, (usec, time) of the reading)
+        self.working = False  # a thread of the shown project is working (its CPU is followed)
+        self.ticks = usage.Sampler()   # its per-process ticks name what's busy
         self.ctl, self.buf = None, ""
         self.project = None
         self.ys = {}   # screen row -> index in self.rows (for clicks)
@@ -130,9 +137,10 @@ class Sidebar(App):
         rows = []
         for rec in value.split(RS):
             parts = rec.split(FS)
-            if len(parts) != 13 or parts[0].startswith("_"):
+            if len(parts) != 14 or parts[0].startswith("_"):
                 continue
-            t = dict(zip(lib.FIELDS[:-1], parts))
+            t = dict(zip(lib.FIELDS[:-1], parts[:13]))
+            t["pid"] = parts[13]
             for k in ("attached", "created", "activity"):
                 t[k] = int(t[k] or 0)
             rows.append(t)
@@ -243,6 +251,8 @@ class Sidebar(App):
             else:
                 shown = state.get("threads", {}).get(project, "")
                 mine = [t for t in self.threads if t["project"] == project and lib.runs_agent(t)]
+                self.cpu = {k: v for k, v in self.cpu.items() if k in {t["name"] for t in mine}}
+                self.working = any(look(t) == "working" for t in mine)
                 for t in mine:
                     st = look(t)
                     glyph, gfg = STATE_GLYPH[st]
@@ -256,7 +266,14 @@ class Sidebar(App):
                     what = (STATE_WORD[st], STATE_GLYPH[st][1])
                     short = SHORT.get(t["harness"], t["harness"] or "shell")
                     info = [] if title == label or st == "shell" else [(short, "muted"), (" · ", "line")]
-                    info.append(what)
+                    pct, busy = self.thread_cpu(t)
+                    if pct >= BUSY_CPU:   # its CPU, a full core or more in amber: it's what slows the PC.
+                        # In place of "working" (the spinner says so): a narrow sidebar cuts the line's end
+                        if st != "working":
+                            info += [what, (" · ", "line")]
+                        info += [(f"{pct:.0f}%", "amber" if pct >= 100 else "muted"), (f" {busy}", "muted")]
+                    else:
+                        info.append(what)
                     subs = lib.subagents_of(t)
                     if subs:
                         info.append((f" · {subs} agent{'s' * (subs > 1)}", "green"))
@@ -616,8 +633,28 @@ class Sidebar(App):
                 return
             i += d
 
+    def thread_cpu(self, t):
+        """(% of one core, what's busiest) of a thread since its last reading, at most every 2 s (a
+        redraw can come several times a second); its cgroup counts finished processes too."""
+        pct, busy, last = self.cpu.get(t["name"], (0.0, "", None))
+        if last and time.time() - last[1] < 2:
+            return pct, busy
+        path = usage.cgroup_of(t["pid"])
+        if not path:
+            return 0.0, ""
+        new, now_last = usage.group_cpu(path, last)
+        top = self.ticks.top(usage.read(f"{usage.ROOT}/{path}/cgroup.procs").split(),
+                             now_last[1] - last[1] if last else 0, n=1)
+        busy = top[0][0] if top else busy or "cpu"
+        self.cpu[t["name"]] = (new, busy, now_last)
+        return new, busy
+
     def timeout(self):
-        return 30   # the one periodic look at the VS Code kittys (agents pane)
+        # the one periodic look at the VS Code kittys (agents pane), every 30 s; every 5 s while a thread
+        # works or shows its CPU, so the number comes, follows it and goes once the thread is quiet (a
+        # look at /proc and its cgroup: tmux isn't asked)
+        busy = self.role == "agents" and (self.working or any(c[0] >= BUSY_CPU for c in self.cpu.values()))
+        return 5 if busy else 30
 
     def tick(self):
         self.scan_unshared()

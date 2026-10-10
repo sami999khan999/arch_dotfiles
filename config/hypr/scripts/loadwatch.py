@@ -50,10 +50,20 @@ def emit(out, moved=True):
                 pass
 
 
-def warning(rows, pct, since):
-    """The module's JSON while busy: the top source in the text, the top three in the tooltip."""
+def leader(rows, named):
+    """The source the chip names: the busiest, but the one it names already until another clearly leads
+    (half as much again, plus 10 points): two close ones (a test run giving way to Chrome) swapped it to
+    and fro."""
+    if not rows:
+        return None
+    cur = next((r for r in rows if r["path"] == named), None)
+    return cur if cur and rows[0]["cpu"] <= cur["cpu"] * 1.5 + 10 else rows[0]
+
+
+def warning(rows, pct, since, lead):
+    """The module's JSON while busy: the leading source in the text, the top three in the tooltip."""
     top = [r for r in rows if r["cpu"] >= 5][:3]
-    name = top[0]["name"] if top else "busy"
+    name = lead["name"] if lead else "busy"
     name = name if len(name) <= MAX_NAME else name[:MAX_NAME - 1] + "…"
     lines = [f"CPU {pct:.0f}% for {int(time.time() - since) // 60 or 1} min"]
     for r in top:
@@ -64,9 +74,10 @@ def warning(rows, pct, since):
 
 
 def main():
-    shown, busy_since, calm_since, sampler, last = False, None, None, None, None
+    shown, busy_since, calm_since, sampler, last, named = False, None, None, None, None, None
     prev = busy_ticks()
-    emit({"text": ""})
+    last = {"text": ""}
+    emit(last)
     while True:
         time.sleep(EVERY)
         cur = busy_ticks()
@@ -83,10 +94,18 @@ def main():
         if not shown and busy_since and now - busy_since >= SHOW_AFTER:
             shown = True
         elif shown and calm_since and now - calm_since >= HIDE_AFTER:
-            shown, sampler = False, None
+            shown, sampler, named = False, None, None
         if not busy_since and not shown:
             sampler = None
-        out = warning(sampler.sample(), pct, busy_since or now) if shown and sampler else {"text": ""}
+        if not shown or not sampler:
+            out = {"text": ""}
+        elif pct >= CALM or last is None or not last["text"]:
+            rows = sampler.sample()
+            lead = leader(rows, named)
+            named = lead["path"] if lead else None
+            out = warning(rows, pct, busy_since or now, lead)
+        else:   # calming down: still what made it busy, not whatever leads the small loads that are left
+            out = last
         if out != last:
             emit(out, moved=out["text"] != (last or {}).get("text"))
             last = out

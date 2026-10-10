@@ -126,9 +126,21 @@ class Docker(View):
         self.ticking = True
 
         def work():
-            self.model.tick()
+            if self.model.due():   # docker ps only after a docker event, or every 10 s
+                self.model.tick()
             GLib.idle_add(self.after_tick)
         threading.Thread(target=work, daemon=True).start()
+
+    def shown_changed(self, shown):
+        """Workspace 9 hidden: the model's watchers wait (stats, system df, logs); shown: all at once."""
+        m = self.model
+        if shown:
+            m.changed = True
+            m.awake.set()
+            m.refresh.set()
+            self.refresh()
+        else:
+            m.awake.clear()
 
     def after_tick(self):
         self.ticking = False
@@ -273,6 +285,7 @@ class Docker(View):
         if tab != self.model.tab:
             self.model.tab = tab
             self.shown_rows = None
+            self.model.refresh.set()   # Volumes: their sizes now, not in up to 30 s
             self.update()
 
     def fold(self, eid):

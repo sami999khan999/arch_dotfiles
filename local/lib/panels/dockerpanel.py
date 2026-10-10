@@ -38,6 +38,12 @@ def docker(*args, timeout=15):
 def level(p): return GREEN if p < 60 else YELLOW if p < 85 else RED
 
 
+# docker events that change what the panel shows. Not the health checks' exec_create / exec_start /
+# exec_die: a few every second with a dozen containers
+EVENTS = ["create", "start", "stop", "die", "destroy", "rename", "pause", "unpause", "kill", "oom",
+          "health_status", "pull", "delete", "tag", "untag", "import", "load", "connect", "disconnect"]
+
+
 def bar(p, width):
     n = round(width * min(p, 100) / 100)
     return level(p) + "━" * n + TRACK + "━" * (width - n) + RESET
@@ -115,12 +121,23 @@ class DockerPanel(Panel):
         self.flash, self.flash_at = "", 0
         self.rows, self.left_w, self.tab_spans = {}, 0, []  # for clicks
         self.refresh = threading.Event()
+        # cleared while the GUI's workspace is hidden: the watchers wait (docker stats and system df
+        # cost dockerd over a second of CPU each; they kept it at ~30 % of a core unseen)
+        self.awake = threading.Event()
+        self.awake.set()
+        self.changed, self.ticked = True, 0   # a docker event since the last docker ps
+        self.volume_sizes = {}                # volume name -> size, from the last system df
         self.tick()
-        for watcher in (self.watch_stats, self.watch_resources, self.watch_detail):
+        for watcher in (self.watch_stats, self.watch_resources, self.watch_detail, self.watch_events):
             threading.Thread(target=watcher, daemon=True).start()
 
     # ---- data ------------------------------------------------------------------------------------
+    def due(self):
+        """docker ps again: something changed (docker events), or 10 s passed (the "Up 3 minutes")."""
+        return self.changed or time.time() - self.ticked > 10
+
     def tick(self):
+        self.changed, self.ticked = False, time.time()
         try:
             r = docker("ps", "-a", "--format", FORMAT, timeout=5)
         except (OSError, subprocess.TimeoutExpired) as e:
@@ -146,7 +163,12 @@ class DockerPanel(Panel):
             self.sel[tab] = ids[0] if ids else None
 
     def watch_stats(self):
+        """CPU and memory per container: only the Containers tab shows them."""
         while True:
+            self.awake.wait()
+            if self.tab != "containers":
+                time.sleep(0.5)
+                continue
             try:
                 r = docker("stats", "--no-stream", "--format", "{{json .}}")
                 self.stats = {s["ID"]: s for s in map(json.loads, r.stdout.splitlines())}
@@ -155,17 +177,44 @@ class DockerPanel(Panel):
             time.sleep(2)
 
     def watch_resources(self):
-        """Images, volumes and networks, with what uses them. Every 3 s, or sooner after an action."""
+        """Images, volumes and networks, with what uses them: at once after an action or a docker event,
+        else every 30 s; the volumes' sizes (system df: it measures every volume) every 3 s, only while
+        the Volumes tab shows them."""
         while True:
+            self.awake.wait()
             try:
-                self.load_resources()
+                self.load_resources(sizes=self.tab == "volumes" or not self.volume_sizes)
             except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
                 pass
-            self.refresh.wait(3)
+            self.refresh.wait(3 if self.tab == "volumes" else 30)
             self.refresh.clear()
 
-    def load_resources(self):
-        df = json.loads(docker("system", "df", "-v", "--format", "{{json .}}").stdout)
+    def watch_events(self):
+        """docker events: a container started, an image was pulled…: reload now, not on a timer."""
+        while True:
+            try:
+                p = subprocess.Popen(["docker", "events", "--format", "{{.Type}} {{.Action}}",
+                                      *[f"--filter=event={e}" for e in EVENTS]],
+                                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                for _ in p.stdout:
+                    self.changed = True
+                    self.refresh.set()
+                p.wait()
+            except OSError:
+                pass
+            time.sleep(5)   # docker not running (yet)
+
+    def load_resources(self, sizes=True):
+        """sizes: from docker system df -v (every volume measured: over a second of dockerd's CPU);
+        without, the lists from image ls / volume ls and the volumes' last known sizes."""
+        if sizes:
+            df = json.loads(docker("system", "df", "-v", "--format", "{{json .}}").stdout)
+            self.volume_sizes = {v["Name"]: v["Size"] for v in df.get("Volumes") or []}
+        else:
+            ls = lambda what, *flags: [json.loads(l) for l in
+                                       docker(what, "ls", *flags, "--format", "{{json .}}").stdout.splitlines()]
+            df = {"Images": ls("image", "-a"),   # -a: the untagged ones too, as df lists them
+                  "Volumes": [dict(v, Size=self.volume_sizes.get(v["Name"], "")) for v in ls("volume")]}
         users = []  # (container name, image, [volume names])
         for line in docker("ps", "-a", "--no-trunc", "--format", "{{.Names}}\t{{.Image}}\t{{.Mounts}}").stdout.splitlines():
             name, image, mounts = (line.split("\t") + ["", ""])[:3]
@@ -214,6 +263,7 @@ class DockerPanel(Panel):
     def watch_detail(self):
         """The slow part of the right-hand side: the selected container's logs, an image's layers."""
         while True:
+            self.awake.wait()
             tab, sid = self.tab, self.sel[self.tab]
             try:
                 if tab == "containers" and sid and not sid.startswith(PROJECT):

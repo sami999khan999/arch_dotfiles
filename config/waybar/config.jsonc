@@ -32,6 +32,7 @@
     "group/stats",
     "custom/clock",
     "custom/notifications",
+    "custom/load",
     "custom/idle-indicator",
     "custom/power"
   ],
@@ -363,6 +364,13 @@
     "format": "\uf013",
     "tooltip-format": "Settings (Super + I)",
     "on-click": "~/.local/lib/panels/settingsgui.py"
+  },
+  // shows only while the CPU stays busy, with what's causing it (scripts/loadwatch.py: /proc and the
+  // cgroups, no process). Click: the System panel on its Apps tab
+  "custom/load": {
+    "exec": "~/.config/hypr/scripts/loadwatch.py",
+    "return-type": "json",
+    "on-click": "~/.local/lib/panels/sysgui.py --tab Apps"
   },
   "custom/idle-indicator": {
     "on-click": "~/.config/hypr/scripts/toggle.sh idle",

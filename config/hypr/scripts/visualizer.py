@@ -51,6 +51,8 @@ EMPTY_PX = 38         # px freed on an empty workspace besides the title text: t
 PLAYER_PX = 30        # px: the play button with its divider
 INDICATOR_PX = 19     # px: the idle-off indicator, when shown
 BELL_PX = 28          # px: the notification bell with its divider (always shown; not in GAP_REF)
+LOAD_PAD_PX = 20      # px: the busy-CPU warning's padding (custom/load, scripts/loadwatch.py), when shown
+LOAD_STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "loadwatch.json")
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block or braille character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars ("bars", "mirror")
@@ -140,7 +142,7 @@ def screen_width():
         return 1366
 
 
-state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "indicators": 0,
+state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "indicators": 0, "load": "",
          "clock": CLOCK_REF_LEN, "volume": VOLUME_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15, "lead": 0, "trail": 0, "playing": False}
 
 _layout = None
@@ -195,6 +197,8 @@ def modelled_gap():
     if not s["player"]:
         gap += PLAYER_PX
     gap -= s["indicators"] * INDICATOR_PX + BELL_PX
+    if s["load"]:
+        gap -= LOAD_PAD_PX + text_px(s["load"])
     gap -= (s["clock"] - CLOCK_REF_LEN) * CHAR_PX
     gap -= (s["volume"] - VOLUME_REF_LEN) * CHAR_PX
     return gap
@@ -389,6 +393,10 @@ def indicators():
 
 def read_rest():
     state["indicators"] = indicators()
+    try:   # the busy-CPU warning's text, "" while hidden (loadwatch.py; it sends SIGUSR1 on a change)
+        state["load"] = json.load(open(LOAD_STATE)).get("text", "")
+    except (OSError, ValueError):
+        state["load"] = ""
     state["clock"] = len(clock.plain_text(clock.load()["long"]))
 
 

@@ -196,10 +196,28 @@ links any new files (`setup/install.sh`) and reloads Hyprland. When the pull bro
 `theme apply`, so the bar, terminals and panels follow at once. If both PCs changed the same lines it
 stops and names the files to fix. `dotsync` lives in `local/bin/` and is linked into `~/.local/bin`.
 
+Three minutes after a sync, `dotperf --quiet` measures the desktop (below): a notification only if it
+got heavier.
+
 What doesn't travel, on purpose: monitor modes (`settings.local.json`), `codesync/machine.json`, the
 generated theme files (`config/themes/current/`, made on each PC from the synced palette), agentmux's
 window layout and threads (`~/.local/state`), shell history, and anything outside the repo (VS Code
 syncs through its own Settings Sync, Chrome through your Google account).
+
+## Desktop health: dotperf
+
+```bash
+dotperf          # a minute's measurement of the desktop at idle, against this PC's baseline
+dotperf --save   # ... and make it the new baseline (after a deliberate change)
+```
+
+What the desktop itself costs: every part running a program from this repo (the bar's scripts, each
+panel, the agentmux sidebars, codesync) — its CPU, the processes it starts a minute, its memory. The
+first run is the baseline (`~/.local/state/dotperf/baseline.json`, per PC). Worse is red in the table,
+and `--quiet` (the daily `dotperf.timer`, and three minutes after `dotsync`) sends a notification
+instead: CPU over twice the baseline, 30 more processes a minute, half as much memory again. It
+waits for a calm PC and a settled desktop (not right after login). Agents, terminals and apps you run
+aren't the desktop and don't count. `setup/install.sh` enables the timer.
 
 ## Code backup (codesync)
 
@@ -616,7 +634,7 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | Panel | Opens with | Does |
 |---|---|---|
 | Workspaces (`wsgui.py`) | `Super + Ctrl + G`, waybar groups icon | above |
-| System (`sysgui.py`) | `Super + Ctrl + T`, waybar CPU / memory | tabs (`1`–`4`): **Overview** (CPU, memory, GPU — a 90 s graph and the details: temperature, clocks, swap, video memory, power…), **Processes** (every process; sort by a column, `/` search, End process / Kill on a second click), **Storage** (each drive: SSD / HDD, read / write now, each partition's usage), **Ports** (`4`: what's listening — port, *this PC* or *network*, the program, its project in `~/code`, how long it's been up; Docker ports show their container. Open / Copy URL / Process, and **Close port** (`Delete`, click twice: stops what holds it, `docker stop` for a container; Kill forces it). *Show all* adds UDP, the system's, and the random high ports apps open for themselves). In Processes a program's ports follow its name (`node · :3100`); `Enter` on it opens them in Ports |
+| System (`sysgui.py`) | `Super + Ctrl + T`, waybar CPU / memory, the busy warning | tabs (`1`–`5`): **Overview** (CPU, memory, GPU — a 90 s graph and the details: temperature, clocks, swap, video memory, power…), **Apps** (CPU by what caused it: each app, service, Docker container and agentmux thread, with what in it is busy — `vitest 150%` — and the new processes a minute. From the cgroups systemd gives each of them, so the short processes a list never catches count too: a test runner's helper commands, Docker's health checks. `Enter`: its processes, or the Docker panel for a container. 100% is one whole core), **Processes** (every process; sort by a column, `/` search, End process / Kill on a second click), **Storage** (each drive: SSD / HDD, read / write now, each partition's usage), **Ports** (`4`: what's listening — port, *this PC* or *network*, the program, its project in `~/code`, how long it's been up; Docker ports show their container. Open / Copy URL / Process, and **Close port** (`Delete`, click twice: stops what holds it, `docker stop` for a container; Kill forces it). *Show all* adds UDP, the system's, and the random high ports apps open for themselves). In Processes a program's ports follow its name (`node · :3100`); `Enter` on it opens them in Ports |
 | Audio (`audiogui.py`) | `Super + Ctrl + A`, waybar volume | outputs, inputs, what's playing: volume, mute, make default; the Wiremix button opens wiremix |
 | Network (`netgui.py`) | `Super + Ctrl + W`, waybar network | connection, traffic graph, addresses; "Manage connections" opens nmtui |
 | Bluetooth (`btgui.py`) | `Super + Ctrl + B`, waybar Bluetooth | your paired devices (Connect / Disconnect, battery, Forget on a second click) and the ones nearby: it scans while open, and Pair pairs, trusts and connects in one go. A device that shows a code (phone, keyboard) has it on the status line. The switch (`p`) turns Bluetooth on / off, unblocking rfkill if needed; `s` stops / starts the scan |
@@ -626,6 +644,12 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
 | Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |
 | System agent (`sysagentgui.py`) | `Super + Ctrl + S`, waybar sparkles icon | ask an AI about this PC, strictly read-only: see System agent below |
+
+**Busy warning.** While the CPU stays busy (85% for 30 s) a red chip appears left of the idle indicator,
+naming what causes it (`󰍛 starter-kits·1`: an agentmux thread; a container, an app); its tooltip has the top
+three with what they run, a click opens System on Apps. It goes once the CPU has been calm for 30 s.
+`config/hypr/scripts/loadwatch.py` reads `/proc/stat` every 5 s and the cgroups only while busy (no
+process started); it tells the visualizer, which makes room.
 
 ### Notifications
 
@@ -843,8 +867,12 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   or else for the shown thread. Closing a thread ends its agent. Closing a project ends its threads
   and terminals and takes it off the list, except a thread open in a VS Code kitty (ending it would
   close that kitty): it stays, and the project stays listed while VS Code has it open.
+- **A thread's CPU:** one using 10% of a core or more shows it in Threads, in place of *working*:
+  `claude · 156% vitest` (amber from a whole core: it's what slows the PC). Read from the thread's
+  cgroup (each tmux pane is one), so the commands it ran that already finished count too.
 - Light by design: the sidebars sleep until tmux reports a change (a control-mode subscription,
-  checked by tmux once a second); nothing polls the agents. A thread nobody watches that is just an
+  checked by tmux once a second); nothing polls tmux. While a thread works or shows its CPU, Threads
+  looks at its cgroup every 5 s (a file read). A thread nobody watches that is just an
   idle shell is closed when its last viewer leaves; running agents and terminals stay.
 - Copy and paste work as in any terminal, in agentmux and in the VS Code kitty (both are tmux): the
   wheel scrolls the history; a drag (or double / triple click) selects; `Ctrl+C` copies the selection
@@ -874,6 +902,15 @@ the selected item's details, actions and logs on the right.
   and "as root".
 - Images: `u` pull. Images, volumes, networks: `d` twice removes it (docker refuses if in use).
 - `L` (or the lazydocker button) opens lazydocker in a floating terminal.
+- Light on Docker: it follows `docker events` instead of asking every second, waits while workspace 9
+  isn't on screen, reads CPU / memory (`docker stats`) only on Containers and the volumes' sizes
+  (`docker system df`, which measures every volume) only on Volumes. It used to keep dockerd at about half
+  a core; now ~10% while you look at it, nothing while you don't.
+- **Idle stacks:** every 15 min (`stacks.timer`) a Compose stack whose project has had nothing working
+  in it for an hour (no editor, agent, dev server or shell with its folder open), or whose folder is
+  gone, gets a notification with a **Stop** button (`docker compose -p NAME stop`, as Stop all). It
+  never stops one itself and asks once per idle stretch. `stacks` lists them (in use / idle for how
+  long); `local/bin/stacks`, `setup/install.sh` enables the timer where Docker is installed.
 
 ### Control Center (workspace 10)
 

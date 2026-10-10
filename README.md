@@ -58,7 +58,7 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
     <td><img src="docs/screenshots/settings.png" alt="Settings panel"></td>
   </tr>
   <tr>
-    <td align="center"><b>System</b> &nbsp;<sub><code>Super + Ctrl + T</code></sub><br><sub>CPU, memory and GPU history, processes, storage.</sub></td>
+    <td align="center"><b>System</b> &nbsp;<sub><code>Super + Ctrl + T</code></sub><br><sub>CPU, memory and GPU history, what is using the CPU (apps, containers, agents), processes, storage.</sub></td>
     <td align="center"><b>Settings</b> &nbsp;<sub><code>Super + I</code></sub><br><sub>Every setting of the desktop in one place, searchable.</sub></td>
   </tr>
   <tr>

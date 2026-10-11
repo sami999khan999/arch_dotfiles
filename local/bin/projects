@@ -55,10 +55,17 @@ only folders in it is a group (potherbazar/: one project's frontend and backend 
 folder is gone stays listed (maybe just not cloned on this PC), unless its URL turned up somewhere
 else: then it moved. inbox/ is scratch and isn't recorded.
 
+Each PC remembers where it last saw every repo (~/.local/state/projects/seen.json, not shared). A repo
+still where this PC last saw it while the list has it elsewhere was moved on another PC: the scan moves
+the folder to the list's place (not while something runs in it) instead of recording the old place over
+the other PC's move. Moved on this PC since its last scan: the scan records the new place. The list's
+"version" is the format: a projects older than the list doesn't write it (it would drop what it doesn't
+know), and keys it doesn't use are kept.
+
 The list repo syncs by itself: every change is committed and pushed, after pulling what the other PC
 pushed; a scan with nothing to record still pulls, and pushes a commit an earlier push left behind
 (offline).
-PROJECTS_ROOT / PROJECTS_DIR point it somewhere else (tests).
+PROJECTS_ROOT / PROJECTS_DIR / PROJECTS_STATE point it somewhere else (tests).
 """
 import json, os, re, shutil, subprocess, sys, tempfile, threading, time
 from concurrent.futures import ThreadPoolExecutor
@@ -66,6 +73,8 @@ from concurrent.futures import ThreadPoolExecutor
 ROOT = os.path.expanduser(os.environ.get("PROJECTS_ROOT", "~/code"))
 DIR = os.path.expanduser(os.environ.get("PROJECTS_DIR", f"{ROOT}/.projects"))
 LIST = f"{DIR}/projects.json"
+SEEN = os.path.expanduser(os.environ.get("PROJECTS_STATE", "~/.local/state/projects")) + "/seen.json"
+VERSION = 2                   # the list's format: 2 = statuses, ~/code flat
 REPO_NAME = "code-projects"   # <GitHub user>/code-projects, private
 SKIP = {"node_modules", "dist", "build", ".next", "target", ".venv", "venv", "vendor", "__pycache__"}
 # not copied from a template: git, dependencies, build output and caches (the codesync ignore list's kind)
@@ -108,11 +117,25 @@ def load():
         data = json.load(open(LIST))
     except (OSError, ValueError):
         data = {}
-    return {"version": 1, "projects": data.get("projects", []), "local_only": data.get("local_only", []),
-            "pinned": data.get("pinned", []), "status": data.get("status", {}), "ai_model": data.get("ai_model", "")}
+    # keys this version doesn't use stay as they are (save writes them back)
+    return {**data, "version": data.get("version", 1), "projects": data.get("projects", []),
+            "local_only": data.get("local_only", []), "pinned": data.get("pinned", []),
+            "status": data.get("status", {}), "ai_model": data.get("ai_model", "")}
+
+
+def too_new():
+    """A problem if the list on disk is a newer format than this projects writes, else "". Writing it
+    would drop what this version doesn't know (a PC's login scan ran before its dotfiles were pulled and
+    wiped every status)."""
+    v = load()["version"]
+    return f"the list is format {v}, this projects writes {VERSION}: update the dotfiles (dotsync) first" \
+        if v > VERSION else ""
 
 
 def save(data):
+    if too_new():
+        raise SystemExit(too_new())
+    data["version"] = VERSION
     data["projects"].sort(key=lambda p: p["path"])
     data["local_only"].sort(key=lambda p: p["path"])
     os.makedirs(DIR, exist_ok=True)
@@ -606,6 +629,10 @@ def scan(dry=False, quiet=False):
     problem = "" if dry else list_pull()
     if problem and not quiet:
         print(f"{AMBER}{problem}{RESET}")
+    if too_new():
+        if not quiet:
+            print(f"{AMBER}{too_new()}{RESET}")
+        return []
     old = load()
     repos, local = walk()
     found = {}
@@ -615,6 +642,7 @@ def scan(dry=False, quiet=False):
             found[rel] = e
         else:
             local.append(rel)
+    followed = follow_list(old, found, dry)
     urls = {e["url"]: rel for rel, e in found.items()}
     kept, moved = [], []
     for e in old["projects"]:
@@ -624,7 +652,7 @@ def scan(dry=False, quiet=False):
             moved.append((e["path"], urls[e["url"]]))  # the same repo, somewhere else now
         else:
             kept.append(e)                            # not on this PC: still listed
-    new = {"version": 1, "projects": list(found.values()) + kept,
+    new = {**old, "projects": list(found.values()) + kept,
            "local_only": [{"path": p, "git": is_repo(f"{ROOT}/{p}")} for p in local]}
     # pins follow a project that moved, and go with one that's no longer listed
     to = dict(moved)
@@ -640,7 +668,7 @@ def scan(dry=False, quiet=False):
     changed = [p for p in after if p in before and after[p] != before[p]]
     lo_before = {e["path"] for e in old["local_only"]}
     lo_after = {e["path"] for e in new["local_only"]}
-    lines = ([f"{GREEN}+ {p}{RESET}  {after[p]['url']}" for p in sorted(added)]
+    lines = (followed + [f"{GREEN}+ {p}{RESET}  {after[p]['url']}" for p in sorted(added)]
              + [f"{AMBER}→ {a} → {b}{RESET}" for a, b in moved]
              + [f"{AMBER}~ {p}{RESET}" for p in sorted(changed)]
              + [f"{RED}- {p}{RESET}" for p in sorted(gone)]
@@ -653,6 +681,7 @@ def scan(dry=False, quiet=False):
               f"{len(new['local_only'])} local only{RESET}")
     if dry:
         return lines
+    save_seen(found)
     if not lines:
         if list_unpushed():   # an earlier push didn't go through: now it does
             problem = list_push()
@@ -665,6 +694,46 @@ def scan(dry=False, quiet=False):
     problem = commit("scan: " + (" ".join(p for p in parts if p) or "local-only folders"))
     if problem and not quiet:
         print(f"{AMBER}{problem}{RESET}")
+    return lines
+
+
+def load_seen():
+    """{remote URL: path} of where this PC saw each repo at its last scan ({} before its first)."""
+    try:
+        return json.load(open(SEEN))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_seen(found):
+    os.makedirs(os.path.dirname(SEEN), exist_ok=True)
+    with open(SEEN, "w") as f:
+        json.dump({norm_url(e["url"]): rel for rel, e in found.items()}, f, indent=1)
+
+
+def follow_list(old, found, dry):
+    """Repos the list moved on another PC (still where this PC last saw them, or this PC has no memory of
+    them, and the list's place is free): move the folder there, so the scan doesn't record the old place
+    over that move. found is updated to match. Returns the lines to report."""
+    seen = load_seen()
+    home = {norm_url(e["url"]): e["path"] for e in old["projects"]}
+    lines = []
+    for rel, e in sorted(found.items()):
+        u = norm_url(e["url"])
+        dst = home.get(u)
+        if not dst or dst == rel or seen.get(u, rel) != rel or os.path.exists(f"{ROOT}/{dst}") \
+                or (dst + "/").startswith(rel + "/"):
+            continue   # where the list has it, moved on this PC since (recorded below), or the place is taken
+        busy = busy_in(rel)
+        if busy:
+            # left where it is and not recorded there either: the next scan tries again
+            lines.append(f"{AMBER}{rel} stays (the list has it at {dst}): {', '.join(busy)} running in it{RESET}")
+            found.pop(rel)
+            continue
+        if not dry:
+            move_project(rel, dst)
+        found[dst] = {**found.pop(rel), "path": dst}
+        lines.append(f"{AMBER}{rel} → {dst}{RESET}  {DIM}(moved on another PC){RESET}")
     return lines
 
 

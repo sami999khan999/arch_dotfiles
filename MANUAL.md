@@ -276,7 +276,11 @@ Besides those: `templates/`, `notes`, and `inbox/` (scratch: not recorded, not b
 (`code-projects`): it names private and organisation repos, so it never goes in this public repo. It has
 two copies, GitHub and the HDD (codesync backs up `~/code`, `.projects/` included). It follows `~/code` by
 itself: `projects scan` runs at login and each time the panel opens, and commits + pushes what changed.
-A folder you move is recorded as moved; a project that isn't on this PC stays listed.
+A folder you move is recorded as moved; a project that isn't on this PC stays listed. A project moved on
+another PC is moved here too, at this PC's next scan (each PC remembers where it last saw every repo, so a
+PC still on an old layout follows the list instead of writing its old folders back; one with something
+running in it waits for the next scan). A `projects` older than the list (dotfiles not pulled yet) doesn't
+write it.
 
 | Command | Does |
 |---|---|

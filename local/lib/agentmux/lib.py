@@ -482,6 +482,70 @@ def remove_account(harness, account):
     return None
 
 
+def login_command(harness, account):
+    """(argv, env changes) that log the account in, in a terminal, touching nothing that runs: Claude
+    Code and Codex log in into the account's own folder. agy: see agy_login."""
+    folder = account_dir(harness, account)
+    if harness == "claude":
+        return ["claude", "auth", "login"], {"CLAUDE_CONFIG_DIR": folder} if account != "main" else {}
+    if harness == "codex":
+        return ["codex", "login"], {"CODEX_HOME": folder} if account != "main" else {}
+    return None, {}
+
+
+def agy_token(j):
+    """A login agy saved, as its keyring entry holds it: {"token": {access_token, token_type,
+    refresh_token, expiry}, "auth_method", "id_token"} (a flat token is put in that shape). None if it isn't one."""
+    if isinstance(j.get("token"), dict) and j["token"].get("refresh_token"):
+        return json.dumps(j)
+    if j.get("refresh_token") and j.get("access_token"):
+        token = {k: j[k] for k in ("access_token", "token_type", "refresh_token", "expiry") if k in j}
+        return json.dumps({"token": token, "auth_method": j.get("auth_method", "consumer"), "id_token": j.get("id_token", "")})
+    return None
+
+
+def agy_login(account):
+    """Log an agy account in without touching agy's own keyring entry (so the agy threads keep running):
+    agy runs with the keyring out of reach and a home of its own, where it keeps the new login in a
+    file; once that file is there it goes into the account's slot (agy's entry, if it's the loaded one)
+    and agy is closed. The sign-in page opens in the real session (an xdg-open that puts its D-Bus
+    and home back). Returns the account's email, or None."""
+    import tempfile
+    home = tempfile.mkdtemp(prefix="agy-login-", dir=os.environ.get("XDG_RUNTIME_DIR"))
+    shim = f"{home}/bin"
+    os.makedirs(shim)
+    with open(f"{shim}/xdg-open", "w") as f:
+        f.write(f'#!/bin/sh\nDBUS_SESSION_BUS_ADDRESS={shlex.quote(os.environ.get("DBUS_SESSION_BUS_ADDRESS", ""))} '
+                f'HOME={shlex.quote(HOME)} exec /usr/bin/xdg-open "$@"\n')
+    os.chmod(f"{shim}/xdg-open", 0o755)
+    env = dict(os.environ, HOME=home, DBUS_SESSION_BUS_ADDRESS="unix:path=/nonexistent",
+               PATH=f"{shim}:{os.environ.get('PATH', '')}")
+    agy = subprocess.Popen([HARNESSES["agy"][1]], env=env, cwd=home)
+    secret = None
+    try:
+        while agy.poll() is None and not secret:
+            time.sleep(1)
+            for root, _, files in os.walk(f"{home}/.gemini"):
+                for name in files:
+                    try:
+                        raw = open(os.path.join(root, name), "rb").read(65536).decode()
+                        if "refresh_token" in raw:
+                            secret = agy_token(json.loads(raw))
+                    except (OSError, ValueError, UnicodeDecodeError, AttributeError):
+                        continue
+    finally:
+        if agy.poll() is None:
+            agy.terminate()
+            agy.wait(5)
+        shutil.rmtree(home, ignore_errors=True)
+    if not secret:
+        return None
+    where = ACCOUNT_KEYRING["agy"] if load_state().get("agy_loaded", "main") == account else agy_slot(account)
+    label = "Password for 'antigravity' on 'gemini'" if where == ACCOUNT_KEYRING["agy"] else f"agentmux: agy account {account}"
+    keyring("store", f"--label={label}", *where, secret=secret)
+    return account_login("agy", account).get("email", "logged in")
+
+
 def ensure_account(harness, account):
     """An account listed in accounts.json but new to this PC gets its folder before an agent runs on it."""
     if account != "main" and not os.path.isdir(account_dir(harness, account)):

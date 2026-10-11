@@ -47,6 +47,9 @@
   agentmux account             the accounts (logins) of each agent that can have several, * the default
   agentmux account add <shown name> [h]
                                a new account (h: claude): start a thread on it and log in there
+  agentmux account login <account> [h]
+                               log it in (in a terminal: the Accounts panel's Log in opens one); running
+                               threads are left alone, agy's too
   agentmux account remove <account> [h]
                                forget it on every PC, log it out on this one (not main, not in use)
   agentmux account name <account> <shown name> [h]
@@ -469,6 +472,23 @@ def account(args):
         h = rest[1] if len(rest) > 1 else "claude"
         a, err = lib.new_account(h, rest[0])
         say(err or f"{rest[0]} added (as {a}): agentmux account default {a} {h}, then a new thread: log in there")
+    elif sub == "login" and rest:   # in its popup terminal (the Accounts panel's Log in)
+        h = rest[1] if len(rest) > 1 else "claude"
+        if rest[0] not in lib.accounts(h):
+            sys.exit(f"No account {rest[0]} for {h}")
+        lib.ensure_account(h, rest[0])
+        print(f"\n  Logging in {lib.HARNESSES[h][0]} account {lib.account_label(h, rest[0])}\n")
+        if h == "agy":
+            print("  Pick Google OAuth, sign in in the browser; agy closes by itself once you're in.\n")
+            who = lib.agy_login(rest[0])
+            done = f"Logged in as {who}" if who else "Not logged in (agy closed before the sign-in finished)"
+        else:
+            argv, env = lib.login_command(h, rest[0])
+            ok = subprocess.run(argv, env=dict(os.environ, **env)).returncode == 0
+            who = lib.account_login(h, rest[0]).get("email")
+            done = f"Logged in as {who}" if ok and who else "Not logged in"
+        poke()
+        input(f"\n  {done}. Enter closes this window. ")
     elif sub == "remove" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
         if rest[0] not in lib.accounts(h):

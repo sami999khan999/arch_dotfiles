@@ -386,7 +386,7 @@ class Account(Picker):
             who = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}"
                                               if org and org != f"{email}'s Organization" else "")
         else:
-            who = "not logged in · Log in starts a thread on it, where you log in"
+            who = "not logged in · Log in opens a terminal for the agent's own login"
             head.append(button("Log in", lambda: self.login(h, a), "accent"))
         card = box(True, 4, head, label(who, "setting-sub", "acct-who", markup=True, ellipsize=True),
                    classes=("acct-card",))
@@ -438,13 +438,12 @@ class Account(Picker):
         self.say(f"{lib.account_label(h, a)} is the default: new {lib.HARNESSES[h][0]} threads start on it")
 
     def login(self, h, a):
-        """A thread on the account, in the current project: the agent asks to log in there. agy is on one
-        account at a time, so not while other agy threads run on another."""
-        if h in lib.ACCOUNT_KEYRING and lib.load_state().get("agy_loaded", "main") != a and \
-                any(t["harness"] == h and t["command"] not in lib.SHELLS for t in lib.threads()):
-            return self.say(f"{lib.HARNESSES[h][0]} threads run on another account: close them first "
-                            "(it's on one account at a time)", "bad")
-        self.done("new-thread", h, "--account", a)
+        """The agent's own login for the account, in a popup terminal (agentmux account login): no
+        thread, and the running ones (agy's too) are left alone."""
+        subprocess.Popen(["uwsm", "app", "--", "kitty", "--class=TUI.float", f"--title=Log in · {lib.account_label(h, a)}",
+                          "-e", AGENTMUX, "account", "login", a, h], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.close()
 
     def remove(self, h, a):
         if self.removing != (h, a):   # first: ask

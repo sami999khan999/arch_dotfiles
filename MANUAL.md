@@ -831,9 +831,12 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
   Not while the agent is working. Any number of accounts per agent: **+ Add account** (under the cards)
   asks for its name, or type one that isn't an account yet in the search line (any text, `Client:
-  Acme`; its folder's name is made from it). A card that isn't logged in has **Log in**: a thread on
-  that account in the current project, where the agent asks you to log in (agy: not while agy threads
-  run on another account).
+  Acme`; its folder's name is made from it). A card that isn't logged in has **Log in**: the agent's
+  own login in a popup terminal (`agentmux account login`), no thread, and the threads that run are left
+  alone: Claude Code `claude auth login` and Codex `codex login` into the account's folder; agy, whose
+  login lives in one keyring entry, runs with the keyring out of reach and a home of its own, so it keeps
+  the new login in a file there, which agentmux moves into the account's keyring slot (and closes agy)
+  as soon as it appears: pick *Google OAuth* and sign in in the browser (it opens in your session).
   **Remove** (or `Delete`; a second click confirms) logs it out on this PC and drops it from every
   PC's list (not `main`, the agent's own login; not one a thread runs on; its conversations stay). **Rename** (or `F2`)
   gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the

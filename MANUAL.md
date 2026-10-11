@@ -814,7 +814,9 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   agent's accounts at the right, a card each: who's logged in (or *not logged in*), the plan, and each
   usage window as a bar (green, amber from 60 %, red from 85 %) with when it resets (`resets Mon 01:49
   · in 2h 54m`): Claude Code's **5-hour** and **weekly**, Codex's (a Free plan has one **monthly**),
-  Antigravity's per model (its four most used). *this thread* marks the shown thread's account, the green dot and *default* the
+  Antigravity's per group of models, as agy itself shows them (*Gemini Models*: Flash, Pro; *Claude and
+  GPT models*: Opus, Sonnet, GPT-OSS; each a weekly limit). Percentages are *used* (agy's own screen
+  says what's *left*). *this thread* marks the shown thread's account, the green dot and *default* the
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).

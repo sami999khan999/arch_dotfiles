@@ -48,7 +48,7 @@ CSS = """
 .acct-side > row:selected { background: #292e42; border-left-color: #6b8fe0; }
 .acct-card { padding: 14px 18px 16px 18px; border: 1px solid alpha(#3b4261, .7); }
 .pick-list.accounts > row:hover .acct-card { background: alpha(#292e42, .45); }
-.pick-list.accounts > row:selected .acct-card { background: #292e42; border-color: #6b8fe0; }
+.pick-list.accounts > row:selected .acct-card { background: alpha(#292e42, .35); border-color: #6b8fe0; }
 .acct-name { font-size: 11pt; }
 .acct-card button { padding: 0 8px; min-height: 0; }   /* as tall as the tags beside it */
 .acct-who { margin-left: 28px; margin-bottom: 6px; }
@@ -56,7 +56,6 @@ CSS = """
 .acct-add { padding: 6px 18px; }
 .usage { margin-left: 28px; margin-top: 6px; }
 .usage levelbar trough { background: #292e42; border: none; padding: 0; min-height: 8px; }
-.pick-list > row:selected .usage levelbar trough { background: #3b4261; }
 .usage levelbar block { min-height: 8px; border: none; }
 .usage levelbar block.empty { background: transparent; }
 .usage levelbar.green block.filled { background: #9ece6a; }
@@ -330,17 +329,17 @@ class Account(Picker):
         self.usage = usage
         self.paint(self.selected())
 
-    def window(self, name, pct, reset):
-        """One usage window: its name and percent, a bar, when it resets."""
+    def window(self, name, pct, reset, covers=""):
+        """One usage window: its name and percent, what it covers (agy's groups), a bar, when it resets."""
         bar = Gtk.LevelBar(min_value=0, max_value=100, hexpand=True)
         for offset in (Gtk.LEVEL_BAR_OFFSET_LOW, Gtk.LEVEL_BAR_OFFSET_HIGH, Gtk.LEVEL_BAR_OFFSET_FULL):
             bar.remove_offset_value(offset)   # one colour, from level()
         bar.set_value(min(pct, 100))
         bar.add_css_class(level(pct))
-        top = box(False, 8, label(name, "sub", ellipsize=True), label(f"{pct:.0f}%", level(pct), "bold"))
+        top = box(False, 8, label(name, "sub", ellipsize=True), label(f"{pct:.0f}% used", level(pct), "bold"))
         top.get_first_child().set_hexpand(True)
-        col = box(True, 6, top, bar, label(f"resets {until(reset)}" if reset else "starts with the next message",
-                                          "setting-sub"))
+        col = box(True, 6, top, *([label(covers, "setting-sub", ellipsize=True)] if covers else []), bar,
+                  label(f"resets {until(reset)}" if reset else "starts with the next message", "setting-sub"))
         col.set_hexpand(True)
         return col
 

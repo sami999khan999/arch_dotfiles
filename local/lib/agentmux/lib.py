@@ -578,9 +578,9 @@ def account_login(harness, account):
 
 # what each agent's own /usage (/status) reads; undocumented, so a change there shows "not known"
 USAGE_URL = {"claude": "https://api.anthropic.com/api/oauth/usage", "codex": "https://chatgpt.com/backend-api/wham/usage",
-             "agy": "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"}
-AGY_PROJECT = f"{HOME}/.gemini/antigravity-cli/cache/default_project_id.txt"
-AGY_WINDOWS = 4   # agy's quota is per model: the most used ones
+             "agy": "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"}
+# agy's quota is per group of models (Gemini; Claude and GPT), asked for the account's own project
+AGY_PROJECT_URL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 USAGE_CACHE = f"{os.environ.get('XDG_CACHE_HOME', HOME + '/.cache')}/agentmux/usage.json"
 
 
@@ -590,7 +590,7 @@ def window_name(seconds):
 
 
 def account_usage(harness, account, live=False):
-    """{"windows": [(name, percent, reset time)], "at": when it was read}, {} when not known. live: asked
+    """{"windows": [(name, percent, reset time, what it covers)], "at": when it was read}, {} when not known. live: asked
     now with the account's own login, unless its token has expired: the agent renews it when it next
     runs, and renewing it here could race a running one and log it out. Otherwise what was read last:
     Claude Code keeps its own in .claude.json, agentmux keeps every live answer (USAGE_CACHE). A window
@@ -618,12 +618,17 @@ def account_usage(harness, account, live=False):
             head["anthropic-beta"] = "oauth-2025-04-20"
         elif harness == "codex":
             head.update({"ChatGPT-Account-Id": login.get("id", ""), "originator": "codex_cli_rs"})
-        else:   # agy: a POST naming its project
-            try:
-                project = open(AGY_PROJECT).read().strip()
-            except OSError:
-                project = ""
+        else:   # agy: a POST naming the account's project (asked once, kept with its usage)
             head.update({"Content-Type": "application/json", "User-Agent": "antigravity"})   # refused without it
+            project = cache.get(key, {}).get("project")
+            if not project:
+                ask = json.dumps({"metadata": {"ideType": "ANTIGRAVITY", "pluginType": "GEMINI"}}).encode()
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(AGY_PROJECT_URL, data=ask, headers=head),
+                                                timeout=8) as r:
+                        project = json.load(r).get("cloudaicompanionProject", "")
+                except (OSError, ValueError):
+                    project = ""
             body = json.dumps({"project": project}).encode()
         try:
             with urllib.request.urlopen(urllib.request.Request(USAGE_URL[harness], data=body, headers=head), timeout=8) as r:
@@ -640,35 +645,38 @@ def account_usage(harness, account, live=False):
                         reset = datetime.fromisoformat(w["resets_at"]).timestamp() if w.get("resets_at") else 0
                     except ValueError:
                         reset = 0
-                    windows.append((name, float(w["utilization"]), reset))
-        elif harness == "agy":   # per model: each name once, the most used first
-            seen = {}
-            for m in (raw.get("models") or {}).values():
-                q, name = m.get("quotaInfo") or {}, m.get("displayName")
-                if name and q.get("remainingFraction") is not None and name not in seen:
+                    windows.append((name, float(w["utilization"]), reset, ""))
+        elif harness == "agy":   # a window per group's bucket: "Gemini Models", what models it covers
+            for g in raw.get("groups") or []:
+                covers = (g.get("description") or "").replace("Models within this group: ", "")
+                buckets = g.get("buckets") or []
+                for b in buckets:
+                    if b.get("remainingFraction") is None:
+                        continue
                     try:
-                        reset = datetime.fromisoformat(q["resetTime"].replace("Z", "+00:00")).timestamp() \
-                            if q.get("resetTime") else 0
+                        reset = datetime.fromisoformat(b["resetTime"].replace("Z", "+00:00")).timestamp() \
+                            if b.get("resetTime") else 0
                     except ValueError:
                         reset = 0
-                    seen[name] = (name, round((1 - float(q["remainingFraction"])) * 100, 1), reset)
-            windows = sorted(seen.values(), key=lambda w: (-w[1], w[0]))[:AGY_WINDOWS]
+                    name = g.get("displayName", "") + (f" · {b.get('window', '')}" if len(buckets) > 1 else "")
+                    windows.append((name, round((1 - float(b["remainingFraction"])) * 100, 1), reset, covers))
         else:
             limits = raw.get("rate_limit") or {}
             for field in ("primary_window", "secondary_window"):
                 w = limits.get(field) or {}
                 if w.get("used_percent") is not None:
                     windows.append((window_name(w.get("limit_window_seconds", 0)), float(w["used_percent"]),
-                                    w.get("reset_at", 0)))
+                                    w.get("reset_at", 0), ""))
         if windows:
-            cache[key] = {"windows": windows, "at": at}
+            cache[key] = {"windows": windows, "at": at, **({"project": project} if harness == "agy" else {})}
             os.makedirs(os.path.dirname(USAGE_CACHE), exist_ok=True)
             with open(USAGE_CACHE, "w") as f:
                 json.dump(cache, f)
     if not windows:
         return {}
     now = time.time()
-    return {"windows": [(n, 0.0, 0) if r and r < now else (n, p, r) for n, p, r in windows], "at": at}
+    windows = [(list(w) + [""])[:4] for w in windows]   # a cache from before "what it covers"
+    return {"windows": [(n, 0.0, 0, c) if r and r < now else (n, p, r, c) for n, p, r, c in windows], "at": at}
 
 
 def set_account(name, account):

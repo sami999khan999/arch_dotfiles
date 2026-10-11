@@ -443,8 +443,8 @@ def new_account(harness, name):
     """Add an account shown as name (any text). Its own name (its folder's, a thread's @account) is made
     from it: letters, digits and -, unique. Returns (account, error)."""
     name = name.strip()
-    if not name or len(name) > 40:
-        return None, "A name is 1 to 40 characters"
+    if not name or len(name) > NAME_MAX:
+        return None, f"A name is 1 to {NAME_MAX} characters"
     if any(account_label(harness, a).lower() == name.lower() for a in accounts(harness)):
         return None, f"There's already an account called {name}"
     base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20].strip("-") or "account"
@@ -535,6 +535,7 @@ def add_account(harness, account):
 # login never goes in the repo). The account itself (its folder, a thread's @account) keeps its own
 # name: main, or the one it was added as.
 ACCOUNT_NAMES = f"{CONF}/accounts.json"
+NAME_MAX = 24   # an account's name, at most: it shares a sidebar line with the agent and the state
 
 
 def account_names():
@@ -551,13 +552,14 @@ def save_account_names(names):
 
 
 def account_label(harness, account):
-    return account_names().get(harness, {}).get(account or "main") or account or "main"
+    name = account_names().get(harness, {}).get(account or "main") or account or "main"
+    return name if len(name) <= NAME_MAX else name[:NAME_MAX - 1] + "…"   # one longer from before the limit
 
 
 def set_account_label(harness, account, name):
     """Show the account as name ("" or its own: back to its own)."""
     names = account_names()
-    name = name.strip()
+    name = name.strip()[:NAME_MAX]
     names.setdefault(harness, {})[account] = "" if name == account else name
     save_account_names(names)
 

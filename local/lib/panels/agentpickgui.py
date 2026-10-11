@@ -360,11 +360,12 @@ class Account(Picker):
         plan.set_hexpand(True)   # the tags and the buttons at the right end
         dot = label("●" if a == default else "○", "green" if a == default else "dim", "pick-glyph")
         if self.renaming == (h, a):   # its name, being typed: Enter keeps it, Esc doesn't
-            name = Gtk.Entry(text=shown, placeholder_text=a, width_chars=18, css_classes=["acct-rename"])
+            name = Gtk.Entry(text=shown, placeholder_text=a, width_chars=18, max_length=lib.NAME_MAX,
+                             css_classes=["acct-rename"])
             name.connect("activate", lambda e: self.rename(h, a, e.get_text()))
             GLib.idle_add(lambda: name.grab_focus() and False)
         else:
-            name = label(marked(shown, m[1], HIT), "bold", "acct-name", markup=True)
+            name = label(marked(shown, m[1], HIT), "bold", "acct-name", markup=True)   # at most NAME_MAX long
         head = box(False, 10, dot, name, plan)
         here = self.current == (h, a)
         if here:
@@ -413,14 +414,14 @@ class Account(Picker):
             if c:
                 yield ("use", h, a), c, True
         if q and all(lib.account_label(h, a).lower() != q.lower() for a in names):   # a new one by that name
-            ok = len(q) <= 40
+            ok = len(q) <= lib.NAME_MAX
             line = box(False, 12, label("+", "accent" if ok else "dim", "pick-glyph"),
-                       label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok else "A name is at most 40 characters",
+                       label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok else f"A name is at most {lib.NAME_MAX} characters",
                              "accent" if ok else "dim"), classes=("acct-add",))
             yield ("add", h, q), line, ok
         elif not q and self.adding == h:   # its name, being typed: Enter adds it, Esc doesn't
             name = Gtk.Entry(placeholder_text="the new account's name, e.g. Work", hexpand=True,
-                             css_classes=["acct-rename"])
+                             max_length=lib.NAME_MAX, css_classes=["acct-rename"])
             name.connect("activate", lambda e: self.choose(("add", h, e.get_text())) if e.get_text().strip() else None)
             GLib.idle_add(lambda: name.grab_focus() and False)
             yield None, box(False, 12, label("+", "accent", "pick-glyph"), name, classes=("acct-add",)), True

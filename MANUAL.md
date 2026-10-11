@@ -837,7 +837,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   **Remove** (or `Delete`; a second click confirms) logs it out on this PC and drops it from every
   PC's list (not `main`, the agent's own login; not one a thread runs on; its conversations stay). **Rename** (or `F2`)
   gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the
-  home screen): Enter keeps it, Esc doesn't, an empty name is its own again (`main` for the agent's own
+  home screen; at most 24 characters, a longer one from before is shown cut with …): Enter keeps
+  it, Esc doesn't, an empty name is its own again (`main` for the agent's own
   login, else the name it was added as, which stays its folder's). The names and the list of accounts
   are in `config/agentmux/accounts.json`, in the repo: another PC shows the same accounts under the same
   names, *not logged in* until you log in there (logins never go in the repo; an account added on

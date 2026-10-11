@@ -221,6 +221,7 @@ usbutils
 uv
 vim
 vlc-plugins-all
+vte4
 vulkan-icd-loader
 vulkan-intel
 walker

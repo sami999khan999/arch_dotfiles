@@ -472,7 +472,12 @@ def account(args):
         h = rest[1] if len(rest) > 1 else "claude"
         a, err = lib.new_account(h, rest[0])
         say(err or f"{rest[0]} added (as {a}): agentmux account default {a} {h}, then a new thread: log in there")
-    elif sub == "login" and rest:   # in its popup terminal (the Accounts panel's Log in)
+    elif sub == "login" and rest:   # in a terminal: the Accounts panel's Log in page
+        import signal   # closed early (Back): exit through the finally blocks, so agy's own home goes
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, lambda *_: sys.exit(1))
+        wait = "--no-wait" not in rest   # the panel says how it went itself
+        rest = [r for r in rest if r != "--no-wait"]
         h = rest[1] if len(rest) > 1 else "claude"
         if rest[0] not in lib.accounts(h):
             sys.exit(f"No account {rest[0]} for {h}")
@@ -488,7 +493,8 @@ def account(args):
             who = lib.account_login(h, rest[0]).get("email")
             done = f"Logged in as {who}" if ok and who else "Not logged in"
         poke()
-        input(f"\n  {done}. Enter closes this window. ")
+        if wait:
+            input(f"\n  {done}. Enter closes this window. ")
     elif sub == "remove" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
         if rest[0] not in lib.accounts(h):

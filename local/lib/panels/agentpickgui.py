@@ -19,12 +19,18 @@
 # Browser: a click or → goes into a folder, ← / Backspace goes up (above the root too, to open a
 # project anywhere), ↵ opens the selected folder, Ctrl+R makes the shown folder the root. A query
 # starting with / or ~ is a path: it lists that folder's matching subfolders.
-import os, re, subprocess, sys, threading, time
+import os, re, shlex, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "agentmux"))
 from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, level, recolor, rule_heading, run, scrolled
+try:   # the Accounts panel's Log in page is a terminal (vte4, setup/packages.txt); without it, a kitty
+    import gi
+    gi.require_version("Vte", "3.91")
+    from gi.repository import Pango, Vte
+except (ImportError, ValueError):
+    Vte = None
 from keys import fuzzy
 from keysgui import marked
 import lib
@@ -51,6 +57,7 @@ CSS = """
 .pick-list.accounts > row:selected .acct-card { background: alpha(#292e42, .35); border-color: #6b8fe0; }
 .acct-name { font-size: 11pt; }
 .acct-rename { min-height: 0; padding: 1px 6px; font-weight: 700; }
+.login-term { border: 1px solid alpha(#3b4261, .7); padding: 8px; background: #1a1b26; }
 .acct-card button { padding: 0 8px; min-height: 0; }   /* as tall as the tags beside it */
 .acct-who { margin-left: 28px; margin-bottom: 6px; }
 .acct-note { margin-left: 28px; margin-top: 8px; }
@@ -63,6 +70,18 @@ CSS = """
 .usage levelbar.yellow block.filled { background: #e0af68; }
 .usage levelbar.red block.filled { background: #f7768e; }
 """
+
+
+# the login terminal's 16 colours, Tokyo Night's (as kitty's), each one of the theme's (recolor)
+TERM_FG, TERM_BG = "#c0caf5", "#1a1b26"
+TERM_PALETTE = ["#32344a", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+                "#444b6a", "#ff7a93", "#b9f27c", "#ff9e64", "#7da6ff", "#ad8ee6", "#73daca", "#c0caf5"]
+
+
+def rgba(colour):
+    c = Gdk.RGBA()
+    c.parse(recolor(colour))
+    return c
 
 
 def tilde(path):
@@ -295,7 +314,9 @@ class Account(Picker):
         self.paint_side()
         self.select_next()
         self.refresh()
-        return box(False, 0, self.side, page)
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.stack.add_named(box(False, 0, self.side, page), "cards")
+        return self.stack
 
     def paint_side(self):
         """An entry per agent: its name, how many accounts, the default one."""
@@ -438,12 +459,70 @@ class Account(Picker):
         self.say(f"{lib.account_label(h, a)} is the default: new {lib.HARNESSES[h][0]} threads start on it")
 
     def login(self, h, a):
-        """The agent's own login for the account, in a popup terminal (agentmux account login): no
-        thread, and the running ones (agy's too) are left alone."""
-        subprocess.Popen(["uwsm", "app", "--", "kitty", "--class=TUI.float", f"--title=Log in · {lib.account_label(h, a)}",
-                          "-e", AGENTMUX, "account", "login", a, h], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.close()
+        """The agent's own login for the account (agentmux account login: no thread, the running ones,
+        agy's too, left alone), on a page of the panel that's a terminal: Back, or the login ending,
+        returns to the cards. Without vte4, in a kitty, and the panel comes back after it."""
+        argv = [AGENTMUX, "account", "login", a, h]
+        if Vte is None:
+            again = ["python3", os.path.abspath(__file__), "account", self.thread]
+            script = f"{shlex.join(argv)}; exec {shlex.join(again)}"   # the login, then this panel again
+            subprocess.Popen(["uwsm", "app", "--", "kitty", "--class=TUI.float", f"--title=Log in · {lib.account_label(h, a)}",
+                              "-e", "sh", "-c", script], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return self.close()
+        term = Vte.Terminal(hexpand=True, vexpand=True, css_classes=["login-term"])
+        term.set_font(Pango.FontDescription("JetBrainsMono Nerd Font 10"))
+        term.set_colors(rgba(TERM_FG), rgba(TERM_BG), [rgba(c) for c in TERM_PALETTE])
+        term.connect("child-exited", lambda _t, _status: self.login_done(h, a))
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)   # before the terminal
+        keys.connect("key-pressed", lambda _c, keyval, _code, state: self.login_key(keyval, state))
+        term.add_controller(keys)
+        head = box(False, 10, button("\u2039 Back", self.back, "flat"),
+                   label(f"Log in \u00b7 {lib.HARNESSES[h][0]} \u00b7 {lib.account_label(h, a)}", "bold"))
+        page = box(True, 10, head, term)
+        for edge in ("start", "end", "top", "bottom"):
+            getattr(page, f"set_margin_{edge}")(18)
+        old = self.stack.get_child_by_name("login")
+        if old:
+            self.stack.remove(old)
+        self.stack.add_named(page, "login")
+        self.stack.set_visible_child_name("login")
+        self.login_pid = None
+        term.spawn_async(Vte.PtyFlags.DEFAULT, lib.HOME, argv + ["--no-wait"], None, GLib.SpawnFlags.DEFAULT,
+                         None, None, -1, None, lambda _t, pid, _err, _data: setattr(self, "login_pid", pid), None)
+        term.grab_focus()
+        self.hints = [("Ctrl+W", "back"), ("everything else", "goes to the login")]
+        self.host.show_hints()
+
+    def login_key(self, keyval, state):
+        """Ctrl+W (or Alt+←) leaves the login page; every other key is the terminal's."""
+        if (state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_w, Gdk.KEY_W)) or \
+                (state & Gdk.ModifierType.ALT_MASK and keyval == Gdk.KEY_Left):
+            self.back()
+            return True
+        return False
+
+    def back(self):
+        """To the cards, ending a login still running (it tidies up after itself: agy's own home goes)."""
+        if self.login_pid:
+            try:
+                os.kill(self.login_pid, 15)
+            except OSError:
+                pass
+        self.stack.set_visible_child_name("cards")
+        self.set_hints()
+        self.search.grab_focus()
+
+    def login_done(self, h, a):
+        self.login_pid = None
+        self.usage[(h, a)] = lib.account_usage(h, a)
+        who = lib.account_login(h, a).get("email")
+        self.back()
+        self.paint_side()
+        self.paint(self.selected())
+        self.refresh()   # its usage, now that it can be asked
+        self.say(f"{lib.account_label(h, a)}: logged in as {who}" if who else f"{lib.account_label(h, a)}: not logged in",
+                 "ok" if who else "bad")
 
     def remove(self, h, a):
         if self.removing != (h, a):   # first: ask

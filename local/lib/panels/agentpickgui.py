@@ -50,6 +50,7 @@ CSS = """
 .pick-list.accounts > row:hover .acct-card { background: alpha(#292e42, .45); }
 .pick-list.accounts > row:selected .acct-card { background: alpha(#292e42, .35); border-color: #6b8fe0; }
 .acct-name { font-size: 11pt; }
+.acct-rename { min-height: 0; padding: 1px 6px; font-weight: 700; }
 .acct-card button { padding: 0 8px; min-height: 0; }   /* as tall as the tags beside it */
 .acct-who { margin-left: 28px; margin-bottom: 6px; }
 .acct-note { margin-left: 28px; margin-top: 8px; }
@@ -273,12 +274,14 @@ class Account(Picker):
         self.subtitle = f"thread #{self.thread.rsplit(lib.SEP, 1)[-1]}" if t else "no thread shown"
         # what was read last (instant), then asked live in the background (refresh)
         self.usage = {(h, a): lib.account_usage(h, a) for h in self.harnesses for a in lib.accounts(h)}
+        self.renaming = None   # (harness, account) whose name is being typed
         self.set_hints()
 
     def set_hints(self):
         here = self.current and self.current[0] == self.h
         self.hints = [("Enter", "switch the thread" if here else "make default"),
-                      *([("Ctrl+D", "make default")] if here else []), ("Tab", "agent"), ("↑↓", "move"), ("Esc", "close")]
+                      *([("Ctrl+D", "make default")] if here else []), ("F2", "rename"), ("Tab", "agent"),
+                      ("↑↓", "move"), ("Esc", "close")]
         if self.host:
             self.host.show_hints()
 
@@ -299,7 +302,8 @@ class Account(Picker):
             names = lib.accounts(h)
             n = f"{len(names)} account{'s' * (len(names) > 1)}"
             row = Gtk.ListBoxRow(child=box(True, 3, label(lib.HARNESSES[h][0], "bold"),
-                                           label(f"{n} · ● {lib.default_account(h)}", "setting-sub")))
+                                           label(f"{n} · ● {lib.account_label(h, lib.default_account(h))}",
+                                                 "setting-sub", ellipsize=True)))
             self.side.append(row)
             if h == self.h:
                 self.side.select_row(row)
@@ -346,14 +350,20 @@ class Account(Picker):
     def card(self, h, a, default, q):
         """An account's card, or None if the search leaves it out."""
         me = lib.account_login(h, a)
-        email = me.get("email")
-        m = fuzzy(q, a, email or "") if q else (0, set(), set())
+        email, shown = me.get("email"), lib.account_label(h, a)
+        m = fuzzy(q, shown, email or "") if q else (0, set(), set())
         if not m:
             return None
         plan = label(me.get("plan", "").capitalize(), "accent", "acct-plan")
-        plan.set_hexpand(True)   # the tags and the button at the right end
+        plan.set_hexpand(True)   # the tags and the buttons at the right end
         dot = label("●" if a == default else "○", "green" if a == default else "dim", "pick-glyph")
-        head = box(False, 10, dot, label(marked(a, m[1], HIT), "bold", "acct-name", markup=True), plan)
+        if self.renaming == (h, a):   # its name, being typed: Enter keeps it, Esc doesn't
+            name = Gtk.Entry(text=shown, placeholder_text=a, width_chars=18, css_classes=["acct-rename"])
+            name.connect("activate", lambda e: self.rename(h, a, e.get_text()))
+            GLib.idle_add(lambda: name.grab_focus() and False)
+        else:
+            name = label(marked(shown, m[1], HIT), "bold", "acct-name", markup=True)
+        head = box(False, 10, dot, name, plan)
         here = self.current == (h, a)
         if here:
             head.append(label("this thread", "accent"))
@@ -363,6 +373,7 @@ class Account(Picker):
             head.append(label("default", "green"))
         elif email:
             head.append(button("Make default", lambda: self.make_default(h, a), "flat"))
+        head.append(button("Rename", lambda: self.start_rename(h, a), "flat"))
         if email:
             org = me.get("org", "")
             who = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}"
@@ -411,7 +422,22 @@ class Account(Picker):
                          stdout=subprocess.DEVNULL)   # agentmux's home screen shows it
         self.paint_side()
         self.paint(self.selected())
-        self.say(f"{a} is the default: new {lib.HARNESSES[h][0]} threads start on it")
+        self.say(f"{lib.account_label(h, a)} is the default: new {lib.HARNESSES[h][0]} threads start on it")
+
+    def start_rename(self, h, a):
+        self.renaming = (h, a)
+        self.paint(next((n for n, it in enumerate(self.items) if it == ("use", h, a)), self.selected()))
+
+    def rename(self, h, a, name):
+        """The name the account is shown by, everywhere ("": its own again)."""
+        self.renaming = None
+        lib.set_account_label(h, a, name)
+        subprocess.Popen([AGENTMUX, "account", "name", a, name, h], start_new_session=True,
+                         stdout=subprocess.DEVNULL)   # agentmux's status bar and sidebars show it
+        self.paint_side()
+        self.paint(self.selected())
+        self.search.grab_focus()
+        self.say(f"Shown as {lib.account_label(h, a)}")
 
     def choose(self, item):
         kind, h, a = item
@@ -438,6 +464,16 @@ class Account(Picker):
         return False
 
     def key(self, keyval, state):
+        if self.renaming and keyval == Gdk.KEY_Escape:   # not renamed after all
+            self.renaming = None
+            self.paint(self.selected())
+            self.search.grab_focus()
+            return True
+        if keyval == Gdk.KEY_F2:
+            i = self.selected()
+            if 0 <= i < len(self.items) and self.items[i] and self.items[i][0] == "use":
+                self.start_rename(*self.items[i][1:])
+            return True
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_d, Gdk.KEY_D):
             i = self.selected()
             if 0 <= i < len(self.items) and self.items[i] and self.items[i][0] == "use":

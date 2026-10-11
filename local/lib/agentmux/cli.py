@@ -45,6 +45,8 @@
   agentmux account             the accounts (logins) of each agent that can have several, * the default
   agentmux account add <name> [h]
                                a new account (h: claude): start a thread on it and /login there
+  agentmux account name <account> <shown name> [h]
+                               the name it's shown by ("" : its own again)
   agentmux account default <name> [h]
                                the account new threads start on
   agentmux usage <h> [account] an account's usage asked live (a thread's turn ended), the sidebars redrawn
@@ -145,7 +147,7 @@ def where():
         if t:
             label = f"#{thread.rsplit(lib.SEP, 1)[-1]} {lib.HARNESSES.get(t['harness'], (t['harness'] or 'shell',))[0]}"
             if t["harness"] and len(lib.accounts(t["harness"])) > 1:
-                label += f" · {t['account'] or 'main'}"
+                label += f" · {lib.account_label(t['harness'], t['account'])}"
     set_opt("@project_name", lib.project_name(project) if project else "")
     set_opt("@thread_label", label)
     lib.app("refresh-client", "-S")
@@ -457,17 +459,26 @@ def account(args):
     if sub == "list":
         for h in lib.ACCOUNT_AGENTS:
             default = lib.default_account(h)
-            say(f"{h}: " + ", ".join(a + "*" * (a == default) for a in lib.accounts(h)))
+            say(f"{h}: " + ", ".join(a + (f" ({lib.account_label(h, a)})" if lib.account_label(h, a) != a else "")
+                                    + "*" * (a == default) for a in lib.accounts(h)))
     elif sub == "add" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
         err = lib.add_account(h, rest[0])
         say(err or f"Account {rest[0]} added. agentmux account default {rest[0]}, then a new thread: /login in it")
+    elif sub == "name" and len(rest) >= 2:
+        h = rest[2] if len(rest) > 2 else "claude"
+        if rest[0] not in lib.accounts(h):
+            return say(f"No account {rest[0]} for {h}")
+        lib.set_account_label(h, rest[0], rest[1])
+        say(f"{rest[0]} is shown as {lib.account_label(h, rest[0])}")
+        where()
+        poke()
     elif sub == "default" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
         if rest[0] not in lib.accounts(h):
             return say(f"No account {rest[0]} for {h}")
         lib.set_default_account(h, rest[0])
-        say(f"{rest[0]} is the default: new {lib.HARNESSES[h][0]} threads start on it")
+        say(f"{lib.account_label(h, rest[0])} is the default: new {lib.HARNESSES[h][0]} threads start on it")
         poke()
     elif sub == "pick":
         s = lib.load_state()
@@ -490,7 +501,7 @@ def account(args):
             return say(err)
         where()
         poke()
-        say(f"{name} goes on on {to}")
+        say(f"{name} goes on on {lib.account_label(t['harness'], to)}")
     else:
         sys.exit(__doc__)
 

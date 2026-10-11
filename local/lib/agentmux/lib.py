@@ -477,6 +477,24 @@ def add_account(harness, account):
     return None
 
 
+# state "account_names": harness -> account -> the name it's shown by (set in the Accounts panel);
+# the account itself (its folder, a thread's @account) keeps its own: main, or the name it was added as
+def account_label(harness, account):
+    return load_state().get("account_names", {}).get(harness, {}).get(account or "main") or account or "main"
+
+
+def set_account_label(harness, account, name):
+    """Show the account as name ("" or its own: back to its own)."""
+    s = load_state()
+    names = s.setdefault("account_names", {}).setdefault(harness, {})
+    name = name.strip()
+    if name and name != account:
+        names[account] = name
+    else:
+        names.pop(account, None)
+    save_state(s)
+
+
 def set_default_account(harness, account):
     s = load_state()
     s.setdefault("account", {})[harness] = account
@@ -745,10 +763,17 @@ def thread_model(harness, rec):
                 db.close()
                 ids = re.findall(rb"\b((?:gemini|claude|gpt)-[a-z0-9][a-z0-9.-]*)", row[0] if row else b"")
                 return pretty_model(max(ids, key=len).decode()) if ids else ""
-            with open(path, "rb") as f:   # the last "model" in its tail
-                f.seek(max(0, os.path.getsize(path) - 65536))
-                found = [m for m in re.findall(rb'"model":\s*"([^"]+)"', f.read()) if not m.startswith(b"<")]
-            return pretty_model(found[-1].decode()) if found else ""
+            with open(path, "rb") as f:   # the last "model", read back from the end a chunk at a time
+                end, tail = os.path.getsize(path), b""   # (a big tool output can fill the last few)
+                while end > 0 and len(tail) < 4 << 20:
+                    start = max(0, end - (256 << 10))
+                    f.seek(start)
+                    tail = f.read(end - start) + tail
+                    found = [m for m in re.findall(rb'"model":\s*"([^"]+)"', tail) if not m.startswith(b"<")]
+                    if found:
+                        return pretty_model(found[-1].decode())
+                    end = start
+            return ""
         except (OSError, ValueError, Exception):   # sqlite3.Error too: a busy or odd file is just unknown
             return ""
     return memoized(("model", path), [path], read)

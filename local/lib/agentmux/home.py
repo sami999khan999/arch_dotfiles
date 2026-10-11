@@ -91,7 +91,7 @@ class Home(App):
         foot = Line().pad(x + 2).add("● ", "green" if self.project else "muted").add(label, "text", bold=True)
         harness = self.harnesses[self.h][0]
         if len(lib.accounts(harness)) > 1:   # the default login, which new threads start on (Ctrl+Alt+K)
-            foot.add(" · " + lib.default_account(harness), "accent")
+            foot.add(" · " + lib.account_label(harness, lib.default_account(harness)), "accent")
         if len(self.harnesses) > 1:
             foot.add("  ⇥ switch", "muted")
         keys = "Enter send · Shift+Enter new line · ↑↓ " + ("threads" if self.threads else "agents")

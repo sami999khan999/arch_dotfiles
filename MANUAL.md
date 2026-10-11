@@ -828,7 +828,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
-  Not while the agent is working. Typing a new name offers *Add account “name”*.
+  Not while the agent is working. Typing a new name offers *Add account “name”*. **Rename** (or `F2`)
+  gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the
+  home screen): Enter keeps it, Esc doesn't, an empty name is its own again (`main` for the agent's own
+  login, else the name it was added as, which stays its folder's; `state.json` `account_names`, per PC).
   The usage first shows what was read last (Claude Code's own in each account's `.claude.json`,
   agentmux's in `~/.cache/agentmux/usage.json`), then asks live with the account's own login (what
   Claude Code's `/usage`, Codex's `/status` and Antigravity read, all undocumented; again every minute

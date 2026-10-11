@@ -270,7 +270,7 @@ class Sidebar(App):
                     short = SHORT.get(t["harness"], t["harness"] or "shell")
                     info = []
                     if t["harness"] and len(lib.accounts(t["harness"])) > 1:   # which login it's on
-                        info += [(t["account"] or "main", "accent"), (" · ", "line")]
+                        info += [(lib.account_label(t["harness"], t["account"]), "accent"), (" · ", "line")]
                     pct, busy = self.thread_cpu(t)
                     if pct >= BUSY_CPU:   # its CPU, a full core or more in amber: it's what slows the PC.
                         # In place of "working" (the spinner says so): a narrow sidebar cuts the line's end

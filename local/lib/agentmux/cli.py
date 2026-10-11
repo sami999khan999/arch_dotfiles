@@ -445,7 +445,7 @@ def account(args):
     from_key = not sys.stdout.isatty() and os.path.basename(os.environ.get("TMUX", "").split(",")[0]) == "agentmux"
     say = msg if from_key else print
     if sub == "list":
-        for h in lib.ACCOUNT_ENV:
+        for h in lib.ACCOUNT_AGENTS:
             default = lib.default_account(h)
             say(f"{h}: " + ", ".join(a + "*" * (a == default) for a in lib.accounts(h)))
     elif sub == "add" and rest:

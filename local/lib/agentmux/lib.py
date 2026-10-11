@@ -408,9 +408,12 @@ def parse_key(text):
 # (~/.claude, ~/.codex); the others are folders in ACCOUNTS/<harness>/<name>, per PC: a login never
 # goes in the repo. Everything but the login is shared with main through symlinks (ACCOUNT_SHARED):
 # settings and hooks, skills, plugins and the conversations, so a thread switched to another account
-# goes on with the same conversation (--resume). state "account": harness -> the default one, which new threads start
-# on (agentmux account default); a thread keeps the one it started on (@account) until it's switched
-# (agentmux account switch), which leaves the default as it is.
+# goes on with the same conversation (--resume). state "account": harness -> the default one, which new
+# threads start on (agentmux account default); a thread keeps the one it started on (@account) until
+# it's switched (agentmux account switch), which leaves the default as it is.
+# agy keeps its login in one keyring entry, whatever folder it runs from (ACCOUNT_KEYRING): each
+# account's token waits in a keyring slot of its own and agentmux swaps it into agy's entry (agy_load),
+# so agy is on one account at a time: switching puts every agy thread on it (state "agy_loaded").
 ACCOUNTS = f"{os.environ.get('XDG_DATA_HOME', HOME + '/.local/share')}/agentmux/accounts"
 ACCOUNT_ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
 ACCOUNT_HOME = {"claude": f"{HOME}/.claude", "codex": f"{HOME}/.codex"}
@@ -423,6 +426,8 @@ ACCOUNT_SHARED = {"claude": ["settings.json", "CLAUDE.md", "keybindings.json", "
 # what an account's own ~/.claude.json starts with, from main's: no login or account ids (its own
 # /login fills those in), but the look, the MCP servers and each folder's trust and permissions
 ACCOUNT_SEED = {"claude": (f"{HOME}/.claude.json", ".claude.json", ["theme", "mcpServers", "projects", "editorMode"])}
+ACCOUNT_KEYRING = {"agy": ["service", "gemini", "username", "antigravity"]}   # agy's own entry
+ACCOUNT_AGENTS = ["claude", "codex", "agy"]   # the agents that can have several accounts, in the panel's order
 
 
 def accounts(harness):
@@ -431,7 +436,7 @@ def accounts(harness):
         own = sorted(d for d in os.listdir(f"{ACCOUNTS}/{harness}") if os.path.isdir(f"{ACCOUNTS}/{harness}/{d}"))
     except OSError:
         own = []
-    return ["main"] + own if harness in ACCOUNT_ENV else ["main"]
+    return ["main"] + own if harness in ACCOUNT_AGENTS else ["main"]
 
 
 def default_account(harness):
@@ -440,20 +445,23 @@ def default_account(harness):
 
 
 def account_dir(harness, account):
-    return ACCOUNT_HOME[harness] if account == "main" else f"{ACCOUNTS}/{harness}/{account}"
+    """The account's folder (for agy only a name tag: its login is in the keyring)."""
+    return ACCOUNT_HOME.get(harness, f"{ACCOUNTS}/{harness}/main") if account == "main" \
+        else f"{ACCOUNTS}/{harness}/{account}"
 
 
 def add_account(harness, account):
     """A new account's folder, sharing everything but the login with main. Returns an error or None."""
-    if harness not in ACCOUNT_ENV:
+    if harness not in ACCOUNT_AGENTS:
         return f"{HARNESSES.get(harness, (harness,))[0]} has one account only"
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,20}", account) or account == "main":
         return "An account's name is letters, digits, - or _ (and not main)"
-    folder, home = account_dir(harness, account), ACCOUNT_HOME[harness]
+    folder = account_dir(harness, account)
     if os.path.exists(folder):
         return f"{account} already exists"
     os.makedirs(folder)
-    for item in ACCOUNT_SHARED[harness]:
+    home = ACCOUNT_HOME.get(harness)
+    for item in ACCOUNT_SHARED.get(harness, []):
         name = item.rstrip("/")
         if item.endswith("/"):
             os.makedirs(f"{home}/{name}", exist_ok=True)
@@ -490,11 +498,59 @@ def jwt_claims(token):
         return {}
 
 
+def keyring(*args, secret=None):
+    """secret-tool: lookup / store / clear (store reads the secret on stdin). Its output, "" if none."""
+    try:
+        r = subprocess.run(["secret-tool", *args], input=secret, capture_output=True, text=True, timeout=10)
+        return r.stdout if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def agy_slot(account):
+    return ["service", "agentmux-agy", "account", account]
+
+
+def agy_secret(account):
+    """The account's agy token as stored: in agy's own entry if it's the one loaded, else its slot."""
+    loaded = load_state().get("agy_loaded", "main")
+    return keyring("lookup", *(ACCOUNT_KEYRING["agy"] if account == loaded else agy_slot(account)))
+
+
+def agy_load(account):
+    """Put agy on account: the loaded one's token (agy may have renewed it) back in its slot, the
+    account's into agy's entry, or agy's entry emptied for one never logged in (agy asks to log in)."""
+    loaded = load_state().get("agy_loaded", "main")
+    if account == loaded:
+        return
+    live = keyring("lookup", *ACCOUNT_KEYRING["agy"])
+    if live:
+        keyring("store", f"--label=agentmux: agy account {loaded}", *agy_slot(loaded), secret=live)
+    want = keyring("lookup", *agy_slot(account))
+    if want:
+        keyring("store", "--label=Password for 'antigravity' on 'gemini'", *ACCOUNT_KEYRING["agy"], secret=want)
+    else:
+        keyring("clear", *ACCOUNT_KEYRING["agy"])
+    s = load_state()
+    s["agy_loaded"] = account
+    save_state(s)
+
+
 def account_login(harness, account):
     """The account's login: {"token", "expires" (epoch), "email", "org", "plan", "id"}; {} when logged
-    out. Claude Code: .credentials.json, who in .claude.json; Codex: auth.json, who in its id token."""
+    out. Claude Code: .credentials.json, who in .claude.json; Codex: auth.json, who in its id token;
+    agy: its keyring token, who in its id token."""
     folder = account_dir(harness, account)
     try:
+        if harness == "agy":
+            from datetime import datetime
+            j = json.loads(agy_secret(account) or "{}")
+            t = j.get("token") or {}
+            if not t.get("access_token"):
+                return {}
+            expiry = re.sub(r"(\.\d{6})\d+", r"\1", t.get("expiry", ""))   # Go's nanoseconds: Python takes 6 digits
+            return {"token": t["access_token"], "expires": datetime.fromisoformat(expiry).timestamp() if expiry else 0,
+                    "email": jwt_claims(j.get("id_token", "")).get("email", "logged in"), "org": "", "plan": "Google"}
         if harness == "claude":
             c = json.load(open(f"{folder}/.credentials.json")).get("claudeAiOauth") or {}
             if not c.get("accessToken"):
@@ -521,7 +577,10 @@ def account_login(harness, account):
 
 
 # what each agent's own /usage (/status) reads; undocumented, so a change there shows "not known"
-USAGE_URL = {"claude": "https://api.anthropic.com/api/oauth/usage", "codex": "https://chatgpt.com/backend-api/wham/usage"}
+USAGE_URL = {"claude": "https://api.anthropic.com/api/oauth/usage", "codex": "https://chatgpt.com/backend-api/wham/usage",
+             "agy": "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels"}
+AGY_PROJECT = f"{HOME}/.gemini/antigravity-cli/cache/default_project_id.txt"
+AGY_WINDOWS = 4   # agy's quota is per model: the most used ones
 USAGE_CACHE = f"{os.environ.get('XDG_CACHE_HOME', HOME + '/.cache')}/agentmux/usage.json"
 
 
@@ -554,11 +613,20 @@ def account_usage(harness, account, live=False):
     login = account_login(harness, account)
     if live and login.get("token") and login.get("expires", 0) > time.time() + 60 and harness in USAGE_URL:
         import urllib.request
-        head = {"Authorization": "Bearer " + login["token"]}
-        head.update({"anthropic-beta": "oauth-2025-04-20"} if harness == "claude" else
-                    {"ChatGPT-Account-Id": login.get("id", ""), "originator": "codex_cli_rs"})
+        head, body = {"Authorization": "Bearer " + login["token"]}, None
+        if harness == "claude":
+            head["anthropic-beta"] = "oauth-2025-04-20"
+        elif harness == "codex":
+            head.update({"ChatGPT-Account-Id": login.get("id", ""), "originator": "codex_cli_rs"})
+        else:   # agy: a POST naming its project
+            try:
+                project = open(AGY_PROJECT).read().strip()
+            except OSError:
+                project = ""
+            head.update({"Content-Type": "application/json", "User-Agent": "antigravity"})   # refused without it
+            body = json.dumps({"project": project}).encode()
         try:
-            with urllib.request.urlopen(urllib.request.Request(USAGE_URL[harness], headers=head), timeout=8) as r:
+            with urllib.request.urlopen(urllib.request.Request(USAGE_URL[harness], data=body, headers=head), timeout=8) as r:
                 windows, at, raw = None, time.time(), json.load(r)
         except (OSError, ValueError):
             pass
@@ -573,6 +641,18 @@ def account_usage(harness, account, live=False):
                     except ValueError:
                         reset = 0
                     windows.append((name, float(w["utilization"]), reset))
+        elif harness == "agy":   # per model: each name once, the most used first
+            seen = {}
+            for m in (raw.get("models") or {}).values():
+                q, name = m.get("quotaInfo") or {}, m.get("displayName")
+                if name and q.get("remainingFraction") is not None and name not in seen:
+                    try:
+                        reset = datetime.fromisoformat(q["resetTime"].replace("Z", "+00:00")).timestamp() \
+                            if q.get("resetTime") else 0
+                    except ValueError:
+                        reset = 0
+                    seen[name] = (name, round((1 - float(q["remainingFraction"])) * 100, 1), reset)
+            windows = sorted(seen.values(), key=lambda w: (-w[1], w[0]))[:AGY_WINDOWS]
         else:
             limits = raw.get("rate_limit") or {}
             for field in ("primary_window", "secondary_window"):
@@ -595,12 +675,28 @@ def set_account(name, account):
     """Thread name's agent goes on with its conversation on another account (the one it's on now when
     it's out of usage): restarted in place on --resume (or --continue, its id unknown), the same
     thread. The default account stays as it is. Returns an error or None."""
-    t = next((t for t in threads() if t["name"] == name), None)
+    ts = threads()
+    t = next((t for t in ts if t["name"] == name), None)
     if not t or not t["harness"]:
         return "No agent thread to switch"
     harness = t["harness"]
     if account not in accounts(harness):
         return f"No account {account} for {HARNESSES.get(harness, (harness,))[0]}"
+    if harness in ACCOUNT_KEYRING:   # one account at a time: every agy thread goes, so none may be working
+        mine = [o for o in ts if o["harness"] == harness and o["command"] not in SHELLS]
+        if any(state_of(o) == "working" for o in mine):
+            return f"An {HARNESSES[harness][0]} thread is working: switch once they've all stopped"
+        agy_load(account)
+        for o in mine:
+            if o["name"] != name:
+                restart_agent(o, account)
+    restart_agent(t, account)
+    return None
+
+
+def restart_agent(t, account):
+    """Thread t's agent again, on account, on its conversation (--resume; --continue, its id unknown)."""
+    name, harness = t["name"], t["harness"]
     rec = load_state().get("sessions", {}).get(name)
     sid = rec.get("id") if rec else None
     if sid and not session_exists(t["project"], harness, sid):
@@ -611,7 +707,6 @@ def set_account(name, account):
     agents("set-option", "-t", f"={name}:", "@agent_state", "")   # its usage-limit error is the old account's
     if rec:   # reopened on this account after a restart
         remember_session(name, rec["project"], harness, rec["id"], account)
-    return None
 
 
 # ---- the agents a project uses ------------------------------------------------------------------
@@ -726,6 +821,11 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
         name = next_name(path)
     if account not in accounts(harness):
         account = default_account(harness)
+    if harness in ACCOUNT_KEYRING:   # agy is on one account at a time: the default only if no agy runs
+        loaded = load_state().get("agy_loaded", "main")
+        if account != loaded and any(t["harness"] == harness and t["command"] not in SHELLS for t in threads()):
+            account = loaded
+        agy_load(account)
     if not session and not resume and harness == "opencode":   # no hooks to tell its id: name it now
         session = opencode_id()
     cmd = HARNESSES.get(harness, ("", harness))[1]

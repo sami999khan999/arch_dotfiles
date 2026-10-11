@@ -8,7 +8,8 @@
 #          what's open; the dropdown below it shows one kind of database only.
 #   right  the selected table / key / collection / file, a page at a time (« ‹ page › », the page size), the query box
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
-#          and the selected row in full. Full access: what you run applies at once.
+#          and the selected row in full. Full access: what you run applies at once. An S3 image (the file
+#          picked in the tree, or a row of a bucket / folder's file list) shows beside the table.
 #   Ask    (a, or Ask in the header) an AI about this connection and what's selected: its own popup
 #          (dbaskgui.py, dbagent.py), read-only on a connection of its own; "Put in query box" there sends
 #          a query back here (the use-query action), and a write from it needs a second Run.
@@ -49,6 +50,7 @@ columnview listview > row:hover { background: alpha(#292e42, .35); }
 columnview listview > row:selected { background: alpha(#292e42, .75); color: #c0caf5; }
 columnview listview > row > cell { padding: 3px 8px; }
 .form-label { color: #a9b1d6; min-width: 160px; }
+.db-preview { border-left: 1px solid alpha(#3b4261, .7); padding-left: 14px; }
 
 button.pager-btn { padding: 2px 10px; min-width: 0; font-size: 12pt; }
 button.pager-btn:disabled { background: transparent; color: #3b4261; }
@@ -234,9 +236,24 @@ class Databases(View):
         # a size (set before, GTK kept the halfway default), and again whenever its range changes
         split.connect("notify::max-position", lambda p, _: p.set_position(p.props.max_position))
         self.results = split
-        split.set_margin_top(12)
+        split.set_hexpand(True)
 
-        page = box(True, 0, head, self.query_box, split)
+        # an S3 image, beside the table. A scrolled window that doesn't take its child's natural width:
+        # a big image is scaled down into the pane instead of widening it
+        self.preview = Gtk.Picture(content_fit=Gtk.ContentFit.SCALE_DOWN, can_shrink=True, vexpand=True)
+        frame = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.NEVER,
+                                   propagate_natural_width=False, vexpand=True)
+        frame.set_size_request(380, -1)
+        frame.set_child(self.preview)
+        self.preview_note = label("", "dim", ellipsize=True)
+        self.previewpane = box(True, 6, frame, self.preview_note)
+        self.previewpane.add_css_class("db-preview")
+        self.previewpane.set_visible(False)
+        self.img_gen = 0
+        body = box(False, 14, split, self.previewpane)
+        body.set_margin_top(12)
+
+        page = box(True, 0, head, self.query_box, body)
         for edge in ("top", "start", "end", "bottom"):
             getattr(page, f"set_margin_{edge}")(20 if edge != "bottom" else 10)
         return page
@@ -475,7 +492,8 @@ class Databases(View):
         if not same_conn:
             self.query.get_buffer().set_text(self.queries.get(cid, ""))
         self.paint_actions(c, node)
-        if node and node.leaf:
+        self.show_image(cid, *(node.path[:2] if kind == "s3" and node and node.kind == "object" else ()))
+        if node and self.browsable(c, node):
             self.browse(cid, node.path)
         elif not same_conn or not node:
             self.pager = None
@@ -484,6 +502,11 @@ class Databases(View):
         if cid in self.live or node:
             gen = self.gen
             self.job(cid, lambda d: d.info(node.path if node else ()), lambda kv: gen == self.gen and self.show_info(kv))
+
+    @staticmethod
+    def browsable(c, node):
+        """Has contents for the table: a leaf, or an S3 bucket / folder (the files under it)."""
+        return node.leaf or (c["kind"] == "s3" and node.kind in ("bucket", "folder"))
 
     def show_info(self, kv):
         if kv:
@@ -499,7 +522,7 @@ class Databases(View):
             if cid in self.live:
                 add(button("Disconnect", lambda: self.disconnect(cid), "flat"))
             return
-        if node.leaf:
+        if self.browsable(c, node):
             add(button("Refresh", lambda: self.reload_page(cid, node.path), tooltip="F5"))
         if c["kind"] in ("postgres", "sqlite") and node.kind in ("table", "view"):
             name = ".".join(f'"{p}"' for p in node.path)
@@ -712,6 +735,10 @@ class Databases(View):
 
     def show_row(self):
         item = self.selection.get_selected_item()
+        pg = self.pager
+        if pg and pg.kind == "browse" and len(pg.path) == 2 and self.conn(pg.cid)["kind"] == "s3":
+            # a bucket / folder's file list: the picked file's image, if it is one
+            self.show_image(pg.cid, *((pg.path[0], pg.path[1] + item.cells[0]) if item else ()))
         buf = self.rowview.get_buffer()
         buf.set_text("")
         self.rowpane.set_visible(item is not None)
@@ -724,6 +751,28 @@ class Databases(View):
                 buf.insert_with_tags_by_name(end(), title, "key")
                 buf.insert(end(), "  ")
             buf.insert(end(), value + "\n")
+
+    def show_image(self, cid, bucket=None, key=None):
+        """The preview beside the table: an S3 image file, fetched and decoded on the connection's thread
+        (a large one doesn't stall the window); no key, or not an image, hides it."""
+        self.img_gen += 1
+        gen = self.img_gen
+        if not key:
+            return self.previewpane.set_visible(False)
+
+        def fetch(d):
+            data = d.image(bucket, key)
+            return data and (Gdk.Texture.new_from_bytes(GLib.Bytes.new(data)), len(data))
+
+        def done(got):
+            if gen != self.img_gen:
+                return
+            self.previewpane.set_visible(bool(got))
+            if got:
+                tex, n = got
+                self.preview.set_paintable(tex)
+                self.preview_note.set_text(f"{tex.get_width()} × {tex.get_height()} · {db.size(n)}")
+        self.job(cid, fetch, done, fail=lambda: gen == self.img_gen and self.previewpane.set_visible(False))
 
     # ---- S3 / Redis actions ----------------------------------------------------------------------
     def s3_download(self, cid, node):
@@ -1017,6 +1066,8 @@ class Databases(View):
                 self.kids.pop(key, None)
                 self.open.add(key)
                 self.fetch_kids(*key)
+                if self.browsable(self.conn(key[0]), node):   # an S3 folder: its file list too
+                    self.reload_page(key[0], node.path)
             else:
                 self.reload(key[0])
         elif keyval == Gdk.KEY_Delete and self.sel and self.sel[1] and getattr(self, "del_btn", None) \

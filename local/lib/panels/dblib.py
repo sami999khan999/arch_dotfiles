@@ -26,6 +26,8 @@ LIST = f"{DIR}/connections.json"
 PAGE = 200            # rows / keys / objects fetched at a time
 IDLE = 180            # seconds unused before a connection closes
 CELL = 2000           # a cell's text is cut here (the row view shows what's left of a long value)
+IMAGE = 16 << 20      # an S3 image bigger than this isn't previewed
+IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".bmp", ".ico", ".tif", ".tiff")
 KINDS = {             # kind: (name, Nerd Font glyph, default port)
     "postgres": ("Postgres", "", 5432),
     "redis": ("Redis", "", 6379),
@@ -737,6 +739,10 @@ class S3(Driver):
         return nodes
 
     def browse(self, path, offset=0, limit=PAGE):
+        """A file: its details (and the start of a text file). A bucket / folder: every file under it,
+        however deep (offset: the continuation token where the page starts, 0 for the first)."""
+        if len(path) == 2:
+            return self.files(path, offset, limit)
         bucket, key = path[0], path[1]
         try:
             head = self.s3.head_object(Bucket=bucket, Key=key)
@@ -750,6 +756,32 @@ class S3(Driver):
         except self.err as e:
             raise DbError(str(e))
         return Result(["field", "value"], rows)
+
+    def files(self, path, token, limit):
+        bucket, prefix = path
+        kw = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": limit}
+        if token:
+            kw["ContinuationToken"] = token
+        try:
+            r = self.s3.list_objects_v2(**kw)
+        except self.err as e:
+            raise DbError(str(e))
+        rows = [[o["Key"][len(prefix):], size(o["Size"]), str(o.get("LastModified", ""))[:19]]
+                for o in r.get("Contents", []) if o["Key"] != prefix]
+        more = bool(r.get("IsTruncated"))
+        return Result(["file", "size", "modified"], rows, more, "" if rows or more else "no files",
+                      r.get("NextContinuationToken") if more else None)
+
+    def image(self, bucket, key):
+        """An image file's bytes for the preview, or None (not an image, or too big to fetch for a look)."""
+        try:
+            head = self.s3.head_object(Bucket=bucket, Key=key)
+            if not (head.get("ContentType", "").startswith("image/") or key.lower().endswith(IMAGE_EXT)) \
+                    or not 0 < head["ContentLength"] <= IMAGE:
+                return None
+            return self.s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        except self.err as e:
+            raise DbError(str(e))
 
     def download(self, path, dest):
         try:

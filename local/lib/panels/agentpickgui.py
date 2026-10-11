@@ -264,7 +264,9 @@ class Account(Picker):
                                         "pick-glyph"), text)
             if a == self.current:
                 line.append(label("this thread", "accent"))
-            elif a == active:
+            if a == self.current == active:
+                line.append(label("\u00b7", "dim"))
+            if a == active:   # the green dot: the one new threads start on
                 line.append(label("new threads", "green"))
             yield ("use", a), line, True
         if q and q not in names:   # a new account by that name

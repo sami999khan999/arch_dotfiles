@@ -17,7 +17,7 @@
     "input:accel_profile": "adaptive",
     "input:follow_mouse": 2,
     "input:natural_scroll": false,
-    "input:sensitivity": -0.7
+    "input:sensitivity": -0.8
   },
   "nightlight": {
     "temp": 6500

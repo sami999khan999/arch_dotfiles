@@ -25,7 +25,7 @@ AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
 FS, RS = "\x1f", "\x1e"   # field / record separators inside the subscription value
 SUB = ("#{S:" + FS.join(["#{session_name}", "#{@project}", "#{@harness}", "#{@kind}", "#{pane_title}",
                          "#{session_attached}", "#{pane_current_command}", "#{session_created}",
-                         "0", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}", "#{pane_pid}"]) + RS + "}")
+                         "0", lib.BUSY, lib.ASKS, "#{@agent_state}", "#{@subagents}", "#{@account}", "#{pane_pid}"]) + RS + "}")
 # "0": lib.FIELDS' activity, not shown here; #{session_activity} changed on every redraw of an agent's
 # screen (an idle one's too), and each change rebuilt the sidebars. #{pane_pid} never changes (no
 # extra updates): its cgroup is where the thread's CPU is read
@@ -137,10 +137,10 @@ class Sidebar(App):
         rows = []
         for rec in value.split(RS):
             parts = rec.split(FS)
-            if len(parts) != 14 or parts[0].startswith("_"):
+            if len(parts) != 15 or parts[0].startswith("_"):
                 continue
-            t = dict(zip(lib.FIELDS[:-1], parts[:13]))
-            t["pid"] = parts[13]
+            t = dict(zip(lib.FIELDS[:-1], parts[:14]))
+            t["pid"] = parts[14]
             for k in ("attached", "created", "activity"):
                 t[k] = int(t[k] or 0)
             rows.append(t)
@@ -266,6 +266,8 @@ class Sidebar(App):
                     what = (STATE_WORD[st], STATE_GLYPH[st][1])
                     short = SHORT.get(t["harness"], t["harness"] or "shell")
                     info = [] if title == label or st == "shell" else [(short, "muted"), (" · ", "line")]
+                    if t["harness"] and len(lib.accounts(t["harness"])) > 1:   # which login it's on
+                        info = [(t["account"] or "main", "accent"), (" · ", "line")] + info
                     pct, busy = self.thread_cpu(t)
                     if pct >= BUSY_CPU:   # its CPU, a full core or more in amber: it's what slows the PC.
                         # In place of "working" (the spinner says so): a narrow sidebar cuts the line's end

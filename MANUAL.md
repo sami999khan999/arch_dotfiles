@@ -807,6 +807,21 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   remembered (a new one) starts nothing: the home screen asks which agent, with the keyboard on its
   prompt. `+ thread` starts fresh. Skipped for an agent whose conversation already runs straight in
   the project's VS Code kitty. Settings → Projects switches it all off.
+- **More than one Claude Code account.** Both stay logged in; one is *active* (new threads start on
+  it). When a thread's account runs out of usage, **`Ctrl+Alt+K`** restarts its agent in place on the
+  next account, on the same conversation (`claude --resume <id>`), and makes that account the active
+  one; with no thread shown it just moves the active account on. Not while the agent is working.
+  An account is a config folder (`CLAUDE_CONFIG_DIR`): `main` is `~/.claude`, the others are
+  `~/.local/share/agentmux/accounts/claude/<name>/` on each PC (logins never go in the repo), linked to
+  `~/.claude` for everything but the login: settings and hooks, skills, plugins, history and the
+  conversations (`projects/`), which is why another account can resume one. Its own `.claude.json`
+  starts with main's theme, MCP servers and folder trust. Add one with `agentmux account add <name>`,
+  `agentmux account use <name>`, then a new thread: Claude Code's first-run screens and `/login` (as
+  that account). `agentmux account` lists them (`*` the active one); `agentmux account switch [thread]
+  [name]` is the key. With more than one account, each thread's second line and the status bar name
+  its account, and the home screen the active one. The first message after a switch reads the whole
+  conversation again on the new account (the cache is per account): `/compact` first on a long one.
+  A thread reopened after a restart is on the account it had. Remove one: delete its folder.
 - **Panels close and reopen:** `Ctrl+Alt+1` / `Ctrl+Alt+2` / `Ctrl+Alt+3` (Projects / Threads / Terminals), or the `×` in a
   panel's header (`─` in the terminal list's); a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
   until reopened. Closing Terminals only hides the column: its shells keep running.
@@ -857,7 +872,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - Keys (no prefix; Ctrl+Alt so nothing clashes with Hyprland or Claude Code), all **remappable** in
   Settings: `Ctrl+Alt+P` / `Ctrl+Alt+A` / `Ctrl+Alt+M` / `Ctrl+Alt+E` focus Projects / Threads / the
   thread / the terminals (a closed one is brought back), `Ctrl+Alt+F` the next part (left to right,
-  wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
+  wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+K` the thread on the next account, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
   `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+Z` maximize, `Ctrl+Alt+←→`
   resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
   and shells keep running), `Ctrl+Alt+Q` quit, `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the

@@ -42,6 +42,15 @@
                                dismiss its "needs your input" / error notifications (no longer true)
   agentmux hooks               install those hooks in each agent's own config (idempotent)
   agentmux paste <pane>        Ctrl+V in a Codex / agy thread: the clipboard's text, as a terminal paste
+  agentmux account             the accounts (logins) of each agent that can have several, * the active one
+  agentmux account add <name> [h]
+                               a new account (h: claude): start a thread on it and /login there
+  agentmux account use <name> [h]
+                               the account new threads start on
+  agentmux account switch [thread] [name]
+                               the thread (the shown one) goes on with its conversation on another
+                               account (the next one), which becomes the active one (Ctrl+Alt+K).
+                               With no thread shown: the next account becomes the active one
 
 Layout (tmux -L agentmux):  Projects | Agents | the thread | terminal | terminal list
 Threads are sessions on the agents server (tmux -L agents): the middle pane and the terminals column
@@ -134,6 +143,8 @@ def where():
         t = next((t for t in lib.threads() if t["name"] == thread), None)
         if t:
             label = f"#{thread.rsplit(lib.SEP, 1)[-1]} {lib.HARNESSES.get(t['harness'], (t['harness'] or 'shell',))[0]}"
+            if t["harness"] and len(lib.accounts(t["harness"])) > 1:
+                label += f" · {t['account'] or 'main'}"
     set_opt("@project_name", lib.project_name(project) if project else "")
     set_opt("@thread_label", label)
     lib.app("refresh-client", "-S")
@@ -363,10 +374,10 @@ def resume_project(path, quiet=False):
         if harness not in installed or harness in in_kitty or sid in running:
             continue
         if sid and lib.session_exists(path, harness, sid):
-            started.append((lib.new_thread(path, harness, session=sid, name=name), harness))
+            started.append((lib.new_thread(path, harness, session=sid, name=name, account=r.get("account", "main")), harness))
         elif harness not in continued:   # its conversation is gone: the latest one there, once
             continued.add(harness)
-            started.append((lib.new_thread(path, harness, resume=True, name=name), harness))
+            started.append((lib.new_thread(path, harness, resume=True, name=name, account=r.get("account", "main")), harness))
     if not mine and not started:   # nothing remembered thread by thread: the agents used here
         for harness in lib.project_agents(path):
             if harness in installed and harness not in in_kitty and lib.has_history(path, harness):
@@ -425,6 +436,53 @@ def new_thread(harness=None, prompt_file=None):
         msg(f"{name} started · also opened in the VS Code kitty")
     else:
         msg(f"{name} started")
+
+
+def account(args):
+    """agentmux account [add|use|switch …]: the logins of an agent that can have several (lib.accounts)."""
+    sub, rest = (args[0], args[1:]) if args else ("list", [])
+    # from a key in agentmux (run-shell on its server): on its status line; typed in a shell: printed
+    from_key = not sys.stdout.isatty() and os.path.basename(os.environ.get("TMUX", "").split(",")[0]) == "agentmux"
+    say = msg if from_key else print
+    if sub == "list":
+        for h in lib.ACCOUNT_ENV:
+            active = lib.active_account(h)
+            say(f"{h}: " + ", ".join(a + "*" * (a == active) for a in lib.accounts(h)))
+    elif sub == "add" and rest:
+        h = rest[1] if len(rest) > 1 else "claude"
+        err = lib.add_account(h, rest[0])
+        say(err or f"Account {rest[0]} added. agentmux account use {rest[0]}, then a new thread: /login in it")
+    elif sub == "use" and rest:
+        h = rest[1] if len(rest) > 1 else "claude"
+        if rest[0] not in lib.accounts(h):
+            return say(f"No account {rest[0]} for {h}")
+        s = lib.load_state()
+        s.setdefault("account", {})[h] = rest[0]
+        lib.save_state(s)
+        say(f"New {lib.HARNESSES[h][0]} threads start on {rest[0]}")
+        poke()
+    elif sub == "switch":
+        s = lib.load_state()
+        name = rest[0] if rest else s.get("threads", {}).get(s.get("project", ""), "")
+        t = next((t for t in lib.threads() if t["name"] == name and t["harness"]), None)
+        h = t["harness"] if t else lib.load_state().get("harness", "claude")
+        names = lib.accounts(h)
+        if len(names) < 2:
+            return say(f"{lib.HARNESSES.get(h, (h,))[0]} has one account · agentmux account add <name> adds one")
+        cur = (t["account"] or "main") if t else lib.active_account(h)
+        to = rest[1] if len(rest) > 1 else names[(names.index(cur) + 1) % len(names) if cur in names else 0]
+        if not t:   # nothing shown: the next account for new threads
+            return account(["use", to, h])
+        if lib.state_of(t) == "working":
+            return say(f"{name} is working: switch it once it stops")
+        err = lib.set_account(name, to)
+        if err:
+            return say(err)
+        where()
+        poke()
+        say(f"{name} goes on on {to} · new threads start there too")
+    else:
+        sys.exit(__doc__)
 
 
 # The column is two panes: the shown terminal (a client of the terms session) and, at its right, the
@@ -1020,9 +1078,10 @@ def notify(args):
         return   # one per tool call: mid-turn nothing changes (only after a permission prompt it does)
     sid = str(data.get("session_id") or data.get("sessionId") or data.get("conversationId") or "")
     if src in lib.RESUME_ARGS and re.fullmatch(r"[A-Za-z0-9-]{8,80}", sid):   # the thread's conversation
-        project, _, harness = lib.agents("display-message", "-p", "-t", f"={name}:", "#{@project}\t#{@harness}")[1].partition("\t")
+        project, harness, account = (lib.agents("display-message", "-p", "-t", f"={name}:",
+                                                "#{@project}\t#{@harness}\t#{@account}")[1].split("\t") + ["", ""])[:3]
         if project and harness == src:
-            lib.remember_session(name, project, harness, sid)
+            lib.remember_session(name, project, harness, sid, account)
     state, note = hook_event(src, event, data)
     if not state:
         return
@@ -1496,7 +1555,7 @@ def main(argv):
         "notify": lambda: notify(args), "notify-screen": lambda: notify_screen(args[0], args[1]),
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
-        "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]),
+        "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]), "account": lambda: account(args),
     }
     if cmd not in actions:
         sys.exit(__doc__)

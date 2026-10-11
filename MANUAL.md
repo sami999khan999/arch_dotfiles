@@ -467,6 +467,15 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   command (`HGETALL session:42`) or, on a collection, a Mongo filter `{…}` or pipeline `[…]`:
   **Ctrl + Enter** runs it, or just the selected part. **Stop** cancels a long Postgres / SQLite query.
   Full access: what you run applies at once. S3: Download, Upload…, Delete; Redis: Delete (click twice).
+- **Diagram** (`d`, or *Diagram* on a Postgres connection, schema or table, or a SQLite file): the schema in
+  [Liam ERD](https://liambx.com) inside the panel: the tables and the keys between them, laid out by Liam;
+  drag, zoom, click a table for its columns, keys and indexes, *Show* switches names / keys / all fields,
+  *Export* saves it. The bar above it: the schema picker; **search** (`/`): only the tables whose name has it
+  (just that one on an exact name); **Related** (`r`) adds the tables they join, by a key or by a column that
+  only stores their id without one (`impersonated_by` → user: guessed from the name and the key's type, its
+  key named `guessed: …`); *Close* or `Esc`. Liam's web app is fetched once (pinned version, checked against
+  npm's hash, kept in `~/.local/share/dbclient/`); the panel hands it the schema from memory, nothing goes
+  over the network. Needs `webkitgtk-6.0` (in `setup/packages.txt`).
 - **Ask** (`a`, or *Ask* in the header): a popup like the other panels (`dbaskgui.py`), an AI about the
   connection and what's selected (`dbagent.py`; the System agent's model and machinery: opencode in a
   sandbox with no files, only the panel's tools). It reads on a connection of its own and can't change

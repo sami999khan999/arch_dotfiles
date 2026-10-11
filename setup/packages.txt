@@ -225,6 +225,7 @@ vulkan-icd-loader
 vulkan-intel
 walker
 waybar
+webkitgtk-6.0
 wget
 which
 wiremix

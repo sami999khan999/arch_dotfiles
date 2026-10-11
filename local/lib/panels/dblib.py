@@ -18,6 +18,7 @@ Every driver has the same shape, called from one worker thread per connection:
   more(limit)             the next page of the last run()
   info(path)              [(key, value)] about a node
   close()
+Postgres and SQLite also have liam(schema): the schema as Liam ERD's schema.json, for dbliam.py.
 """
 import json, os, shlex, socket, subprocess, time, uuid
 
@@ -143,6 +144,67 @@ def put(conn, secrets):
 def remove(cid):
     save([c for c in load() if c["id"] != cid])
     store_secret(cid, "", {})
+
+
+# ---- Liam ERD: the schema diagram (dbliam.py shows it) --------------------------------------------
+# Liam's web app, fetched once from npm (the @liam-hq/cli package, checked against its published hash; only
+# its html/ is kept, no Node needed), reads a schema.json the drivers' liam() write.
+LIAM_VERSION = "0.7.24"
+LIAM_SHA512 = "kb2tcAFYEJ3twbTYnCYEYn1AnjDaCnpP4inSiZR5kh46ZTKlAlt0DZ+61GePLsR+lWBCuPjqOjraHPJ9pxy+Ng=="
+LIAM_URL = f"https://registry.npmjs.org/@liam-hq/cli/-/cli-{LIAM_VERSION}.tgz"
+LIAM_APP = f"{DIR}/liam-{LIAM_VERSION}"
+ACTIONS = {"a": "NO_ACTION", "r": "RESTRICT", "c": "CASCADE", "n": "SET_NULL", "d": "SET_DEFAULT"}
+SHORT_TYPES = {"timestamp with time zone": "timestamptz", "timestamp without time zone": "timestamp",
+               "time with time zone": "timetz", "time without time zone": "time", "character varying": "varchar",
+               "character": "char", "integer": "int4", "bigint": "int8", "smallint": "int2", "boolean": "bool",
+               "double precision": "float8", "real": "float4"}
+
+
+def short_type(t):
+    """Postgres' long type names as its short ones (timestamptz, varchar(40), int8[]…), as Liam shows them."""
+    base, paren, rest = t.partition("(")
+    arr = "[]" if t.endswith("[]") and not paren else ""
+    base = base.removesuffix("[]").strip()
+    return SHORT_TYPES.get(base, base) + (paren + rest if paren else arr)
+
+
+def liam_app():
+    """The folder holding Liam ERD's web app (index.html, assets/): fetched the first time (on a worker
+    thread: a few seconds), then kept."""
+    if os.path.isfile(f"{LIAM_APP}/index.html"):
+        return LIAM_APP
+    import base64, hashlib, io, shutil, tarfile, tempfile, urllib.request
+    try:
+        with urllib.request.urlopen(LIAM_URL, timeout=60) as r:
+            data = r.read()
+    except OSError as e:
+        raise DbError(f"couldn't fetch Liam ERD: {e}")
+    if base64.b64encode(hashlib.sha512(data).digest()).decode() != LIAM_SHA512:
+        raise DbError("Liam ERD's download doesn't match its published hash: not used")
+    os.makedirs(DIR, mode=0o700, exist_ok=True)
+    tmp = tempfile.mkdtemp(dir=DIR, prefix=".liam-")
+    prefix = "package/dist-cli/html/"
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        for m in tar.getmembers():
+            rel = os.path.normpath(m.name[len(prefix):]) if m.name.startswith(prefix) else ""
+            if not m.isfile() or not rel or rel.startswith("..") or os.path.isabs(rel):
+                continue
+            dest = os.path.join(tmp, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with tar.extractfile(m) as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out)
+    if not os.path.isfile(f"{tmp}/index.html"):
+        shutil.rmtree(tmp)
+        raise DbError("Liam ERD's package has no web app in it")
+    try:
+        os.rename(tmp, LIAM_APP)
+    except OSError:   # fetched twice at once: the other one won
+        shutil.rmtree(tmp)
+    return LIAM_APP
+
+
+def liam_column(name, typ, not_null, default=None, comment=None):
+    return {"name": name, "type": typ, "default": default, "check": None, "notNull": bool(not_null), "comment": comment}
 
 
 def parse_url(url):
@@ -386,6 +448,69 @@ class Postgres(Driver):
             out.append(("rows (estimate)", str(rows[0][1])))
         return out + [("columns", ", ".join(c for (c,) in cols))]
 
+    def liam(self, schema):
+        """The schema as Liam ERD's schema.json: its tables and views (partitions under their parent) with
+        their columns, keys, checks and indexes, and its enums. A key to another schema's table isn't a
+        line (that table isn't in it): its column's comment names it."""
+        tables = {}
+        for t, kind, tcomment, name, typ, not_null, default, comment in self.q("""
+                select c.relname, c.relkind, obj_description(c.oid, 'pg_class'), a.attname,
+                       format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid),
+                       col_description(c.oid, a.attnum)
+                from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+                left join pg_attrdef d on d.adrelid = c.oid and d.adnum = a.attnum
+                where n.nspname = %s and c.relkind in ('r', 'p', 'v', 'm', 'f') and not c.relispartition
+                order by c.relname, a.attnum""", (schema,)):
+            note = "view" if kind in ("v", "m") else None
+            tb = tables.setdefault(t, {"name": t, "columns": {}, "comment": tcomment or note, "indexes": {}, "constraints": {}})
+            tb["columns"][name] = liam_column(name, short_type(typ), not_null, default, comment)
+        for name, kind, t, cols, rschema, rt, rcols, upd, dele, definition in self.q("""
+                select k.conname, k.contype, t.relname,
+                       array(select a.attname from unnest(k.conkey) with ordinality u(n, i)
+                             join pg_attribute a on a.attrelid = k.conrelid and a.attnum = u.n order by u.i),
+                       rn.nspname, rt.relname,
+                       array(select a.attname from unnest(k.confkey) with ordinality u(n, i)
+                             join pg_attribute a on a.attrelid = k.confrelid and a.attnum = u.n order by u.i),
+                       k.confupdtype, k.confdeltype, pg_get_constraintdef(k.oid)
+                from pg_constraint k join pg_class t on t.oid = k.conrelid join pg_namespace n on n.oid = t.relnamespace
+                left join pg_class rt on rt.oid = k.confrelid left join pg_namespace rn on rn.oid = rt.relnamespace
+                where n.nspname = %s and k.contype in ('p', 'u', 'f', 'c') and not t.relispartition""", (schema,)):
+            tb = tables.get(t)
+            if not tb:
+                continue
+            if kind == "f":
+                if rschema != schema or rt not in tables:
+                    for c in cols:
+                        if c in tb["columns"] and not tb["columns"][c]["comment"]:
+                            tb["columns"][c]["comment"] = f"→ {rschema}.{rt}"
+                    continue
+                tb["constraints"][name] = {"type": "FOREIGN KEY", "name": name, "columnNames": list(cols),
+                                           "targetTableName": rt, "targetColumnNames": list(rcols),
+                                           "updateConstraint": ACTIONS.get(upd, "NO_ACTION"),
+                                           "deleteConstraint": ACTIONS.get(dele, "NO_ACTION")}
+            elif kind == "c":
+                tb["constraints"][name] = {"type": "CHECK", "name": name,
+                                           "detail": definition.removeprefix("CHECK ").strip()}
+            else:
+                tb["constraints"][name] = {"type": "PRIMARY KEY" if kind == "p" else "UNIQUE", "name": name,
+                                           "columnNames": list(cols)}
+        for t, name, unique, method, cols in self.q("""
+                select t.relname, i.relname, x.indisunique, am.amname,
+                       array(select pg_get_indexdef(x.indexrelid, k, true) from generate_series(1, x.indnkeyatts) k)
+                from pg_index x join pg_class i on i.oid = x.indexrelid join pg_class t on t.oid = x.indrelid
+                join pg_namespace n on n.oid = t.relnamespace join pg_am am on am.oid = i.relam
+                where n.nspname = %s and not exists (select 1 from pg_constraint k where k.conindid = x.indexrelid)""",
+                                                    (schema,)):
+            if t in tables:   # a key's own index is the key: only the others
+                tables[t]["indexes"][name] = {"name": name, "unique": unique, "columns": list(cols), "type": method}
+        enums = {name: {"name": name, "values": list(values), "comment": comment} for name, values, comment in self.q("""
+                select t.typname, array(select e.enumlabel from pg_enum e where e.enumtypid = t.oid order by e.enumsortorder),
+                       obj_description(t.oid, 'pg_type')
+                from pg_type t join pg_namespace n on n.oid = t.typnamespace where n.nspname = %s and t.typtype = 'e'""",
+                                                                               (schema,))}
+        return {"tables": tables, "enums": enums, "extensions": {}}
+
     def close(self):
         self.drop_cursor()
         try:
@@ -413,6 +538,46 @@ class Sqlite(Driver):
 
     def name(self, path):
         return '"' + path[0].replace('"', '""') + '"'
+
+    def liam(self, _schema=None):
+        """As Postgres.liam: the file's tables and views, their columns, keys and indexes."""
+        tables = {}
+        try:
+            names = self.conn.execute("select name, type from sqlite_master where type in ('table', 'view') "
+                                      "and name not like 'sqlite_%' order by name").fetchall()
+            for t, typ in names:
+                q = self.name((t,))
+                info = self.conn.execute(f"pragma table_info({q})").fetchall()   # cid, name, type, notnull, default, pk
+                tb = tables[t] = {"name": t, "comment": "view" if typ == "view" else None, "indexes": {}, "constraints": {},
+                                  "columns": {r[1]: liam_column(r[1], (r[2] or "").lower(), r[3] or r[5], r[4]) for r in info}}
+                pk = [r[1] for r in sorted(info, key=lambda r: r[5]) if r[5]]
+                if pk:
+                    tb["constraints"][f"{t}_pkey"] = {"type": "PRIMARY KEY", "name": f"{t}_pkey", "columnNames": pk}
+                for idx in self.conn.execute(f"pragma index_list({q})").fetchall():   # seq, name, unique, origin, partial
+                    cols = [r[2] for r in self.conn.execute(f"pragma index_info({self.name((idx[1],))})")]
+                    if idx[3] == "u":     # a UNIQUE in the table's definition
+                        tb["constraints"][idx[1]] = {"type": "UNIQUE", "name": idx[1], "columnNames": cols}
+                    elif idx[3] == "c":   # CREATE INDEX
+                        tb["indexes"][idx[1]] = {"name": idx[1], "unique": bool(idx[2]), "columns": cols, "type": "btree"}
+                fks = {}
+                for r in self.conn.execute(f"pragma foreign_key_list({q})").fetchall():   # id, seq, table, from, to, on_update, on_delete
+                    fks.setdefault(r[0], []).append(r)
+                for rows in fks.values():
+                    rt = rows[0][2]
+                    rcols = [r[4] for r in rows]
+                    if None in rcols:   # REFERENCES t with no column: its primary key
+                        rcols = [r[1] for r in self.conn.execute(f"pragma table_info({self.name((rt,))})") if r[5]]
+                    name = f"{t}_{'_'.join(r[3] for r in rows)}_fkey"
+                    tb["constraints"][name] = {"type": "FOREIGN KEY", "name": name, "columnNames": [r[3] for r in rows],
+                                               "targetTableName": rt, "targetColumnNames": rcols,
+                                               "updateConstraint": rows[0][5].replace(" ", "_"),
+                                               "deleteConstraint": rows[0][6].replace(" ", "_")}
+        except self.sq.Error as e:
+            raise DbError(str(e))
+        for tb in tables.values():   # a key to a table that isn't there would break the diagram
+            tb["constraints"] = {n: k for n, k in tb["constraints"].items()
+                                 if k["type"] != "FOREIGN KEY" or k["targetTableName"] in tables}
+        return {"tables": tables, "enums": {}, "extensions": {}}
 
     def browse(self, path, offset=0, limit=PAGE):
         try:

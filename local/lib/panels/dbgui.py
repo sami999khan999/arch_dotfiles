@@ -10,6 +10,8 @@
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once. An S3 image (the file
 #          picked in the tree, or a row of a bucket / folder's file list) shows beside the table.
+#   Diagram  (d, or Diagram on a Postgres connection / schema / table or a SQLite file) the schema's tables
+#          and the keys between them, in Liam ERD (dbliam.py)
 #   Ask    (a, or Ask in the header) an AI about this connection and what's selected: its own popup
 #          (dbaskgui.py, dbagent.py), read-only on a connection of its own; "Put in query box" there sends
 #          a query back here (the use-query action), and a write from it needs a second Run.
@@ -21,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dbagent
+import dbliam
 import dblib as db
 from gtkkit import Gdk, Gio, GLib, Gtk, View, box, button, clear, dropdown, label, recolor, run, scrolled
 from gi.repository import GObject
@@ -50,6 +53,8 @@ columnview listview > row:hover { background: alpha(#292e42, .35); }
 columnview listview > row:selected { background: alpha(#292e42, .75); color: #c0caf5; }
 columnview listview > row > cell { padding: 3px 8px; }
 .form-label { color: #a9b1d6; min-width: 160px; }
+.dg-bar { padding: 8px 20px; border-bottom: 1px solid alpha(#3b4261, .7); }   /* over Liam ERD */
+.dg-toggle:checked { color: #6b8fe0; background: alpha(#292e42, .9); }
 .db-preview { border-left: 1px solid alpha(#3b4261, .7); padding-left: 14px; }
 
 button.pager-btn { padding: 2px 10px; min-width: 0; font-size: 12pt; }
@@ -113,7 +118,7 @@ class Databases(View):
     icon = ""
     interval = 5   # refresh(): only closes idle connections
     css = CSS
-    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("a", "ask AI"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
+    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("a", "ask AI"), ("d", "diagram"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
              ("Del", "delete")]
 
     def __init__(self):
@@ -165,6 +170,13 @@ class Databases(View):
         self.stack.add_named(self.build_browse(), "browse")
         self.form_page = box(True, 0)
         self.stack.add_named(scrolled(self.form_page), "form")
+        self.diagram = dbliam.Diagram(lambda: self.stack.set_visible_child_name("browse"),
+                                      lambda s: self.show_diagram(self.diagram_cid, s))
+        self.diagram_cid = None
+        self.stack.add_named(self.diagram, "diagram")
+        # the diagram's web view only lives while it shows (a WebKit process: ~150 MB)
+        self.stack.connect("notify::visible-child-name",
+                           lambda st, _p: st.get_visible_child_name() != "diagram" and self.diagram.drop())
         self.paint_tree()
         self.show_empty()
         GLib.idle_add(lambda: self.tree.grab_focus() and False)
@@ -516,6 +528,8 @@ class Databases(View):
         clear(self.actions)
         cid = c["id"]
         add = self.actions.append
+        if self.diagram_of(c, node):
+            add(button("Diagram", lambda: self.show_diagram(cid, *self.diagram_of(c, node)), tooltip="d"))
         if node is None:
             add(button("Open" if cid not in self.live else "Reload", lambda: self.reload(cid), "primary", tooltip="Enter / F5"))
             add(button("Edit", lambda: self.form(c), tooltip="e"))
@@ -535,6 +549,39 @@ class Databases(View):
         if c["kind"] in ("redis", "s3") and node.kind not in ("bucket", "folder", "more"):
             self.del_btn = button("Delete", lambda: self.delete_node(cid, node), "danger", tooltip="Del; click twice")
             add(self.del_btn)
+
+    # ---- the schema diagram: Liam ERD (dbliam.py) -------------------------------------------------
+    @staticmethod
+    def diagram_of(c, node):
+        """(schema, table to centre on) for the diagram from this node, or None (no diagram for it)."""
+        if c["kind"] == "postgres":
+            if node is None:
+                return "public", None
+            if node.kind in ("schema", "table", "view"):
+                return node.path[0], node.path[1] if len(node.path) > 1 else None
+        elif c["kind"] == "sqlite":
+            return "", node.path[0] if node else None
+        return None
+
+    def show_diagram(self, cid, schema, focus=None):
+        c = self.conn(cid)
+
+        if dbliam.WebKit is None:
+            return self.say("the diagram needs WebKitGTK: sudo pacman -S webkitgtk-6.0", "bad", 10)
+        if not os.path.isfile(f"{db.LIAM_APP}/index.html"):
+            self.say(f"getting Liam ERD {db.LIAM_VERSION} (once)…", seconds=30)
+
+        def fetch(d):
+            schemas = [n.name for n in d.children(())] if c["kind"] == "postgres" else []
+            return db.liam_app(), d.liam(schema), schemas
+
+        def done(got):
+            app, data, schemas = got
+            self.diagram_cid = cid
+            self.stack.set_visible_child_name("diagram")
+            self.diagram.show(app, data, schemas, schema, focus)
+            self.say(f"{c['name']}{' · ' + schema if schema else ''}: {len(data['tables'])} tables")
+        self.job(cid, fetch, done)
 
     def reload(self, cid):
         """Drop what's been fetched for the connection and list its top again."""
@@ -1052,6 +1099,8 @@ class Databases(View):
     def key(self, keyval, state):
         if self.typing():
             return False
+        if self.stack.get_visible_child_name() == "diagram" and self.diagram.key_pressed(keyval):
+            return True
         row = self.tree.get_selected_row()
         key = row.key if row else None
         if keyval == Gdk.KEY_n:
@@ -1077,6 +1126,8 @@ class Databases(View):
             self.turn("prev" if keyval == Gdk.KEY_bracketleft else "next")
         elif keyval == Gdk.KEY_a:
             self.ask()
+        elif keyval == Gdk.KEY_d and key and self.diagram_of(self.conn(key[0]), self.node_of(key) if key[1] else None):
+            self.show_diagram(key[0], *self.diagram_of(self.conn(key[0]), self.node_of(key) if key[1] else None))
         elif keyval == Gdk.KEY_slash:
             self.filter.grab_focus()
         else:

@@ -473,7 +473,8 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   *Export* saves it. The bar above it: the schema picker; **search** (`/`): only the tables whose name has it
   (just that one on an exact name); **Related** (`r`) adds the tables they join, by a key or by a column that
   only stores their id without one (`impersonated_by` → user: guessed from the name and the key's type, its
-  key named `guessed: …`); *Close* or `Esc`. Liam's web app is fetched once (pinned version, checked against
+  key named `guessed: …`); *All tables*: the search cleared and every table back (also after Liam's *Open in main
+  area*, which hides the rest); *Close* or `Esc`. Liam's web app is fetched once (pinned version, checked against
   npm's hash, kept in `~/.local/share/dbclient/`); the panel hands it the schema from memory, nothing goes
   over the network. Needs `webkitgtk-6.0` (in `setup/packages.txt`).
 - **Ask** (`a`, or *Ask* in the header): a popup like the other panels (`dbaskgui.py`), an AI about the

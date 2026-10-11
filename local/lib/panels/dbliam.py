@@ -7,7 +7,8 @@
 #
 #   the bar   the schema picker; search (/): only the tables whose name has it (just that one on an exact
 #             name); Related (r): the tables they join too, by a key or by a column that only stores their
-#             id (guessed from its name and the key's type; such a key is named "guessed: …"); Close (Esc)
+#             id (guessed from its name and the key's type; such a key is named "guessed: …"); All tables:
+#             the search cleared and Liam reloaded (also undoes its "Open in main area"); Close (Esc)
 #   in Liam   drag, zoom, a click shows a table's columns and keys, Show: names / keys / all fields, Export
 #
 # The view (a WebKit process, ~150 MB) is made when the diagram opens and dropped when it closes.
@@ -77,6 +78,8 @@ STYLE = """
 [class*="_primaryKeyIcon_1iyaa"] { color: #e0af68 !important; }
 [class*="_linkIcon_1iyaa"] { color: #6b8fe0 !important; }
 [class*="_diamondIcon_1iyaa"] { color: #a9b1d6 !important; }
+/* a table's details on the right: wider (Liam's 300 px cut the defaults and constraint names short) */
+[class*="_wrapper_2kymp"] { width: min(460px, 45vw) !important; }
 """
 
 
@@ -171,6 +174,8 @@ class Diagram(Gtk.Box):
         self.related.connect("toggled", lambda *_: self.load())
         self.count = label("", "dim")
         bar = box(False, 8, self.schemas, self.search, self.related, self.count, Gtk.Box(hexpand=True),
+                  button("All tables", self.everything, "flat", tooltip="every table again: clears the search, and "
+                         "brings back what Liam's Open in main area hid"),
                   button("Close", on_close, "flat", tooltip="Esc"))
         bar.add_css_class("dg-bar")
         self.append(bar)
@@ -255,6 +260,15 @@ class Diagram(Gtk.Box):
         Diagram.current = self
         self.load()
         self.view.grab_focus()
+
+    def everything(self):
+        """Every table again: the search cleared and Liam started over (what it hid is in its own state),
+        no table's details open."""
+        self.focus = None
+        if self.search.get_text():
+            self.search.set_text("")   # its search-changed loads
+        else:
+            self.load()
 
     def load(self):
         if not self.view or not self.schema:

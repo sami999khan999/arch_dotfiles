@@ -263,12 +263,14 @@ class Sidebar(App):
                     label = lib.HARNESSES.get(t["harness"], (t["harness"],))[0] if t["harness"] else "shell"
                     title = "shell" if st == "shell" else (lib.clean_title(t["title"]) or label)
                     cur = t["name"] == shown
-                    # line 2: the account (with more than one), what it's doing, how long the thread
+                    # line 2: the agent, the account (with more than one), what it's doing, how long the thread
                     # has been up (its activity time says nothing: an idle agent's screen still redraws),
                     # other views of it. Line 3: the model and how far its account is into its limit
                     what = (STATE_WORD[st], STATE_GLYPH[st][1])
                     short = SHORT.get(t["harness"], t["harness"] or "shell")
-                    info = []
+                    # which agent, unless the title already says it: once the agent names the thread
+                    # after the task nothing else would
+                    info = [] if title == label or st == "shell" else [(short, "sub"), (" · ", "line")]
                     if t["harness"] and len(lib.accounts(t["harness"])) > 1:   # which login it's on
                         info += [(lib.account_label(t["harness"], t["account"]), "accent"), (" · ", "line")]
                     pct, busy = self.thread_cpu(t)
@@ -282,11 +284,13 @@ class Sidebar(App):
                     subs = lib.subagents_of(t)
                     if subs:
                         info.append((f" · {subs} agent{'s' * (subs > 1)}", "green"))
+                    # the least needed last, each only if it fits whole (a narrow sidebar cut it mid-word)
                     up = ago(t["created"])
-                    if up != "now":
-                        info += [(" · ", "line"), (f"up {up}", "muted")]
-                    if t["attached"] > 1:
-                        info += [(" · ", "line"), (f"{t['attached']} views", "muted")]
+                    room = self.width - (PAD + 1) - 1
+                    for extra in ([f"up {up}"] if up != "now" else []) + \
+                            ([f"{t['attached']} views"] if t["attached"] > 1 else []):
+                        if sum(width(x) for x, _ in info) + 3 + width(extra) <= room:
+                            info += [(" · ", "line"), (extra, "muted")]
                     detail = [info]
                     if t["harness"] and st != "shell":
                         rec = sessions.get(t["name"])

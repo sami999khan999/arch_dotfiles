@@ -761,8 +761,9 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
  agentmux │ + Terminal Ctrl+Alt+T  × Terminal Ctrl+Alt+W  + Thread Ctrl+Alt+N  Open project Ctrl+Alt+O  ? keys   cloud_track · 1
 ```
 
-- **A thread's rows in Threads:** its title; then its account (with more than one), what it's doing
-  and how long it's been up; then a bar of how far its account is into its limit, with the window
+- **A thread's rows in Threads:** its title; then which agent (`claude`, `codex`, `agy`; left out while
+  the title is still the agent's name), its account (with more than one), what it's doing and how
+  long it's been up (left out when it doesn't fit); then a bar of how far its account is into its limit, with the window
   (`━━━━━━ 87% wk · Opus 5.5`: green, amber from 60 %, red from 85 %; the window nearest its limit, for
   Antigravity the model's group) and the model its conversation last used (from the conversation
   itself: Claude Code's and Codex's file, agy's database; before its first answer the model the agent

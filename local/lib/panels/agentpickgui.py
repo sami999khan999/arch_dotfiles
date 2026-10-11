@@ -275,12 +275,13 @@ class Account(Picker):
         # what was read last (instant), then asked live in the background (refresh)
         self.usage = {(h, a): lib.account_usage(h, a) for h in self.harnesses for a in lib.accounts(h)}
         self.renaming = None   # (harness, account) whose name is being typed
+        self.removing = None   # (harness, account) whose Remove was clicked once
         self.set_hints()
 
     def set_hints(self):
         here = self.current and self.current[0] == self.h
         self.hints = [("Enter", "switch the thread" if here else "make default"),
-                      *([("Ctrl+D", "make default")] if here else []), ("F2", "rename"), ("Tab", "agent"),
+                      *([("Ctrl+D", "make default")] if here else []), ("F2", "rename"), ("Del", "remove"), ("Tab", "agent"),
                       ("↑↓", "move"), ("Esc", "close")]
         if self.host:
             self.host.show_hints()
@@ -374,6 +375,10 @@ class Account(Picker):
         elif email:
             head.append(button("Make default", lambda: self.make_default(h, a), "flat"))
         head.append(button("Rename", lambda: self.start_rename(h, a), "flat"))
+        if a != "main":   # a second click removes it (Delete twice): it logs the account out
+            sure = self.removing == (h, a)
+            head.append(button("Click again to remove" if sure else "Remove", lambda: self.remove(h, a),
+                               "danger" if sure else "flat"))
         if email:
             org = me.get("org", "")
             who = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}"
@@ -405,12 +410,11 @@ class Account(Picker):
             c = self.card(h, a, default, q)
             if c:
                 yield ("use", h, a), c, True
-        if q and q not in names:   # a new account by that name
-            ok = bool(re.fullmatch(r"[A-Za-z0-9_-]{1,20}", q)) and q != "main"
+        if q and all(lib.account_label(h, a).lower() != q.lower() for a in names):   # a new one by that name
+            ok = len(q) <= 40
             line = box(False, 12, label("+", "accent" if ok else "dim", "pick-glyph"),
-                       label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok
-                             else "A name is letters, digits, - or _", "accent" if ok else "dim"),
-                       classes=("acct-add",))
+                       label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok else "A name is at most 40 characters",
+                             "accent" if ok else "dim"), classes=("acct-add",))
             yield ("add", h, q), line, ok
         elif not q:
             yield None, box(False, 12, label("+", "dim", "pick-glyph"), label("Add account: type its name", "dim"),
@@ -423,6 +427,21 @@ class Account(Picker):
         self.paint_side()
         self.paint(self.selected())
         self.say(f"{lib.account_label(h, a)} is the default: new {lib.HARNESSES[h][0]} threads start on it")
+
+    def remove(self, h, a):
+        if self.removing != (h, a):   # first: ask
+            self.removing = (h, a)
+            self.say(f"Removing {lib.account_label(h, a)} logs it out here and drops it on every PC: again to confirm")
+            return self.paint(self.selected())
+        self.removing = None
+        shown = lib.account_label(h, a)
+        err = lib.remove_account(h, a)
+        if err:
+            self.paint(self.selected())
+            return self.say(err, "bad")
+        self.paint_side()
+        self.paint(max(self.selected() - 1, 0))
+        self.say(f"{shown} removed")
 
     def start_rename(self, h, a):
         self.renaming = (h, a)
@@ -442,14 +461,15 @@ class Account(Picker):
     def choose(self, item):
         kind, h, a = item
         if kind == "add":
-            err = lib.add_account(h, a)
+            name = a
+            a, err = lib.new_account(h, name)
             if err:
                 return self.say(err, "bad")
             self.usage[(h, a)] = {}
             self.paint_side()
             self.search.set_text("")   # repaints, with it listed
             self.select(next(n for n, it in enumerate(self.items) if it == ("use", h, a)))
-            return self.say(f"{a} added: make it the default, start a thread on it and log in there")
+            return self.say(f"{name} added: make it the default, start a thread on it and log in there")
         if self.current and self.current[0] == h:
             if a != self.current[1]:
                 self.done("account", "switch", self.thread, a)
@@ -464,10 +484,15 @@ class Account(Picker):
         return False
 
     def key(self, keyval, state):
-        if self.renaming and keyval == Gdk.KEY_Escape:   # not renamed after all
-            self.renaming = None
+        if (self.renaming or self.removing) and keyval == Gdk.KEY_Escape:   # not renamed / removed after all
+            self.renaming = self.removing = None
             self.paint(self.selected())
             self.search.grab_focus()
+            return True
+        if keyval == Gdk.KEY_Delete and not self.search.get_text():
+            i = self.selected()
+            if 0 <= i < len(self.items) and self.items[i] and self.items[i][0] == "use" and self.items[i][2] != "main":
+                self.remove(*self.items[i][1:])
             return True
         if keyval == Gdk.KEY_F2:
             i = self.selected()

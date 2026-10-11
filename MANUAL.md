@@ -829,7 +829,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
-  Not while the agent is working. Typing a new name offers *Add account “name”*. **Rename** (or `F2`)
+  Not while the agent is working. Any number of accounts per agent: typing a name that isn't one
+  yet offers *Add account “name”* (any text, `Client: Acme`; its folder's name is made from it).
+  **Remove** (or `Delete`; a second click confirms) logs it out on this PC and drops it from every
+  PC's list (not `main`, the agent's own login; not one a thread runs on; its conversations stay). **Rename** (or `F2`)
   gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the
   home screen): Enter keeps it, Esc doesn't, an empty name is its own again (`main` for the agent's own
   login, else the name it was added as, which stays its folder's). The names and the list of accounts
@@ -854,7 +857,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   one they're on). A new agy account starts logged out: agy shows a Google sign-in link in the thread. Its own `.claude.json`
   starts with main's theme, MCP servers and folder trust. Add one in the panel (or `agentmux account
   add <name>`), make it the default, start a thread: Claude Code's first-run screens and `/login` (as
-  that account). `agentmux account` lists them (`*` the default); `agentmux account default <name> [agent]`,
+  that account). `agentmux account` lists them (`*` the default); `agentmux account default <name> [agent]`, `agentmux account add "<name>" [agent]` / `remove <account> [agent]`,
   `agentmux account switch [thread] [name]` do the panel's two things. Each thread's row
   and the status bar name its account, and the home screen the default.
   The first message after a switch reads the whole conversation again on the new account (the cache

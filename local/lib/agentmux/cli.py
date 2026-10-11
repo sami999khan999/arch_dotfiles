@@ -43,8 +43,10 @@
   agentmux hooks               install those hooks in each agent's own config (idempotent)
   agentmux paste <pane>        Ctrl+V in a Codex / agy thread: the clipboard's text, as a terminal paste
   agentmux account             the accounts (logins) of each agent that can have several, * the default
-  agentmux account add <name> [h]
-                               a new account (h: claude): start a thread on it and /login there
+  agentmux account add <shown name> [h]
+                               a new account (h: claude): start a thread on it and log in there
+  agentmux account remove <account> [h]
+                               forget it on every PC, log it out on this one (not main, not in use)
   agentmux account name <account> <shown name> [h]
                                the name it's shown by ("" : its own again)
   agentmux account default <name> [h]
@@ -463,8 +465,16 @@ def account(args):
                                     + "*" * (a == default) for a in lib.accounts(h)))
     elif sub == "add" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
-        err = lib.add_account(h, rest[0])
-        say(err or f"Account {rest[0]} added. agentmux account default {rest[0]}, then a new thread: /login in it")
+        a, err = lib.new_account(h, rest[0])
+        say(err or f"{rest[0]} added (as {a}): agentmux account default {a} {h}, then a new thread: log in there")
+    elif sub == "remove" and rest:
+        h = rest[1] if len(rest) > 1 else "claude"
+        if rest[0] not in lib.accounts(h):
+            return say(f"No account {rest[0]} for {h}")
+        shown = lib.account_label(h, rest[0])
+        err = lib.remove_account(h, rest[0])
+        say(err or f"{shown} removed: gone from every PC, logged out on this one")
+        poke()
     elif sub == "name" and len(rest) >= 2:
         h = rest[2] if len(rest) > 2 else "claude"
         if rest[0] not in lib.accounts(h):

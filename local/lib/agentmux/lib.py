@@ -431,16 +431,55 @@ ACCOUNT_AGENTS = ["claude", "codex", "agy"]   # the agents that can have several
 
 
 def accounts(harness):
-    """The harness's accounts, main first: this PC's folders and the ones accounts.json lists (added on
-    another PC: its folder is made the first time it's used here)."""
+    """The harness's accounts, main first, then in the order they were added: the ones accounts.json
+    lists (one added on another PC gets its folder here the first time it's used; one removed on
+    another PC is gone here too)."""
     if harness not in ACCOUNT_AGENTS:
         return ["main"]
-    try:
-        own = {d for d in os.listdir(f"{ACCOUNTS}/{harness}") if os.path.isdir(f"{ACCOUNTS}/{harness}/{d}")}
-    except OSError:
-        own = set()
-    own |= set(account_names().get(harness, {}))
-    return ["main"] + sorted(own - {"main"})
+    return ["main"] + [a for a in account_names().get(harness, {}) if a != "main"]
+
+
+def new_account(harness, name):
+    """Add an account shown as name (any text). Its own name (its folder's, a thread's @account) is made
+    from it: letters, digits and -, unique. Returns (account, error)."""
+    name = name.strip()
+    if not name or len(name) > 40:
+        return None, "A name is 1 to 40 characters"
+    if any(account_label(harness, a).lower() == name.lower() for a in accounts(harness)):
+        return None, f"There's already an account called {name}"
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20].strip("-") or "account"
+    account, n = base, 2
+    while account == "main" or account in accounts(harness) or os.path.exists(account_dir(harness, account)):
+        account, n = f"{base}-{n}", n + 1
+    err = add_account(harness, account)
+    if err:
+        return None, err
+    set_account_label(harness, account, name)
+    return account, None
+
+
+def remove_account(harness, account):
+    """Forget an account on every PC (its accounts.json entry) and its login on this one (its folder, or
+    agy's keyring slot): its conversations stay, they're main's. Not main (the agent's own login: log
+    out in the agent), not one a thread runs on. Returns an error or None."""
+    if account == "main":
+        return "That's the agent's own login: log out in the agent instead"
+    shown = account_label(harness, account)
+    if any(t["harness"] == harness and (t["account"] or "main") == account for t in threads()):
+        return f"{shown} has threads: close them or switch them to another account first"
+    if harness in ACCOUNT_KEYRING:
+        if load_state().get("agy_loaded", "main") == account:
+            agy_load("main")
+        keyring("clear", *agy_slot(account))
+    folder = account_dir(harness, account)
+    if os.path.isdir(folder):   # its own files and links into main's: the links go, not what they point at
+        shutil.rmtree(folder)
+    names = account_names()
+    names.get(harness, {}).pop(account, None)
+    save_account_names(names)
+    if default_account(harness) == account:
+        set_default_account(harness, "main")
+    return None
 
 
 def ensure_account(harness, account):
@@ -507,7 +546,7 @@ def account_names():
 
 def save_account_names(names):
     with open(ACCOUNT_NAMES, "w") as f:   # in place: config/agentmux is a dotfiles symlink
-        json.dump(names, f, indent=2, sort_keys=True)
+        json.dump(names, f, indent=2, ensure_ascii=False)   # in the order added: the panel lists them so
         f.write("\n")
 
 

@@ -431,12 +431,22 @@ ACCOUNT_AGENTS = ["claude", "codex", "agy"]   # the agents that can have several
 
 
 def accounts(harness):
-    """The harness's accounts, main first."""
+    """The harness's accounts, main first: this PC's folders and the ones accounts.json lists (added on
+    another PC: its folder is made the first time it's used here)."""
+    if harness not in ACCOUNT_AGENTS:
+        return ["main"]
     try:
-        own = sorted(d for d in os.listdir(f"{ACCOUNTS}/{harness}") if os.path.isdir(f"{ACCOUNTS}/{harness}/{d}"))
+        own = {d for d in os.listdir(f"{ACCOUNTS}/{harness}") if os.path.isdir(f"{ACCOUNTS}/{harness}/{d}")}
     except OSError:
-        own = []
-    return ["main"] + own if harness in ACCOUNT_AGENTS else ["main"]
+        own = set()
+    own |= set(account_names().get(harness, {}))
+    return ["main"] + sorted(own - {"main"})
+
+
+def ensure_account(harness, account):
+    """An account listed in accounts.json but new to this PC gets its folder before an agent runs on it."""
+    if account != "main" and not os.path.isdir(account_dir(harness, account)):
+        add_account(harness, account)
 
 
 def default_account(harness):
@@ -460,6 +470,10 @@ def add_account(harness, account):
     if os.path.exists(folder):
         return f"{account} already exists"
     os.makedirs(folder)
+    names = account_names()
+    if account not in names.get(harness, {}):   # listed on every PC from now on
+        names.setdefault(harness, {})[account] = ""
+        save_account_names(names)
     home = ACCOUNT_HOME.get(harness)
     for item in ACCOUNT_SHARED.get(harness, []):
         name = item.rstrip("/")
@@ -477,22 +491,36 @@ def add_account(harness, account):
     return None
 
 
-# state "account_names": harness -> account -> the name it's shown by (set in the Accounts panel);
-# the account itself (its folder, a thread's @account) keeps its own: main, or the name it was added as
+# config/agentmux/accounts.json: harness -> account -> the name it's shown by ("": its own). In the
+# repo, so every PC lists the same accounts under the same names (logged in on each PC by itself: a
+# login never goes in the repo). The account itself (its folder, a thread's @account) keeps its own
+# name: main, or the one it was added as.
+ACCOUNT_NAMES = f"{CONF}/accounts.json"
+
+
+def account_names():
+    try:
+        return json.load(open(ACCOUNT_NAMES))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_account_names(names):
+    with open(ACCOUNT_NAMES, "w") as f:   # in place: config/agentmux is a dotfiles symlink
+        json.dump(names, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+
 def account_label(harness, account):
-    return load_state().get("account_names", {}).get(harness, {}).get(account or "main") or account or "main"
+    return account_names().get(harness, {}).get(account or "main") or account or "main"
 
 
 def set_account_label(harness, account, name):
     """Show the account as name ("" or its own: back to its own)."""
-    s = load_state()
-    names = s.setdefault("account_names", {}).setdefault(harness, {})
+    names = account_names()
     name = name.strip()
-    if name and name != account:
-        names[account] = name
-    else:
-        names.pop(account, None)
-    save_state(s)
+    names.setdefault(harness, {})[account] = "" if name == account else name
+    save_account_names(names)
 
 
 def set_default_account(harness, account):
@@ -826,6 +854,7 @@ def set_account(name, account):
     harness = t["harness"]
     if account not in accounts(harness):
         return f"No account {account} for {HARNESSES.get(harness, (harness,))[0]}"
+    ensure_account(harness, account)
     if harness in ACCOUNT_KEYRING:   # one account at a time: every agy thread goes, so none may be working
         mine = [o for o in ts if o["harness"] == harness and o["command"] not in SHELLS]
         if any(state_of(o) == "working" for o in mine):
@@ -965,6 +994,7 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
         name = next_name(path)
     if account not in accounts(harness):
         account = default_account(harness)
+    ensure_account(harness, account)
     if harness in ACCOUNT_KEYRING:   # agy is on one account at a time: the default only if no agy runs
         loaded = load_state().get("agy_loaded", "main")
         if account != loaded and any(t["harness"] == harness and t["command"] not in SHELLS for t in threads()):

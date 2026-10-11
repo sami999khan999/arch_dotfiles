@@ -832,7 +832,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   Not while the agent is working. Typing a new name offers *Add account “name”*. **Rename** (or `F2`)
   gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the
   home screen): Enter keeps it, Esc doesn't, an empty name is its own again (`main` for the agent's own
-  login, else the name it was added as, which stays its folder's; `state.json` `account_names`, per PC).
+  login, else the name it was added as, which stays its folder's). The names and the list of accounts
+  are in `config/agentmux/accounts.json`, in the repo: another PC shows the same accounts under the same
+  names, *not logged in* until you log in there (logins never go in the repo; an account added on
+  another PC gets its folder here the first time a thread runs on it). The default stays per PC.
   The usage first shows what was read last (Claude Code's own in each account's `.claude.json`,
   agentmux's in `~/.cache/agentmux/usage.json`), then asks live with the account's own login (what
   Claude Code's `/usage`, Codex's `/status` and Antigravity read, all undocumented; again every minute

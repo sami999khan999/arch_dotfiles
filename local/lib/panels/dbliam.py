@@ -22,26 +22,27 @@ except (ValueError, ImportError):   # webkitgtk-6.0 not installed (setup/package
     WebKit = None
 
 SCHEME = "dbliam"
-# Liam's colour tokens as the panels' (recolor() makes them the active theme's), square corners, our font
+# Liam's colour tokens as the panels' (recolor() makes them the active theme's), square corners, our font.
+# !important: a stylesheet the view adds is a user one, and an author's (Liam's own) beats it without
 STYLE = """
 :root {
-  --global-background: #1a1b26; --global-muted-background: #16161e; --global-foreground: #c0caf5;
-  --global-border: #3b4261; --global-body-text: #c0caf5; --global-mute-text: #a9b1d6;
-  --pane-background: #16161e; --pane-muted-background: #1a1b26; --pane-border: #3b4261;
-  --pane-border-hover: #565f89; --pane-border-active: #565f89; --pane-background-hover: #292e42;
-  --pane-background-active: #292e42;
-  --node-background: #1a1b26; --node-accent-background: #292e42; --node-border: #3b4261;
-  --node-muted-border: #292e42; --node-foreground: #c0caf5; --node-accent-foreground: #a9b1d6;
-  --node-selected: #6b8fe0; --node-layout: #6b8fe0;
-  --primary-accent: #6b8fe0; --primary-color: #6b8fe0; --primary-hover: #7aa2f7; --accent: #6b8fe0;
-  --primary-overlay-100: #6b8fe0; --primary-overlay-40: rgba(107, 143, 224, .4);
-  --primary-overlay-20: rgba(107, 143, 224, .2); --primary-overlay-10: rgba(107, 143, 224, .1);
-  --primary-accent-overlay: rgba(107, 143, 224, .1); --primary-accent-overlay-hover: rgba(107, 143, 224, .2);
-  --button-background: #292e42; --button-border: #3b4261; --button-background-hover: #3b4261;
-  --button-primary-background: #6b8fe0; --button-primary-background-hover: #7aa2f7;
-  --toggle-background-checked: #6b8fe0; --dropdown-border: #3b4261; --dropdown-background-hover: #292e42;
-  --xy-edge-stroke-default: #565f89; --xy-edge-stroke-selected-default: #6b8fe0;
-  --xy-background-pattern-dots-color-default: #3b4261; --xy-background-color-default: #1a1b26;
+  --global-background: #1a1b26 !important; --global-muted-background: #16161e !important; --global-foreground: #c0caf5 !important;
+  --global-border: #3b4261 !important; --global-body-text: #c0caf5 !important; --global-mute-text: #a9b1d6 !important;
+  --pane-background: #16161e !important; --pane-muted-background: #1a1b26 !important; --pane-border: #3b4261 !important;
+  --pane-border-hover: #565f89 !important; --pane-border-active: #565f89 !important; --pane-background-hover: #292e42 !important;
+  --pane-background-active: #292e42 !important;
+  --node-background: #1a1b26 !important; --node-accent-background: #292e42 !important; --node-border: #3b4261 !important;
+  --node-muted-border: #292e42 !important; --node-foreground: #c0caf5 !important; --node-accent-foreground: #a9b1d6 !important;
+  --node-selected: #6b8fe0 !important; --node-layout: #6b8fe0 !important;
+  --primary-accent: #6b8fe0 !important; --primary-color: #6b8fe0 !important; --primary-hover: #7aa2f7 !important; --accent: #6b8fe0 !important;
+  --primary-overlay-100: #6b8fe0 !important; --primary-overlay-40: rgba(107, 143, 224, .4) !important;
+  --primary-overlay-20: rgba(107, 143, 224, .2) !important; --primary-overlay-10: rgba(107, 143, 224, .1) !important;
+  --primary-accent-overlay: rgba(107, 143, 224, .1) !important; --primary-accent-overlay-hover: rgba(107, 143, 224, .2) !important;
+  --button-background: #292e42 !important; --button-border: #3b4261 !important; --button-background-hover: #3b4261 !important;
+  --button-primary-background: #6b8fe0 !important; --button-primary-background-hover: #7aa2f7 !important;
+  --toggle-background-checked: #6b8fe0 !important; --dropdown-border: #3b4261 !important; --dropdown-background-hover: #292e42 !important;
+  --xy-edge-stroke-default: #565f89 !important; --xy-edge-stroke-selected-default: #6b8fe0 !important;
+  --xy-background-pattern-dots-color-default: #3b4261 !important; --xy-background-color-default: #1a1b26 !important;
 }
 * { border-radius: 0 !important; font-family: "JetBrainsMono Nerd Font", monospace !important; }
 """

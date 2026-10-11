@@ -6,7 +6,8 @@
 #          the changed files (all ticked: untick what stays out; a filter, All / None for what it shows,
 #          each file's +/- lines), Push it after
 #   right  the selected file's diff (a click on a file, or ↑↓ in the list): each line numbered, added / removed
-#          ones tinted, a header per hunk; a long line wraps under its text, not under the numbers
+#          ones tinted, a header per hunk; a long line wraps under its text, not under the numbers (a very
+#          long one is cut)
 # A normal git commit, so the project's hooks run; the Projects panel sees the result by itself (its live
 # look at git).
 import os, re, sys, threading
@@ -18,6 +19,7 @@ import projectsgui as pg
 pj = pg.pj
 SUBJECT_MAX = 72        # past it the subject's count turns amber (git log's one-line view cuts it)
 DIFF_MAX = 4000         # lines of a diff shown at most
+LINE_MAX = 1000         # characters of a line shown at most: wrapping a bundle's one-line source map (MBs) froze it
 CSS = """
 .commit-files { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
 .commit-files > row { padding: 2px 8px; }
@@ -295,7 +297,10 @@ class Commit(View):
             num = old if sign == "-" else new
             old, new = old + (sign != "+"), new + (sign != "-")
             buf.insert_with_tags_by_name(it, f"{num:>4} ", "num", "line", *([tag] if tag else []))
-            buf.insert_with_tags_by_name(it, f"{sign}{l[1:]}\n", "line", *([tag] if tag else []))
+            cut = len(l) - LINE_MAX
+            buf.insert_with_tags_by_name(it, l[:LINE_MAX] + ("" if cut > 0 else "\n"), "line", *([tag] if tag else []))
+            if cut > 0:
+                buf.insert_with_tags_by_name(it, f" … {cut:,} more characters\n", "meta", "line")
         if more > 0:
             buf.insert_with_tags_by_name(it, f"… {more} more lines", "meta")
         if not lines:

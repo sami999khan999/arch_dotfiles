@@ -4,8 +4,10 @@
   agentmux                     open the workspace (builds it the first time, then reattaches)
   agentmux project <dir>       switch to a project (opens it if it isn't yet)
   agentmux show <thread>       show a thread in the middle
-  agentmux new-thread [h]      new agent thread in the current project (h: claude, opencode, agy, codex;
-                               without it a picker asks), also opened in the project's VS Code kitty
+  agentmux new-thread [h] [--account a]
+                               new agent thread in the current project (h: claude, opencode, agy, codex;
+                               without it a picker asks; a: on that account, not the default), also
+                               opened in the project's VS Code kitty
   agentmux new                 Super + N on its workspace: a new thread, or agentmux itself if it isn't open
   agentmux open                project picker (a folder browser; the first time it asks for the
                                projects folder, then opens there)
@@ -424,7 +426,7 @@ def new_from_desktop():
                        "--class", "agentmux", "-e", SELF])
 
 
-def new_thread(harness=None, prompt_file=None):
+def new_thread(harness=None, prompt_file=None, account=None):
     project = lib.load_state().get("project")
     if not project:   # nothing to start it in: pick a project first
         return popup("project")
@@ -434,7 +436,7 @@ def new_thread(harness=None, prompt_file=None):
             harness = found[0][0]
         else:
             return popup("harness")
-    name = lib.new_thread(project, harness, prompt_file)
+    name = lib.new_thread(project, harness, prompt_file, account=account)
     lib.wait_started(name, harness)   # show it running, not half-started
     show(name)
     if lib.show_in_pair(name, project):
@@ -1577,10 +1579,11 @@ def main(argv):
         return attach()
     cmd, args = argv[1], argv[2:]
     pfile = args[args.index("--prompt-file") + 1:args.index("--prompt-file") + 2] if "--prompt-file" in args else []
+    acct = args[args.index("--account") + 1:args.index("--account") + 2] if "--account" in args else []
     actions = {
         "project": lambda: switch_project(args[0]), "show": lambda: show(args[0]),
-        "new-thread": lambda: new_thread(next((a for a in args if not a.startswith("--") and a not in pfile), None),
-                                         pfile[0] if pfile else None),
+        "new-thread": lambda: new_thread(next((a for a in args if not a.startswith("--") and a not in pfile + acct), None),
+                                         pfile[0] if pfile else None, acct[0] if acct else None),
         "open": lambda: popup("project"), "first-run": first_run, "new": new_from_desktop,
         "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
         "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),

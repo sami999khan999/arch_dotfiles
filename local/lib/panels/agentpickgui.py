@@ -276,6 +276,7 @@ class Account(Picker):
         self.usage = {(h, a): lib.account_usage(h, a) for h in self.harnesses for a in lib.accounts(h)}
         self.renaming = None   # (harness, account) whose name is being typed
         self.removing = None   # (harness, account) whose Remove was clicked once
+        self.adding = None     # the harness whose + Add account was clicked: its name field shows
         self.set_hints()
 
     def set_hints(self):
@@ -302,9 +303,9 @@ class Account(Picker):
         for h in self.harnesses:
             names = lib.accounts(h)
             n = f"{len(names)} account{'s' * (len(names) > 1)}"
-            row = Gtk.ListBoxRow(child=box(True, 3, label(lib.HARNESSES[h][0], "bold"),
-                                           label(f"{n} · ● {lib.account_label(h, lib.default_account(h))}",
-                                                 "setting-sub", ellipsize=True)))
+            sub = label(f"{n} · ● {lib.account_label(h, lib.default_account(h))}", "setting-sub", ellipsize=True)
+            sub.set_max_width_chars(22)   # a long account name doesn't widen the column
+            row = Gtk.ListBoxRow(child=box(True, 3, label(lib.HARNESSES[h][0], "bold"), sub))
             self.side.append(row)
             if h == self.h:
                 self.side.select_row(row)
@@ -384,7 +385,8 @@ class Account(Picker):
             who = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}"
                                               if org and org != f"{email}'s Organization" else "")
         else:
-            who = "not logged in · make it the default, start a thread, log in there"
+            who = "not logged in · Log in starts a thread on it, where you log in"
+            head.append(button("Log in", lambda: self.login(h, a), "accent"))
         card = box(True, 4, head, label(who, "setting-sub", "acct-who", markup=True, ellipsize=True),
                    classes=("acct-card",))
         use = self.usage.get((h, a), {})
@@ -416,9 +418,15 @@ class Account(Picker):
                        label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok else "A name is at most 40 characters",
                              "accent" if ok else "dim"), classes=("acct-add",))
             yield ("add", h, q), line, ok
+        elif not q and self.adding == h:   # its name, being typed: Enter adds it, Esc doesn't
+            name = Gtk.Entry(placeholder_text="the new account's name, e.g. Work", hexpand=True,
+                             css_classes=["acct-rename"])
+            name.connect("activate", lambda e: self.choose(("add", h, e.get_text())) if e.get_text().strip() else None)
+            GLib.idle_add(lambda: name.grab_focus() and False)
+            yield None, box(False, 12, label("+", "accent", "pick-glyph"), name, classes=("acct-add",)), True
         elif not q:
-            yield None, box(False, 12, label("+", "dim", "pick-glyph"), label("Add account: type its name", "dim"),
-                            classes=("acct-add",)), False
+            yield ("new", h, None), box(False, 12, label("+", "accent", "pick-glyph"),
+                                        label(f"Add {lib.HARNESSES[h][0]} account", "accent"), classes=("acct-add",)), True
 
     def make_default(self, h, a):
         lib.set_default_account(h, a)
@@ -427,6 +435,15 @@ class Account(Picker):
         self.paint_side()
         self.paint(self.selected())
         self.say(f"{lib.account_label(h, a)} is the default: new {lib.HARNESSES[h][0]} threads start on it")
+
+    def login(self, h, a):
+        """A thread on the account, in the current project: the agent asks to log in there. agy is on one
+        account at a time, so not while other agy threads run on another."""
+        if h in lib.ACCOUNT_KEYRING and lib.load_state().get("agy_loaded", "main") != a and \
+                any(t["harness"] == h and t["command"] not in lib.SHELLS for t in lib.threads()):
+            return self.say(f"{lib.HARNESSES[h][0]} threads run on another account: close them first "
+                            "(it's on one account at a time)", "bad")
+        self.done("new-thread", h, "--account", a)
 
     def remove(self, h, a):
         if self.removing != (h, a):   # first: ask
@@ -460,16 +477,20 @@ class Account(Picker):
 
     def choose(self, item):
         kind, h, a = item
+        if kind == "new":   # + Add account: a field for its name
+            self.adding = h
+            return self.paint(self.selected())
         if kind == "add":
             name = a
             a, err = lib.new_account(h, name)
             if err:
                 return self.say(err, "bad")
+            self.adding = None
             self.usage[(h, a)] = {}
             self.paint_side()
-            self.search.set_text("")   # repaints, with it listed
+            self.search.set_text("") if self.search.get_text() else self.paint()   # with it listed
             self.select(next(n for n, it in enumerate(self.items) if it == ("use", h, a)))
-            return self.say(f"{name} added: make it the default, start a thread on it and log in there")
+            return self.say(f"{name} added: Log in starts a thread on it, where {lib.HARNESSES[h][0]} asks you to")
         if self.current and self.current[0] == h:
             if a != self.current[1]:
                 self.done("account", "switch", self.thread, a)
@@ -484,8 +505,8 @@ class Account(Picker):
         return False
 
     def key(self, keyval, state):
-        if (self.renaming or self.removing) and keyval == Gdk.KEY_Escape:   # not renamed / removed after all
-            self.renaming = self.removing = None
+        if (self.renaming or self.removing or self.adding) and keyval == Gdk.KEY_Escape:   # not after all
+            self.renaming = self.removing = self.adding = None
             self.paint(self.selected())
             self.search.grab_focus()
             return True

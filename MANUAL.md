@@ -829,8 +829,11 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
-  Not while the agent is working. Any number of accounts per agent: typing a name that isn't one
-  yet offers *Add account “name”* (any text, `Client: Acme`; its folder's name is made from it).
+  Not while the agent is working. Any number of accounts per agent: **+ Add account** (under the cards)
+  asks for its name, or type one that isn't an account yet in the search line (any text, `Client:
+  Acme`; its folder's name is made from it). A card that isn't logged in has **Log in**: a thread on
+  that account in the current project, where the agent asks you to log in (agy: not while agy threads
+  run on another account).
   **Remove** (or `Delete`; a second click confirms) logs it out on this PC and drops it from every
   PC's list (not `main`, the agent's own login; not one a thread runs on; its conversations stay). **Rename** (or `F2`)
   gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the

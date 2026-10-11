@@ -808,9 +808,12 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   prompt. `+ thread` starts fresh. Skipped for an agent whose conversation already runs straight in
   the project's VS Code kitty. Settings → Projects switches it all off.
 - **More than one Claude Code account.** Both stay logged in; one is *active* (new threads start on
-  it). When a thread's account runs out of usage, **`Ctrl+Alt+K`** restarts its agent in place on the
-  next account, on the same conversation (`claude --resume <id>`), and makes that account the active
-  one; with no thread shown it just moves the active account on. Not while the agent is working.
+  it). **`Ctrl+Alt+K`** opens the **Accounts** panel: each account with who's logged in to it (or
+  *not logged in*), *this thread* beside the shown thread's and *new threads* beside the active one,
+  the next account selected. `Enter` restarts the thread's agent in place on that account, on the same
+  conversation (`claude --resume <id>`: for when its account runs out of usage), and makes it the
+  active one; with no thread shown it only makes it the active one. Not while the agent is working.
+  Typing a new name offers *Add account “name”*.
   An account is a config folder (`CLAUDE_CONFIG_DIR`): `main` is `~/.claude`, the others are
   `~/.local/share/agentmux/accounts/claude/<name>/` on each PC (logins never go in the repo), linked to
   `~/.claude` for everything but the login: settings and hooks, skills, plugins, history and the
@@ -818,7 +821,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   starts with main's theme, MCP servers and folder trust. Add one with `agentmux account add <name>`,
   `agentmux account use <name>`, then a new thread: Claude Code's first-run screens and `/login` (as
   that account). `agentmux account` lists them (`*` the active one); `agentmux account switch [thread]
-  [name]` is the key. With more than one account, each thread's second line and the status bar name
+  [name]` switches without the panel (no name: the next account). With more than one account, each thread's second line and the status bar name
   its account, and the home screen the active one. The first message after a switch reads the whole
   conversation again on the new account (the cache is per account): `/compact` first on a long one.
   A thread reopened after a restart is on the account it had. Remove one: delete its folder.
@@ -872,7 +875,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - Keys (no prefix; Ctrl+Alt so nothing clashes with Hyprland or Claude Code), all **remappable** in
   Settings: `Ctrl+Alt+P` / `Ctrl+Alt+A` / `Ctrl+Alt+M` / `Ctrl+Alt+E` focus Projects / Threads / the
   thread / the terminals (a closed one is brought back), `Ctrl+Alt+F` the next part (left to right,
-  wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+K` the thread on the next account, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
+  wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+K` accounts, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
   `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+Z` maximize, `Ctrl+Alt+←→`
   resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
   and shells keep running), `Ctrl+Alt+Q` quit, `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the
@@ -916,7 +919,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   as "paste an image", agy not at all), an image on the clipboard still goes to Codex as its image
   paste; and `Ctrl+Backspace` in agy (which ignores it) is sent as `Ctrl+W`, delete the word.
 
-Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home.py`, `termlist.py`), `local/lib/panels/agentmuxgui.py` (settings), `local/lib/panels/agentpickgui.py` (the two pickers),
+Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home.py`, `termlist.py`), `local/lib/panels/agentmuxgui.py` (settings), `local/lib/panels/agentpickgui.py` (the pickers: new thread, open project, accounts),
 `config/agentmux/{agents,app}.conf`, `local/bin/kitty-pair`. Needs `tmux` (in `setup/packages.txt`).
 
 ### Docker panel (workspace 9)

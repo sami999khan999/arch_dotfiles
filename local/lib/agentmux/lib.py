@@ -293,7 +293,7 @@ ACTIONS = [
     ("focus-terminals", "Focus the terminals", "focus terms", "C-M-e"),
     ("focus-next", "Focus the next part", "focus-next", "C-M-f"),
     ("new-thread", "New thread", "new-thread", "C-M-n"),
-    ("switch-account", "The thread on the next account (out of usage: same conversation)", "account switch", "C-M-k"),
+    ("accounts", "Accounts: the thread on another one (out of usage: same conversation)", "account pick", "C-M-k"),
     ("open-project", "Open project", "open", "C-M-o"),
     ("new-terminal", "New terminal", "term", "C-M-t"),
     ("split-terminal", "Split terminal", "split-term", "C-M-d"),

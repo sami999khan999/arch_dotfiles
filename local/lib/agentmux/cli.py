@@ -47,10 +47,11 @@
                                a new account (h: claude): start a thread on it and /login there
   agentmux account use <name> [h]
                                the account new threads start on
+  agentmux account pick        the Accounts panel (Ctrl+Alt+K) for the shown thread
   agentmux account switch [thread] [name]
                                the thread (the shown one) goes on with its conversation on another
-                               account (the next one), which becomes the active one (Ctrl+Alt+K).
-                               With no thread shown: the next account becomes the active one
+                               account (the next one), which becomes the active one. With no
+                               thread shown: the next account becomes the active one
 
 Layout (tmux -L agentmux):  Projects | Agents | the thread | terminal | terminal list
 Threads are sessions on the agents server (tmux -L agents): the middle pane and the terminals column
@@ -461,6 +462,9 @@ def account(args):
         lib.save_state(s)
         say(f"New {lib.HARNESSES[h][0]} threads start on {rest[0]}")
         poke()
+    elif sub == "pick":
+        s = lib.load_state()
+        popup("account", s.get("threads", {}).get(s.get("project", ""), ""))
     elif sub == "switch":
         s = lib.load_state()
         name = rest[0] if rest else s.get("threads", {}).get(s.get("project", ""), "")
@@ -803,10 +807,11 @@ def first_run():
         popup("project")
 
 
-def popup(kind):
-    """A picker (project / harness) as a GTK popup over agentmux, the look of every panel (blurred
-    backdrop, border); it runs `agentmux project …` / `new-thread …` itself when you choose."""
-    subprocess.Popen(["python3", os.path.expanduser("~/.local/lib/panels/agentpickgui.py"), kind],
+def popup(kind, *args):
+    """A picker (project / harness / account) as a GTK popup over agentmux, the look of every panel
+    (blurred backdrop, border); it runs `agentmux project …` / `new-thread …` / `account …` itself
+    when you choose."""
+    subprocess.Popen(["python3", os.path.expanduser("~/.local/lib/panels/agentpickgui.py"), kind, *args],
                      start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

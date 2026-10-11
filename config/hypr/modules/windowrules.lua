@@ -126,6 +126,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthread)$" }, size = { 620, 440 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.openproject)$" }, size = { 820, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.quitagentmux)$" }, size = { 560, 300 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentaccounts)$" }, size = { 620, 420 } })
 -- Commit, from the Projects panel (commitgui.py): the message and the changed files
 -- Commit (commitgui.py): the files and the selected one's diff side by side, so by the screen's size
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })

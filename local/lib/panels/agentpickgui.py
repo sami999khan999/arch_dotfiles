@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 # agentpickgui.py — agentmux's popups as GTK windows (Tokyo Night, the blurred backdrop of every
-# panel). agentmux runs them (`agentmux open`, Ctrl+Alt+N with more than one agent, Ctrl+Alt+Q);
-# running one again closes it. The choice goes back to agentmux: `agentmux project <folder>` /
-# `new-thread <agent>` / `quit --yes`.
+# panel). agentmux runs them (`agentmux open`, Ctrl+Alt+N with more than one agent, Ctrl+Alt+K,
+# Ctrl+Alt+Q); running one again closes it. The choice goes back to agentmux: `agentmux project
+# <folder>` / `new-thread <agent>` / `account …` / `quit --yes`.
 #   agentpickgui.py harness   New thread: which agent (the installed ones; the others shown greyed)
+#   agentpickgui.py account [thread]
+#                             Accounts: each Claude Code login (who it is, logged in or not); ↵ puts
+#                             the thread on it (same conversation), or with no thread makes it the one
+#                             new threads use. Typing a new name offers to add it.
 #   agentpickgui.py project   Open project: a folder browser. The first time it asks for the projects
 #                             folder (the root, remembered in agentmux's state.json); after that it opens there.
 #   agentpickgui.py quit [what's running…]
@@ -14,7 +18,7 @@
 # Browser: a click or → goes into a folder, ← / Backspace goes up (above the root too, to open a
 # project anywhere), ↵ opens the selected folder, Ctrl+R makes the shown folder the root. A query
 # starting with / or ~ is a path: it lists that folder's matching subfolders.
-import os, subprocess, sys
+import json, os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -207,6 +211,85 @@ class Harness(Picker):
 
     def choose(self, harness):
         self.done("new-thread", harness)
+
+
+# ---- Accounts: which login a thread (or new threads) run on --------------------------------------
+class Account(Picker):
+    title = "Accounts"
+    icon = "\U000f0004"
+    placeholder = "filter, or a new account's name"
+
+    def __init__(self, thread=""):
+        super().__init__()
+        t = next((t for t in lib.threads() if t["name"] == thread and t["harness"] in lib.ACCOUNT_ENV), None)
+        self.thread = t["name"] if t else ""
+        self.harness = t["harness"] if t else "claude"
+        self.current = (t["account"] or "main") if t else ""
+        self.subtitle = (f"thread #{self.thread.rsplit(lib.SEP, 1)[-1]}" if t else "for new threads")
+        self.hints = [("Enter", "switch the thread" if t else "use for new threads"), ("↑↓", "move"), ("Esc", "close")]
+
+    def build(self):
+        page = super().build()
+        names = lib.accounts(self.harness)
+        here = self.current or lib.active_account(self.harness)
+        self.select((names.index(here) + 1) % len(names))   # the next one: what you open it for
+        return page
+
+    def who(self, account):
+        """(email or None, organization): the login in the account's own .claude.json; None: not logged in."""
+        folder = lib.account_dir(self.harness, account)
+        config = f"{lib.HOME}/.claude.json" if account == "main" else f"{folder}/.claude.json"
+        try:
+            me = json.load(open(config)).get("oauthAccount") or {}
+        except (OSError, ValueError):
+            me = {}
+        if not os.path.exists(f"{folder}/.credentials.json"):
+            return None, ""
+        return me.get("emailAddress", "logged in"), me.get("organizationName", "")
+
+    def rows(self, q):
+        active = lib.active_account(self.harness)
+        names = lib.accounts(self.harness)
+        for a in names:
+            email, org = self.who(a)
+            m = fuzzy(q, a, email or "") if q else (0, set(), set())
+            if not m:
+                continue
+            sub = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}" if org and org != f"{email}'s Organization" else "") \
+                if email else "not logged in · use it, start a thread, /login"
+            text = box(True, 2, label(marked(a, m[1], HIT), "bold", markup=True),
+                       label(sub, "setting-sub", markup=True, ellipsize=True))
+            text.set_hexpand(True)
+            line = box(False, 12, label("\u25cf" if a == active else "\u25cb", "green" if a == active else "dim",
+                                        "pick-glyph"), text)
+            if a == self.current:
+                line.append(label("this thread", "accent"))
+            elif a == active:
+                line.append(label("new threads", "green"))
+            yield ("use", a), line, True
+        if q and q not in names:   # a new account by that name
+            ok = bool(re.fullmatch(r"[A-Za-z0-9_-]{1,20}", q)) and q != "main"
+            line = box(False, 12, label("+", "accent" if ok else "dim", "pick-glyph"),
+                       label(f"Add account \u201c{q}\u201d" if ok else "A name is letters, digits, - or _",
+                             "accent" if ok else "dim"))
+            yield ("add", q), line, ok
+        elif not q:
+            line = box(False, 12, label("+", "dim", "pick-glyph"), label("Add account: type its name", "dim"))
+            yield None, line, False
+
+    def choose(self, item):
+        kind, a = item
+        if kind == "add":
+            err = lib.add_account(self.harness, a)
+            if err:
+                return self.say(err)
+            self.search.set_text("")   # repaints, with it listed
+            self.select(next(n for n, it in enumerate(self.items) if it == ("use", a)))
+            return self.say(f"{a} added: Enter makes it the one new threads use; /login in a thread on it")
+        if self.thread and a != self.current:
+            self.done("account", "switch", self.thread, a)
+        else:
+            self.done("account", "use", a, self.harness)
 
 
 # ---- Open project: a folder browser -------------------------------------------------------------
@@ -428,6 +511,8 @@ def main():
     kind = sys.argv[1] if len(sys.argv) > 1 else "project"
     if kind == "harness":
         run(Harness(), "panels.newthread", (620, 440))
+    elif kind == "account":
+        run(Account(sys.argv[2] if len(sys.argv) > 2 else ""), "panels.agentaccounts", (620, 420))
     elif kind == "quit":
         run(Quit(sys.argv[2:]), "panels.quitagentmux", (560, 300))
     else:

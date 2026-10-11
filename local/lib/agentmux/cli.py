@@ -146,7 +146,7 @@ def where():
         t = next((t for t in lib.threads() if t["name"] == thread), None)
         if t:
             label = f"#{thread.rsplit(lib.SEP, 1)[-1]} {lib.HARNESSES.get(t['harness'], (t['harness'] or 'shell',))[0]}"
-            if t["harness"] and len(lib.accounts(t["harness"])) > 1:
+            if t["harness"] in lib.ACCOUNT_AGENTS:
                 label += f" · {lib.account_label(t['harness'], t['account'])}"
     set_opt("@project_name", lib.project_name(project) if project else "")
     set_opt("@thread_label", label)

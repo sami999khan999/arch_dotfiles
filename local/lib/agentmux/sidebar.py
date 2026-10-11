@@ -263,7 +263,7 @@ class Sidebar(App):
                     label = lib.HARNESSES.get(t["harness"], (t["harness"],))[0] if t["harness"] else "shell"
                     title = "shell" if st == "shell" else (lib.clean_title(t["title"]) or label)
                     cur = t["name"] == shown
-                    # line 2: the agent, the account (with more than one), what it's doing, how long the thread
+                    # line 2: the agent, the account, what it's doing, how long the thread
                     # has been up (its activity time says nothing: an idle agent's screen still redraws),
                     # other views of it. Line 3: the model and how far its account is into its limit
                     what = (STATE_WORD[st], STATE_GLYPH[st][1])
@@ -271,7 +271,7 @@ class Sidebar(App):
                     # which agent, unless the title already says it: once the agent names the thread
                     # after the task nothing else would
                     info = [] if title == label or st == "shell" else [(short, "sub"), (" · ", "line")]
-                    if t["harness"] and len(lib.accounts(t["harness"])) > 1:   # which login it's on
+                    if t["harness"] in lib.ACCOUNT_AGENTS:   # which login it's on
                         info += [(lib.account_label(t["harness"], t["account"]), "accent"), (" · ", "line")]
                     pct, busy = self.thread_cpu(t)
                     if pct >= BUSY_CPU:   # its CPU, a full core or more in amber: it's what slows the PC.

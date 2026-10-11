@@ -1,7 +1,8 @@
 {
   "agy": {
     "main": "agy 1",
-    "account": ""
+    "account": "",
+    "account-2": ""
   },
   "claude": {
     "main": "claude 2",

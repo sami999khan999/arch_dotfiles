@@ -479,8 +479,13 @@ class Account(Picker):
         click = Gtk.GestureClick(button=1)
         click.connect("released", lambda _g, _n, x, y: self.open_link(term, x, y))
         term.add_controller(click)
-        head = box(False, 10, button("\u2039 Back", self.back, "flat"),
-                   label(f"Log in \u00b7 {lib.HARNESSES[h][0]} \u00b7 {lib.account_label(h, a)}", "bold"))
+        middle = Gtk.GestureClick(button=2, propagation_phase=Gtk.PropagationPhase.CAPTURE)   # the selection, typed in
+        middle.connect("pressed", lambda g, *_: (g.set_state(Gtk.EventSequenceState.CLAIMED), self.paste(term, True)))
+        term.add_controller(middle)
+        title = label(f"Log in \u00b7 {lib.HARNESSES[h][0]} \u00b7 {lib.account_label(h, a)}", "bold")
+        title.set_hexpand(True)
+        head = box(False, 10, button("\u2039 Back", self.back, "flat"), title,
+                   button("Paste", lambda: self.paste(term), "flat"))
         page = box(True, 10, head, term)
         for edge in ("start", "end", "top", "bottom"):
             getattr(page, f"set_margin_{edge}")(18)
@@ -493,7 +498,8 @@ class Account(Picker):
         term.spawn_async(Vte.PtyFlags.DEFAULT, lib.HOME, argv + ["--no-wait"], None, GLib.SpawnFlags.DEFAULT,
                          None, None, -1, None, lambda _t, pid, _err, _data: setattr(self, "login_pid", pid), None)
         term.grab_focus()
-        self.hints = [("click", "a link opens it"), ("Ctrl+C", "copy"), ("Ctrl+V", "paste"), ("Ctrl+W", "back")]
+        self.hints = [("click", "a link opens it"), ("Ctrl+C", "copy"), ("Ctrl+V / middle-click", "paste"),
+                      ("Ctrl+W", "back")]
         self.host.show_hints()
 
     def login_key(self, term, keyval, state):
@@ -509,9 +515,28 @@ class Account(Picker):
             self.say("Copied")
             return True
         if ctrl and keyval in (Gdk.KEY_v, Gdk.KEY_V):
-            term.paste_clipboard()
+            self.paste(term)
             return True
         return False
+
+    def paste(self, term, primary=False):
+        """The clipboard's text typed into the login, as keys (a terminal's own paste comes in paste
+        brackets, which agy's code field ignored): a sign-in code, one line."""
+        display = term.get_display()
+        board = display.get_primary_clipboard() if primary else display.get_clipboard()
+
+        def got(_board, result):
+            try:
+                text = board.read_text_finish(result) or ""
+            except GLib.Error:
+                text = ""
+            text = text.strip()
+            if not text:
+                return self.say("Nothing to paste: copy the code first", "bad")
+            term.feed_child(text.encode())
+            term.grab_focus()
+            self.say(f"Pasted {len(text)} characters: Enter sends it")
+        board.read_text_async(None, got)
 
     def open_link(self, term, x, y):
         """A click on a link (not the end of a drag that selected text) opens it in the browser."""

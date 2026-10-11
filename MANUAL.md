@@ -836,7 +836,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   `Client: Acme`; its folder's name is made from it): the same, under that name. A card that isn't logged in has **Log in**: the agent's
   own login on a page of the panel that's a terminal (vte4; `Ctrl+W` or **‹ Back** returns to the cards,
   and so does the login ending, the panel then saying who's logged in; a click on a link opens it in the
-  browser, agy's *Click here to authenticate* too, `Ctrl+C` copies a selection, `Ctrl+V` pastes a code), no thread, and the threads that
+  browser, agy's *Click here to authenticate* too, `Ctrl+C` copies a selection; `Ctrl+V`, the **Paste** button or a middle-click
+  types the clipboard's text in, a sign-in code: as keys, since agy's code field ignores a terminal's paste), no thread, and the threads that
   run are left alone (`agentmux account login`; without vte4 it runs in a kitty and the panel comes back
   after): Claude Code `claude auth login` and Codex `codex login` into the account's folder; agy, whose
   login lives in one keyring entry, runs with the keyring out of reach and a home of its own, so it keeps

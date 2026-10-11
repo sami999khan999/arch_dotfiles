@@ -366,7 +366,7 @@ class Account(Picker):
         top = box(False, 8, label(name, "sub", ellipsize=True), label(f"{pct:.0f}% used", level(pct), "bold"))
         top.get_first_child().set_hexpand(True)
         col = box(True, 6, top, *([label(covers, "setting-sub", ellipsize=True)] if covers else []), bar,
-                  label(f"resets {until(reset)}" if reset else "starts with the next message", "setting-sub"))
+                  label(f"resets {until(reset)}" if reset else "full · starts counting with the next use", "setting-sub"))
         col.set_hexpand(True)
         return col
 

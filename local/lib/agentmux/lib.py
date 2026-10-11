@@ -825,9 +825,10 @@ def account_usage(harness, account, live=False):
                 for b in buckets:
                     if b.get("remainingFraction") is None:
                         continue
-                    try:
+                    try:   # a full quota's reset is just "a week from now", moving on every ask (agy itself
+                        # says "Quota available"): its week only starts with the first use
                         reset = datetime.fromisoformat(b["resetTime"].replace("Z", "+00:00")).timestamp() \
-                            if b.get("resetTime") else 0
+                            if b.get("resetTime") and float(b["remainingFraction"]) < 1 else 0
                     except ValueError:
                         reset = 0
                     name = g.get("displayName", "") + (f" · {b.get('window', '')}" if len(buckets) > 1 else "")

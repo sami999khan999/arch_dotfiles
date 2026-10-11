@@ -800,8 +800,8 @@ def configured_model(harness):
 
 
 def thread_limit(harness, account, model=""):
-    """(window, percent used) of the thread's account nearest its limit, or None: agy's for the model's
-    group (Gemini, or Claude and GPT), otherwise the most used window."""
+    """(window, percent used) of the thread's account, or None: its shortest window (5-hour, else
+    weekly, else monthly…); agy's for the model's group (Gemini, or Claude and GPT)."""
     paths = [USAGE_CACHE] + ([account_config(harness, account)] if harness == "claude" else [])
     use = memoized(("usage", harness, account), paths, lambda: account_usage(harness, account))
     windows = use.get("windows") if use else None
@@ -810,7 +810,8 @@ def thread_limit(harness, account, model=""):
     if harness == "agy" and model:
         gemini = "gemini" in model.lower()
         windows = [w for w in windows if ("gemini" in w[0].lower()) == gemini] or windows
-    name, pct = max(windows, key=lambda w: w[1])[:2]
+    order = ["5-hour", "weekly", "monthly"]
+    name, pct = min(windows, key=lambda w: order.index(w[0]) if w[0] in order else len(order))[:2]
     return {"5-hour": "5h", "weekly": "wk", "monthly": "mo"}.get(name, "wk" if harness == "agy" else name), pct
 
 

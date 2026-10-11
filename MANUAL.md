@@ -764,8 +764,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - **A thread's rows in Threads:** its title; then which agent (`claude`, `codex`, `agy`; left out while
   the title is still the agent's name), its account (with more than one), what it's doing and how
   long it's been up (left out when it doesn't fit); then a bar of how far its account is into its limit, with the window
-  (`━━━━━━ 87% wk · Opus 5.5`: green, amber from 60 %, red from 85 %; the window nearest its limit, for
-  Antigravity the model's group) and the model its conversation last used (from the conversation
+  (`━━━━━━ 87% wk · Opus 5.5`: green, amber from 60 %, red from 85 %; its 5-hour window, else weekly,
+  else monthly; for Antigravity the model's group) and the model its conversation last used (from the conversation
   itself: Claude Code's and Codex's file, agy's database; before its first answer the model the agent
   is set to start with). Read from files, and again only once they change. The usage is asked again
   live when a thread finishes a turn or stops on an error (`agentmux usage`, at most once a minute

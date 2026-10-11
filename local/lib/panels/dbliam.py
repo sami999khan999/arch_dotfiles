@@ -45,6 +45,38 @@ STYLE = """
   --xy-background-pattern-dots-color-default: #3b4261 !important; --xy-background-color-default: #1a1b26 !important;
 }
 * { border-radius: 0 !important; font-family: "JetBrainsMono Nerd Font", monospace !important; }
+:root {   /* Liam's green, wherever it's a token */
+  --primary-overlay-5: #6b8fe00d !important; --primary-overlay-12: #6b8fe01f !important;
+  --primary-overlay-15: #6b8fe026 !important; --primary-overlay-35: #6b8fe059 !important;
+  --primary-overlay-50: #6b8fe080 !important; --primary-overlay-60: #6b8fe099 !important;
+  --primary-overlay-70: #6b8fe0b3 !important; --primary-overlay-80: #6b8fe0cc !important;
+  --primary-overlay-90: #6b8fe0e6 !important; --primary-gradation-overlay-start: #6b8fe01f !important;
+  --primary-gradation-default-start: #6b8fe0 !important; --primary-on-white-shape: #6b8fe0 !important;
+  --button-ghost-secondary-background: #292e42 !important; --button-solid-inverse-foreground: #6b8fe0 !important;
+}
+/* The rules below name Liam's own classes (hashed per build: LIAM_VERSION pins which). */
+/* the header: no logo, no "Liam ERD" (the bar above already says what this is) */
+[class*="_logoWrapper_j2hiu"], h1[class*="_title_j2hiu"] { display: none !important; }
+[class*="_wrapper_j2hiu"] { justify-content: flex-end !important; }
+/* the canvas: the panels' dark, dots in the line colour (set inline by React Flow: !important) */
+.react-flow__background { background-color: #16161e !important; }
+.react-flow__background-pattern.dots { fill: #3b4261 !important; }
+/* a table: the panels' card, a green header as the diagram had, no glow (Liam's is a green shadow) */
+[class*="_wrapper_kvl10"] { background: #1a1b26 !important; border: 1px solid #3b4261b3 !important; box-shadow: none !important; }
+[class*="_wrapperHighlighted_kvl10"], [class*="_wrapper_kvl10"]:hover { border: 1px solid #6b8fe0 !important; box-shadow: none !important; }
+[class*="_wrapperActive_kvl10"], [class*="_wrapperActive_kvl10"]:hover { border: 2px solid #6b8fe0 !important; box-shadow: none !important; }
+[class*="_wrapper_1p5e4"], [class*="_container_1p5e4"] { background: #9ece6a !important; }
+[class*="_container_1p5e4"] { color: #1a1b26 !important; font-weight: 700 !important; }
+/* its columns: names in the text colour, types always shown (Liam showed them on hover only), the key amber */
+[class*="_wrapper_1iyaa"] { background: #1a1b26 !important; }
+[class*="_wrapper_1iyaa"]:not(:last-child) { border-bottom: 1px solid #292e42 !important; }
+[class*="_wrapper_1iyaa"]:hover { background: #292e42 !important; }
+[class*="_highlightRelatedColumn_1iyaa"] { background: #6b8fe026 !important; }
+[class*="_columnWrapper_1iyaa"] { color: #c0caf5 !important; }
+[class*="_columnType_1iyaa"] { opacity: 1 !important; color: #565f89 !important; }
+[class*="_primaryKeyIcon_1iyaa"] { color: #e0af68 !important; }
+[class*="_linkIcon_1iyaa"] { color: #6b8fe0 !important; }
+[class*="_diamondIcon_1iyaa"] { color: #a9b1d6 !important; }
 """
 
 

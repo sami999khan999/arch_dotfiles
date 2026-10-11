@@ -47,6 +47,7 @@
                                a new account (h: claude): start a thread on it and /login there
   agentmux account default <name> [h]
                                the account new threads start on
+  agentmux usage <h> [account] an account's usage asked live (a thread's turn ended), the sidebars redrawn
   agentmux account pick        the Accounts panel (Ctrl+Alt+K): usage, the default, the shown thread's
   agentmux account switch [thread] [name]
                                the thread (the shown one) goes on with its conversation on another
@@ -436,6 +437,15 @@ def new_thread(harness=None, prompt_file=None):
         msg(f"{name} started · also opened in the VS Code kitty")
     else:
         msg(f"{name} started")
+
+
+def refresh_usage(harness, account):
+    """An account's usage asked live (after a thread's turn), at most once a minute, then the sidebars
+    redraw their bars."""
+    if time.time() - lib.account_usage(harness, account).get("at", 0) < 60:
+        return
+    lib.account_usage(harness, account, live=True)
+    poke()
 
 
 def account(args):
@@ -1108,6 +1118,12 @@ def notify(args):
         if state == "done":
             lib.mark_finished([name], True)   # the sidebars show it "done" until it's looked at
         notice(name, state, note)
+        if state in ("done", "error"):   # a turn used some of its account's limit (or hit it): the bar
+            harness, account = lib.agents("display-message", "-p", "-t", f"={name}:",
+                                          "#{@harness}\t#{@account}")[1].partition("\t")[::2]
+            if harness in lib.ACCOUNT_AGENTS:
+                subprocess.Popen([SELF, "usage", harness, account or "main"], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def subagents(name, change="", agent_id=""):
@@ -1557,6 +1573,7 @@ def main(argv):
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
         "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]), "account": lambda: account(args),
+        "usage": lambda: refresh_usage(args[0], args[1] if len(args) > 1 else "main"),
     }
     if cmd not in actions:
         sys.exit(__doc__)

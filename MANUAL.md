@@ -761,6 +761,14 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
  agentmux │ + Terminal Ctrl+Alt+T  × Terminal Ctrl+Alt+W  + Thread Ctrl+Alt+N  Open project Ctrl+Alt+O  ? keys   cloud_track · 1
 ```
 
+- **A thread's rows in Threads:** its title; then its account (with more than one), what it's doing
+  and how long it's been up; then a bar of how far its account is into its limit, with the window
+  (`━━━━━━ 87% wk · Opus 5.5`: green, amber from 60 %, red from 85 %; the window nearest its limit, for
+  Antigravity the model's group) and the model its conversation last used (from the conversation
+  itself: Claude Code's and Codex's file, agy's database; before its first answer the model the agent
+  is set to start with). Read from files, and again only once they change. The usage is asked again
+  live when a thread finishes a turn or stops on an error (`agentmux usage`, at most once a minute
+  per account), and whenever the Accounts panel is open.
 - **Synced with the VS Code kittys.** Every thread is a session on a separate tmux server
   (`tmux -L agents`). The kitty beside a VS Code window starts in one (kitty-pair), and agentmux's
   middle pane attaches to the same one: one agent, two live views, nothing restarted or copied. A
@@ -841,7 +849,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   add <name>`), make it the default, start a thread: Claude Code's first-run screens and `/login` (as
   that account). `agentmux account` lists them (`*` the default); `agentmux account default <name> [agent]`,
   `agentmux account switch [thread] [name]` do the panel's two things. With more than one account,
-  each thread's second line and the status bar name its account, and the home screen the default.
+  each thread's row and the status bar name its account, and the home screen the default.
   The first message after a switch reads the whole conversation again on the new account (the cache
   is per account): `/compact` first on a long one. A thread reopened after a restart is on the account
   it had. Remove one: delete its folder.

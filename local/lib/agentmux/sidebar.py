@@ -29,6 +29,7 @@ SUB = ("#{S:" + FS.join(["#{session_name}", "#{@project}", "#{@harness}", "#{@ki
 # "0": lib.FIELDS' activity, not shown here; #{session_activity} changed on every redraw of an agent's
 # screen (an idle one's too), and each change rebuilt the sidebars. #{pane_pid} never changes (no
 # extra updates): its cgroup is where the thread's CPU is read
+LIMIT_BAR = 6   # columns of a thread's usage bar
 BUSY_CPU = 10   # % of one core: a thread using this much shows it, e.g. "· vitest 180%"
 # needs: a permission prompt or question waits for you; working: the agent is running; done: it
 # finished since you last looked at that thread; idle: waiting for you, already seen; shell: it quit
@@ -250,6 +251,7 @@ class Sidebar(App):
                 rows += [Row("Pick a project", kind="note"), Row("on the left", kind="note")]
             else:
                 shown = state.get("threads", {}).get(project, "")
+                sessions = state.get("sessions", {})
                 mine = [t for t in self.threads if t["project"] == project and lib.runs_agent(t)]
                 self.cpu = {k: v for k, v in self.cpu.items() if k in {t["name"] for t in mine}}
                 self.working = any(look(t) == "working" for t in mine)
@@ -261,13 +263,14 @@ class Sidebar(App):
                     label = lib.HARNESSES.get(t["harness"], (t["harness"],))[0] if t["harness"] else "shell"
                     title = "shell" if st == "shell" else (lib.clean_title(t["title"]) or label)
                     cur = t["name"] == shown
-                    # line 2: which agent, what it's doing, how long the thread has been up (its activity
-                    # time says nothing: an idle agent's screen still redraws), and other views of it
+                    # line 2: the account (with more than one), what it's doing, how long the thread
+                    # has been up (its activity time says nothing: an idle agent's screen still redraws),
+                    # other views of it. Line 3: the model and how far its account is into its limit
                     what = (STATE_WORD[st], STATE_GLYPH[st][1])
                     short = SHORT.get(t["harness"], t["harness"] or "shell")
-                    info = [] if title == label or st == "shell" else [(short, "muted"), (" · ", "line")]
+                    info = []
                     if t["harness"] and len(lib.accounts(t["harness"])) > 1:   # which login it's on
-                        info = [(t["account"] or "main", "accent"), (" · ", "line")] + info
+                        info += [(t["account"] or "main", "accent"), (" · ", "line")]
                     pct, busy = self.thread_cpu(t)
                     if pct >= BUSY_CPU:   # its CPU, a full core or more in amber: it's what slows the PC.
                         # In place of "working" (the spinner says so): a narrow sidebar cuts the line's end
@@ -284,8 +287,23 @@ class Sidebar(App):
                         info += [(" · ", "line"), (f"up {up}", "muted")]
                     if t["attached"] > 1:
                         info += [(" · ", "line"), (f"{t['attached']} views", "muted")]
+                    detail = [info]
+                    if t["harness"] and st != "shell":
+                        rec = sessions.get(t["name"])
+                        model = lib.thread_model(t["harness"], rec) or lib.configured_model(t["harness"]) or short
+                        line = []
+                        limit = lib.thread_limit(t["harness"], t["account"] or "main", model) \
+                            if t["harness"] in lib.ACCOUNT_AGENTS else None
+                        if limit:   # a bar of its most used window, in the panels' level colours; first,
+                            # so a narrow sidebar cuts the model's name rather than the limit
+                            used = min(max(limit[1], 0), 100)
+                            fg = "green" if used < 60 else "amber" if used < 85 else "red"
+                            fill = round(used / 100 * LIMIT_BAR)
+                            line += [("━" * fill, fg), ("━" * (LIMIT_BAR - fill), "line"),
+                                     (f" {used:.0f}%", fg), (f" {limit[0]}", "muted"), (" · ", "line")]
+                        detail.append(line + [(model, "sub")])
                     rows.append(Row(title, ("show", t["name"]), glyph, gfg, "text" if cur else "sub",
-                                    "#" + t["name"].rsplit(lib.SEP, 1)[-1], bold=cur, detail=info))
+                                    "#" + t["name"].rsplit(lib.SEP, 1)[-1], bold=cur, detail=detail))
                 if not mine:
                     rows.append(Row("No threads yet", kind="note"))
                 if self.unshared:

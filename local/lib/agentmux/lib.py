@@ -679,6 +679,116 @@ def account_usage(harness, account, live=False):
     return {"windows": [(n, 0.0, 0, c) if r and r < now else (n, p, r, c) for n, p, r, c in windows], "at": at}
 
 
+# ---- what a thread runs on: its model, how far its account is into its limit --------------------
+# Read from files (the conversation, the usage caches) and read again only when they change: the
+# sidebars redraw often. agentmux usage refreshes an account's usage live after a thread's turn.
+_memo = {}
+
+
+def memoized(key, paths, fn):
+    """fn()'s value, worked out again only once one of paths has changed (its mtime)."""
+    stamp = []
+    for p in paths:
+        try:
+            stamp.append(os.stat(p).st_mtime_ns)
+        except OSError:
+            stamp.append(0)
+    hit = _memo.get(key)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    value = fn()
+    _memo[key] = (stamp, value)
+    return value
+
+
+def conversation_file(harness, project, sid):
+    """Where the agent keeps that conversation (None: unknown)."""
+    if harness == "claude":
+        return f"{HOME}/.claude/projects/" + re.sub(r"[^A-Za-z0-9]", "-", project) + f"/{sid}.jsonl"
+    if harness == "codex":   # found once: its folder is the day it started
+        if ("codexfile", sid) not in _memo:
+            import glob
+            _memo[("codexfile", sid)] = next(iter(glob.glob(f"{HOME}/.codex/sessions/*/*/*/rollout-*-{sid}.jsonl")), None)
+        return _memo[("codexfile", sid)]
+    if harness == "agy":
+        return f"{HOME}/.gemini/antigravity-cli/conversations/{sid}.db"
+    return None
+
+
+def pretty_model(m):
+    """claude-opus-5-5 -> Opus 5.5, gpt-6-luna -> GPT-6 Luna, gemini-3.7-flash-medium -> Gemini 3.7 Flash."""
+    m = re.sub(r"-\d{8}$", "", m)   # a date
+    c = re.fullmatch(r"claude-([a-z]+)-(\d+)(?:-(\d+))?", m)
+    if c:
+        return f"{c[1].capitalize()} {c[2]}" + (f".{c[3]}" if c[3] else "")
+    g = re.fullmatch(r"gpt-([\d.]+)(?:-(.+))?", m)
+    if g:
+        return f"GPT-{g[1]}" + (" " + g[2].replace("-", " ").title() if g[2] else "")
+    g = re.fullmatch(r"gemini-([\d.]+)-([a-z]+).*", m)
+    if g:
+        return f"Gemini {g[1]} {g[2].capitalize()}"
+    return m
+
+
+def thread_model(harness, rec):
+    """The model the thread's conversation last used (rec: its state "sessions" entry), "" if unknown."""
+    path = conversation_file(harness, rec.get("project", ""), rec.get("id", "")) if rec else None
+    if not path:
+        return ""
+
+    def read():
+        try:
+            if harness == "agy":   # its last generation's settings, a protobuf blob: the model id in it
+                import sqlite3
+                db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=0.2)
+                row = db.execute("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1").fetchone()
+                db.close()
+                ids = re.findall(rb"\b((?:gemini|claude|gpt)-[a-z0-9][a-z0-9.-]*)", row[0] if row else b"")
+                return pretty_model(max(ids, key=len).decode()) if ids else ""
+            with open(path, "rb") as f:   # the last "model" in its tail
+                f.seek(max(0, os.path.getsize(path) - 65536))
+                found = [m for m in re.findall(rb'"model":\s*"([^"]+)"', f.read()) if not m.startswith(b"<")]
+            return pretty_model(found[-1].decode()) if found else ""
+        except (OSError, ValueError, Exception):   # sqlite3.Error too: a busy or odd file is just unknown
+            return ""
+    return memoized(("model", path), [path], read)
+
+
+CONFIGURED_MODEL = {"claude": f"{HOME}/.claude/settings.json", "agy": f"{HOME}/.gemini/antigravity-cli/settings.json"}
+
+
+def configured_model(harness):
+    """The model the agent is set to start with (a thread that hasn't answered yet), "" if not set:
+    Claude Code's "opus[1m]" -> Opus, agy's "Gemini 3.7 Flash (Medium)" -> Gemini 3.7 Flash."""
+    path = CONFIGURED_MODEL.get(harness)
+    if not path:
+        return ""
+
+    def read():
+        try:
+            m = str(json.load(open(path)).get("model") or "")
+        except (OSError, ValueError):
+            return ""
+        m = re.sub(r"\s*[\[(].*$", "", m)
+        return pretty_model(m) if "-" in m else m.capitalize() if m.islower() else m
+    return memoized(("configured", path), [path], read)
+
+
+def thread_limit(harness, account, model=""):
+    """(window, percent used) of the thread's account nearest its limit, or None: agy's for the model's
+    group (Gemini, or Claude and GPT), otherwise the most used window."""
+    paths = [USAGE_CACHE] + ([account_config(harness, account)] if harness == "claude" else [])
+    use = memoized(("usage", harness, account), paths, lambda: account_usage(harness, account))
+    windows = use.get("windows") if use else None
+    if not windows:
+        return None
+    if harness == "agy" and model:
+        gemini = "gemini" in model.lower()
+        windows = [w for w in windows if ("gemini" in w[0].lower()) == gemini] or windows
+    name, pct = max(windows, key=lambda w: w[1])[:2]
+    return {"5-hour": "5h", "weekly": "wk", "monthly": "mo"}.get(name, "wk" if harness == "agy" else name), pct
+
+
 def set_account(name, account):
     """Thread name's agent goes on with its conversation on another account (the one it's on now when
     it's out of usage): restarted in place on --resume (or --continue, its id unknown), the same

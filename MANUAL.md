@@ -852,8 +852,8 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   starts with main's theme, MCP servers and folder trust. Add one in the panel (or `agentmux account
   add <name>`), make it the default, start a thread: Claude Code's first-run screens and `/login` (as
   that account). `agentmux account` lists them (`*` the default); `agentmux account default <name> [agent]`,
-  `agentmux account switch [thread] [name]` do the panel's two things. With more than one account,
-  each thread's row and the status bar name its account, and the home screen the default.
+  `agentmux account switch [thread] [name]` do the panel's two things. Each thread's row
+  and the status bar name its account, and the home screen the default.
   The first message after a switch reads the whole conversation again on the new account (the cache
   is per account): `/compact` first on a long one. A thread reopened after a restart is on the account
   it had. Remove one: delete its folder.

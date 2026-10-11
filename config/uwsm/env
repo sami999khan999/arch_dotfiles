@@ -1,3 +1,6 @@
+# ~/.local/bin for the whole session, not only in fish: what starts at login (agentmux and its tmux
+# servers) runs claude / agy from there too
+export PATH="$HOME/.local/bin:$PATH"
 export BROWSER=firefox
 export TERM=xterm-kitty
 export QT_QPA_PLATFORM="wayland;xcb"

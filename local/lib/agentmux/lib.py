@@ -405,19 +405,21 @@ def parse_key(text):
 
 # ---- accounts: more than one login per agent ----------------------------------------------------
 # An account is a config folder the agent runs with (ACCOUNT_ENV). "main" is the agent's own
-# (~/.claude); the others are folders in ACCOUNTS/<harness>/<name>, per PC: a login never goes in the
-# repo. Everything but the login is shared with main through symlinks (ACCOUNT_SHARED): settings and
-# hooks, skills, plugins and the conversations, so a thread switched to another account goes on with
-# the same conversation (--resume). state "account": harness -> the default one, which new threads start
+# (~/.claude, ~/.codex); the others are folders in ACCOUNTS/<harness>/<name>, per PC: a login never
+# goes in the repo. Everything but the login is shared with main through symlinks (ACCOUNT_SHARED):
+# settings and hooks, skills, plugins and the conversations, so a thread switched to another account
+# goes on with the same conversation (--resume). state "account": harness -> the default one, which new threads start
 # on (agentmux account default); a thread keeps the one it started on (@account) until it's switched
 # (agentmux account switch), which leaves the default as it is.
 ACCOUNTS = f"{os.environ.get('XDG_DATA_HOME', HOME + '/.local/share')}/agentmux/accounts"
-ACCOUNT_ENV = {"claude": "CLAUDE_CONFIG_DIR"}
-ACCOUNT_HOME = {"claude": f"{HOME}/.claude"}
+ACCOUNT_ENV = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+ACCOUNT_HOME = {"claude": f"{HOME}/.claude", "codex": f"{HOME}/.codex"}
 # a trailing / is a folder (made in main if it isn't there yet: a link to nothing can't be made into one)
 ACCOUNT_SHARED = {"claude": ["settings.json", "CLAUDE.md", "keybindings.json", "history.jsonl", "skills/",
                              "plugins/", "agents/", "commands/", "output-styles/", "projects/", "file-history/",
-                             "todos/", "plans/", "session-env/", "paste-cache/", "ide/"]}
+                             "todos/", "plans/", "session-env/", "paste-cache/", "ide/"],
+                  "codex": ["config.toml", "hooks.json", "AGENTS.md", "history.jsonl", "session_index.jsonl",
+                            "sessions/", "rules/", "skills/", "plugins/", "prompts/"]}
 # what an account's own ~/.claude.json starts with, from main's: no login or account ids (its own
 # /login fills those in), but the look, the MCP servers and each folder's trust and permissions
 ACCOUNT_SEED = {"claude": (f"{HOME}/.claude.json", ".claude.json", ["theme", "mcpServers", "projects", "editorMode"])}
@@ -456,13 +458,14 @@ def add_account(harness, account):
         if item.endswith("/"):
             os.makedirs(f"{home}/{name}", exist_ok=True)
         os.symlink(f"{home}/{name}", f"{folder}/{name}")
-    src, dest, keys = ACCOUNT_SEED[harness]
-    try:
-        main = json.load(open(src))
-    except (OSError, ValueError):
-        main = {}
-    with open(f"{folder}/{dest}", "w") as f:
-        json.dump({k: main[k] for k in keys if k in main}, f, indent=2)
+    if harness in ACCOUNT_SEED:
+        src, dest, keys = ACCOUNT_SEED[harness]
+        try:
+            main = json.load(open(src))
+        except (OSError, ValueError):
+            main = {}
+        with open(f"{folder}/{dest}", "w") as f:
+            json.dump({k: main[k] for k in keys if k in main}, f, indent=2)
     return None
 
 
@@ -477,65 +480,115 @@ def account_config(harness, account):
     return f"{HOME}/.claude.json" if account == "main" else f"{account_dir(harness, account)}/.claude.json"
 
 
-def account_login(harness, account):
-    """The account's login (Claude Code's .credentials.json: token, expiry, plan), {} when logged out."""
+def jwt_claims(token):
+    """What a JWT says about its holder (read, not verified: it's our own login file)."""
+    import base64
     try:
-        return json.load(open(f"{account_dir(harness, account)}/.credentials.json")).get("claudeAiOauth") or {}
-    except (OSError, ValueError):
+        part = token.split(".")[1]
+        return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
+    except (IndexError, ValueError):
         return {}
 
 
-def account_who(harness, account):
-    """(email, organization, plan) of the account's login; email None: not logged in."""
-    login = account_login(harness, account)
-    if not login:
-        return None, "", ""
+def account_login(harness, account):
+    """The account's login: {"token", "expires" (epoch), "email", "org", "plan", "id"}; {} when logged
+    out. Claude Code: .credentials.json, who in .claude.json; Codex: auth.json, who in its id token."""
+    folder = account_dir(harness, account)
     try:
-        me = json.load(open(account_config(harness, account))).get("oauthAccount") or {}
+        if harness == "claude":
+            c = json.load(open(f"{folder}/.credentials.json")).get("claudeAiOauth") or {}
+            if not c.get("accessToken"):
+                return {}
+            try:
+                me = json.load(open(account_config(harness, account))).get("oauthAccount") or {}
+            except (OSError, ValueError):
+                me = {}
+            return {"token": c["accessToken"], "expires": c.get("expiresAt", 0) / 1000,
+                    "email": me.get("emailAddress", "logged in"), "org": me.get("organizationName", ""),
+                    "plan": c.get("subscriptionType", "")}
+        if harness == "codex":
+            a = json.load(open(f"{folder}/auth.json"))
+            t = a.get("tokens") or {}
+            if not t.get("access_token"):
+                return {"email": "API key", "plan": "api"} if a.get("OPENAI_API_KEY") else {}
+            claims = jwt_claims(t.get("id_token", ""))
+            return {"token": t["access_token"], "expires": jwt_claims(t["access_token"]).get("exp", 0),
+                    "email": claims.get("email", "logged in"), "org": "", "id": t.get("account_id", ""),
+                    "plan": claims.get("https://api.openai.com/auth", {}).get("chatgpt_plan_type", "")}
     except (OSError, ValueError):
-        me = {}
-    return me.get("emailAddress", "logged in"), me.get("organizationName", ""), login.get("subscriptionType", "")
+        pass
+    return {}
 
 
-USAGE_URL = "https://api.anthropic.com/api/oauth/usage"   # what Claude Code's /usage reads (undocumented)
+# what each agent's own /usage (/status) reads; undocumented, so a change there shows "not known"
+USAGE_URL = {"claude": "https://api.anthropic.com/api/oauth/usage", "codex": "https://chatgpt.com/backend-api/wham/usage"}
+USAGE_CACHE = f"{os.environ.get('XDG_CACHE_HOME', HOME + '/.cache')}/agentmux/usage.json"
+
+
+def window_name(seconds):
+    return {18000: "5-hour", 604800: "weekly", 2592000: "monthly"}.get(seconds) or \
+        (f"{seconds // 86400}-day" if seconds >= 86400 else f"{max(seconds // 3600, 1)}-hour")
 
 
 def account_usage(harness, account, live=False):
-    """{"5h": (percent, reset time), "week": (…), "at": when it was read}, {} when not known. From the
-    account's own .claude.json, where Claude Code keeps the usage it last fetched; live: asked now, with
-    the account's own login (not when its token has expired: Claude Code renews it when it next runs,
-    and renewing it here could race a running one and log it out). A window whose reset time has
-    passed is back at 0."""
+    """{"windows": [(name, percent, reset time)], "at": when it was read}, {} when not known. live: asked
+    now with the account's own login, unless its token has expired: the agent renews it when it next
+    runs, and renewing it here could race a running one and log it out. Otherwise what was read last:
+    Claude Code keeps its own in .claude.json, agentmux keeps every live answer (USAGE_CACHE). A window
+    whose reset time has passed is back at 0."""
     from datetime import datetime
-    data, at = {}, 0
+    key = f"{harness}/{account}"
     try:
-        cached = json.load(open(account_config(harness, account))).get("cachedUsageUtilization") or {}
-        data, at = cached.get("utilization") or {}, cached.get("fetchedAtMs", 0) / 1000
+        cache = json.load(open(USAGE_CACHE))
     except (OSError, ValueError):
-        pass
-    login = account_login(harness, account)
-    if live and login.get("accessToken") and login.get("expiresAt", 0) / 1000 > time.time() + 60:
-        import urllib.request
-        req = urllib.request.Request(USAGE_URL, headers={"Authorization": "Bearer " + login["accessToken"],
-                                                         "anthropic-beta": "oauth-2025-04-20"})
+        cache = {}
+    windows, at = cache.get(key, {}).get("windows", []), cache.get(key, {}).get("at", 0)
+    if harness == "claude":   # Claude Code's own, if newer
         try:
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data, at = json.load(r), time.time()
+            saved = json.load(open(account_config(harness, account))).get("cachedUsageUtilization") or {}
+        except (OSError, ValueError):
+            saved = {}
+        if saved.get("fetchedAtMs", 0) / 1000 > at:
+            windows, at = None, saved["fetchedAtMs"] / 1000
+            raw = saved.get("utilization") or {}
+    login = account_login(harness, account)
+    if live and login.get("token") and login.get("expires", 0) > time.time() + 60 and harness in USAGE_URL:
+        import urllib.request
+        head = {"Authorization": "Bearer " + login["token"]}
+        head.update({"anthropic-beta": "oauth-2025-04-20"} if harness == "claude" else
+                    {"ChatGPT-Account-Id": login.get("id", ""), "originator": "codex_cli_rs"})
+        try:
+            with urllib.request.urlopen(urllib.request.Request(USAGE_URL[harness], headers=head), timeout=8) as r:
+                windows, at, raw = None, time.time(), json.load(r)
         except (OSError, ValueError):
             pass
-    out = {}
-    for key, field in (("5h", "five_hour"), ("week", "seven_day")):
-        w = data.get(field) or {}
-        if w.get("utilization") is None:
-            continue
-        try:
-            reset = datetime.fromisoformat(w["resets_at"]).timestamp() if w.get("resets_at") else 0
-        except ValueError:
-            reset = 0
-        out[key] = (0.0, 0) if reset and reset < time.time() else (float(w["utilization"]), reset)
-    if out:
-        out["at"] = at
-    return out
+    if windows is None:   # an answer to read: Claude's five_hour / seven_day, Codex's primary / secondary
+        windows = []
+        if harness == "claude":
+            for name, field in (("5-hour", "five_hour"), ("weekly", "seven_day")):
+                w = raw.get(field) or {}
+                if w.get("utilization") is not None:
+                    try:
+                        reset = datetime.fromisoformat(w["resets_at"]).timestamp() if w.get("resets_at") else 0
+                    except ValueError:
+                        reset = 0
+                    windows.append((name, float(w["utilization"]), reset))
+        else:
+            limits = raw.get("rate_limit") or {}
+            for field in ("primary_window", "secondary_window"):
+                w = limits.get(field) or {}
+                if w.get("used_percent") is not None:
+                    windows.append((window_name(w.get("limit_window_seconds", 0)), float(w["used_percent"]),
+                                    w.get("reset_at", 0)))
+        if windows:
+            cache[key] = {"windows": windows, "at": at}
+            os.makedirs(os.path.dirname(USAGE_CACHE), exist_ok=True)
+            with open(USAGE_CACHE, "w") as f:
+                json.dump(cache, f)
+    if not windows:
+        return {}
+    now = time.time()
+    return {"windows": [(n, 0.0, 0) if r and r < now else (n, p, r) for n, p, r in windows], "at": at}
 
 
 def set_account(name, account):

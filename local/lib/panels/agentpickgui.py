@@ -5,8 +5,8 @@
 # <folder>` / `new-thread <agent>` / `account …` / `quit --yes`.
 #   agentpickgui.py harness   New thread: which agent (the installed ones; the others shown greyed)
 #   agentpickgui.py account [thread]
-#                             Accounts: each Claude Code login (who, plan, 5-hour and weekly usage with
-#                             their resets); ↵ puts the thread on it (same conversation), Ctrl+D or
+#                             Accounts: each Claude Code / Codex login (who, plan, each usage window
+#                             with its reset); ↵ puts the thread on it (same conversation), Ctrl+D or
 #                             Make default: new threads start on it. Typing a new name offers to add it.
 #   agentpickgui.py project   Open project: a folder browser. The first time it asks for the projects
 #                             folder (the root, remembered in agentmux's state.json); after that it opens there.
@@ -23,7 +23,7 @@ import os, re, subprocess, sys, threading, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "agentmux"))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, level, recolor, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, level, recolor, rule_heading, run, scrolled
 from keys import fuzzy
 from keysgui import marked
 import lib
@@ -38,9 +38,22 @@ CSS = """
 .pick-list > row.off { opacity: .45; }
 .pick-glyph { min-width: 18px; }
 .crumbs button { padding: 2px 6px; min-height: 0; }
-.usage levelbar trough { background: #292e42; border: none; padding: 0; min-height: 6px; }
+/* Accounts: a card per account, roomy; the selected one lifted and edged in the accent */
+.pick-list.accounts > row { padding: 0; margin-bottom: 10px; background: transparent; }
+.pick-list.accounts > row:not(:first-child) .rule-head { margin-top: 10px; }
+.pick-list.accounts > row:first-child .rule-head { margin-top: 4px; }
+.acct-card { padding: 14px 18px 16px 18px; border: 1px solid alpha(#3b4261, .7); }
+.pick-list.accounts > row:hover .acct-card { background: alpha(#292e42, .45); }
+.pick-list.accounts > row:selected .acct-card { background: #292e42; border-color: #6b8fe0; }
+.acct-name { font-size: 11pt; }
+.acct-card button { padding: 0 8px; min-height: 0; }   /* as tall as the tags beside it */
+.acct-who { margin-left: 28px; margin-bottom: 6px; }
+.acct-note { margin-left: 28px; margin-top: 8px; }
+.acct-add { padding: 6px 18px; }
+.usage { margin-left: 28px; margin-top: 6px; }
+.usage levelbar trough { background: #292e42; border: none; padding: 0; min-height: 8px; }
 .pick-list > row:selected .usage levelbar trough { background: #3b4261; }
-.usage levelbar block { min-height: 6px; border: none; }
+.usage levelbar block { min-height: 8px; border: none; }
 .usage levelbar block.empty { background: transparent; }
 .usage levelbar.green block.filled { background: #9ece6a; }
 .usage levelbar.yellow block.filled { background: #e0af68; }
@@ -225,7 +238,7 @@ def until(ts):
     """When a usage window resets: "22:50 · in 12m" today, "Mon 09:00 · in 2d 3h" later."""
     left = ts - time.time()
     when = time.strftime("%H:%M" if left < 86400 and time.localtime(ts).tm_mday == time.localtime().tm_mday
-                         else "%a %H:%M", time.localtime(ts))
+                         else "%a %H:%M" if left < 6 * 86400 else "%b %d", time.localtime(ts))
     d, h, m = int(left // 86400), int(left % 86400 // 3600), int(left % 3600 // 60)
     return f"{when} · in " + (f"{d}d {h}h" if d else f"{h}h {m}m" if h else f"{max(m, 1)}m")
 
@@ -237,8 +250,9 @@ def ago(ts):
 
 
 class Account(Picker):
-    """Each account: who's logged in, its plan, its 5-hour and weekly usage with when they reset. The
-    default one (●) is what new threads start on; Enter puts the shown thread on the selected one."""
+    """A card per account, under its agent: who's logged in, the plan, each usage window (bar, percent,
+    when it resets). The default one (●) is what new threads of that agent start on; Enter puts the
+    shown thread on the selected one."""
     title = "Accounts"
     icon = "\U000f0004"
     placeholder = "filter, or a new account's name"
@@ -248,25 +262,30 @@ class Account(Picker):
         super().__init__()
         t = next((t for t in lib.threads() if t["name"] == thread and t["harness"] in lib.ACCOUNT_ENV), None)
         self.thread = t["name"] if t else ""
-        self.harness = t["harness"] if t else "claude"
-        self.current = (t["account"] or "main") if t else ""
+        self.current = ((t["harness"], t["account"] or "main")) if t else None
+        installed = {k for k, _ in lib.installed_harnesses()}
+        # the shown thread's agent first, then the others that can have several accounts
+        self.harnesses = sorted((h for h in lib.ACCOUNT_ENV if h in installed),
+                                key=lambda h: (not t or h != t["harness"], list(lib.HARNESSES).index(h)))
         self.subtitle = f"thread #{self.thread.rsplit(lib.SEP, 1)[-1]}" if t else "no thread shown"
         self.hints = [*([("Enter", "switch the thread")] if t else [("Enter", "make default")]),
                       *([("Ctrl+D", "make default")] if t else []), ("↑↓", "move"), ("Esc", "close")]
-        # what Claude Code last saved (instant), then asked live in the background (refresh)
-        self.usage = {a: lib.account_usage(self.harness, a) for a in lib.accounts(self.harness)}
+        # what was read last (instant), then asked live in the background (refresh)
+        self.usage = {(h, a): lib.account_usage(h, a) for h in self.harnesses for a in lib.accounts(h)}
 
     def build(self):
         page = super().build()
-        names = lib.accounts(self.harness)
-        here = self.current or lib.default_account(self.harness)
-        self.select((names.index(here) + 1) % len(names))   # the next one: what you open it for
+        self.list.add_css_class("accounts")
+        if self.current:   # the thread's next account selected: what you open it for
+            names = lib.accounts(self.current[0])
+            want = ("use", self.current[0], names[(names.index(self.current[1]) + 1) % len(names)])
+            self.select(next((n for n, it in enumerate(self.items) if it == want), 0))
         self.refresh()
         return page
 
     def refresh(self):
         def fetch():
-            got = {a: lib.account_usage(self.harness, a, live=True) for a in lib.accounts(self.harness)}
+            got = {(h, a): lib.account_usage(h, a, live=True) for h in self.harnesses for a in lib.accounts(h)}
             GLib.idle_add(lambda: self.got(got) and False)
         threading.Thread(target=fetch, daemon=True).start()
 
@@ -274,99 +293,107 @@ class Account(Picker):
         self.usage = usage
         self.paint(self.selected())
 
-    def meter(self, grid, row, name, window):
-        """A usage line: name, bar, percent, when it resets."""
-        pct, reset = window
-        bar = Gtk.LevelBar(min_value=0, max_value=100, hexpand=True, valign=Gtk.Align.CENTER)
+    def window(self, name, pct, reset):
+        """One usage window: its name and percent, a bar, when it resets."""
+        bar = Gtk.LevelBar(min_value=0, max_value=100, hexpand=True)
         for offset in (Gtk.LEVEL_BAR_OFFSET_LOW, Gtk.LEVEL_BAR_OFFSET_HIGH, Gtk.LEVEL_BAR_OFFSET_FULL):
             bar.remove_offset_value(offset)   # one colour, from level()
         bar.set_value(min(pct, 100))
         bar.add_css_class(level(pct))
-        grid.attach(label(name, "dim"), 0, row, 1, 1)
-        grid.attach(bar, 1, row, 1, 1)
-        num = label(f"{pct:.0f}%", level(pct), xalign=1.0)
-        num.set_width_chars(4)   # every card's bars as long
-        grid.attach(num, 2, row, 1, 1)
-        grid.attach(label(f"resets {until(reset)}" if reset else "not started", "dim"), 3, row, 1, 1)
+        top = box(False, 8, label(name, "sub"), label(""), label(f"{pct:.0f}%", level(pct), "bold"))
+        top.get_first_child().get_next_sibling().set_hexpand(True)
+        col = box(True, 6, top, bar, label(f"resets {until(reset)}" if reset else "starts with the next message",
+                                          "setting-sub"))
+        col.set_hexpand(True)
+        return col
+
+    def card(self, h, a, default, q):
+        """An account's card, or None if the search leaves it out."""
+        me = lib.account_login(h, a)
+        email = me.get("email")
+        m = fuzzy(q, a, email or "") if q else (0, set(), set())
+        if not m:
+            return None
+        plan = label(me.get("plan", "").capitalize(), "accent", "acct-plan")
+        plan.set_hexpand(True)   # the tags and the button at the right end
+        dot = label("●" if a == default else "○", "green" if a == default else "dim", "pick-glyph")
+        head = box(False, 10, dot, label(marked(a, m[1], HIT), "bold", "acct-name", markup=True), plan)
+        here = self.current == (h, a)
+        if here:
+            head.append(label("this thread", "accent"))
+        if here and a == default:
+            head.append(label("·", "dim"))
+        if a == default:   # the green dot: the one new threads start on
+            head.append(label("default", "green"))
+        elif email:
+            head.append(button("Make default", lambda: self.make_default(h, a), "flat"))
+        if email:
+            org = me.get("org", "")
+            who = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}"
+                                              if org and org != f"{email}'s Organization" else "")
+        else:
+            who = "not logged in · make it the default, start a thread, log in there"
+        card = box(True, 4, head, label(who, "setting-sub", "acct-who", markup=True, ellipsize=True),
+                   classes=("acct-card",))
+        use = self.usage.get((h, a), {})
+        if email and use:
+            cols = [self.window(*w) for w in use["windows"]]
+            cols += [Gtk.Box() for _ in range(2 - len(cols))]   # two columns, lined up card to card
+            row = box(False, 28, *cols, classes=("usage",))
+            row.set_homogeneous(True)
+            card.append(row)
+            if time.time() - use["at"] > 600:   # what was read last; its token too old to ask now
+                card.append(label(f"as of {ago(use['at'])} · updates once a thread runs on it", "dim", "acct-note"))
+        elif email:
+            card.append(label("usage not known yet · shows once a thread has run on it", "dim", "acct-note"))
+        return card
 
     def rows(self, q):
-        default = lib.default_account(self.harness)
-        names = lib.accounts(self.harness)
-        for a in names:
-            email, org, plan = lib.account_who(self.harness, a)
-            m = fuzzy(q, a, email or "") if q else (0, set(), set())
-            if not m:
+        for h in self.harnesses:
+            default, names = lib.default_account(h), lib.accounts(h)
+            cards = [(a, c) for a in names for c in [self.card(h, a, default, q)] if c]
+            if not cards and q in names:
                 continue
-            tier = label(plan.capitalize(), "accent")
-            tier.set_hexpand(True)   # the tags and the button at the right end
-            head = box(False, 8, label(marked(a, m[1], HIT), "bold", markup=True), tier)
-            if a == self.current:
-                head.append(label("this thread", "accent"))
-            if a == self.current == default:
-                head.append(label("\u00b7", "dim"))
-            if a == default:   # the green dot: the one new threads start on
-                head.append(label("default", "green"))
-            elif email:
-                head.append(button("Make default", lambda a=a: self.make_default(a), "flat"))
-            if email:
-                who = marked(email, m[2], HIT) + (f"  ·  {GLib.markup_escape_text(org)}"
-                                                  if org and org != f"{email}'s Organization" else "")
-            else:
-                who = "not logged in · make it the default, start a thread, /login"
-            card = box(True, 3, head, label(who, "setting-sub", markup=True, ellipsize=True))
-            use = self.usage.get(a, {})
-            if email and use:
-                grid = Gtk.Grid(column_spacing=10, row_spacing=2, margin_top=4)
-                grid.add_css_class("usage")
-                for i, (key, name) in enumerate((("5h", "5-hour"), ("week", "weekly"))):
-                    if key in use:
-                        self.meter(grid, i, name, use[key])
-                card.append(grid)
-                if time.time() - use["at"] > 600:   # Claude Code's saved numbers, its token too old to ask
-                    card.append(label(f"as of {ago(use['at'])} · updates when a thread runs on it", "dim"))
-            elif email:
-                card.append(label("usage not known yet · shows once a thread has run on it", "dim"))
-            card.set_hexpand(True)
-            glyph = label("●" if a == default else "○", "green" if a == default else "dim", "pick-glyph")
-            glyph.set_valign(Gtk.Align.START)
-            yield ("use", a), box(False, 12, glyph, card), True
-        if q and q not in names:   # a new account by that name
-            ok = bool(re.fullmatch(r"[A-Za-z0-9_-]{1,20}", q)) and q != "main"
-            line = box(False, 12, label("+", "accent" if ok else "dim", "pick-glyph"),
-                       label(f"Add account “{q}”" if ok else "A name is letters, digits, - or _",
-                             "accent" if ok else "dim"))
-            yield ("add", q), line, ok
-        elif not q:
-            line = box(False, 12, label("+", "dim", "pick-glyph"), label("Add account: type its name", "dim"))
-            yield None, line, False
+            yield None, rule_heading(lib.HARNESSES[h][0], f"{len(names)} account{'s' * (len(names) > 1)}"), False
+            for a, c in cards:
+                yield ("use", h, a), c, True
+            if q and q not in names:   # a new account by that name
+                ok = bool(re.fullmatch(r"[A-Za-z0-9_-]{1,20}", q)) and q != "main"
+                line = box(False, 12, label("+", "accent" if ok else "dim", "pick-glyph"),
+                           label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok
+                                 else "A name is letters, digits, - or _", "accent" if ok else "dim"),
+                           classes=("acct-add",))
+                yield ("add", h, q), line, ok
 
-    def make_default(self, a):
-        lib.set_default_account(self.harness, a)
-        subprocess.Popen([AGENTMUX, "account", "default", a, self.harness], start_new_session=True,
+    def make_default(self, h, a):
+        lib.set_default_account(h, a)
+        subprocess.Popen([AGENTMUX, "account", "default", a, h], start_new_session=True,
                          stdout=subprocess.DEVNULL)   # agentmux's home screen shows it
         self.paint(self.selected())
-        self.say(f"{a} is the default: new threads start on it")
+        self.say(f"{a} is the default: new {lib.HARNESSES[h][0]} threads start on it")
 
     def choose(self, item):
-        kind, a = item
+        kind, h, a = item
         if kind == "add":
-            err = lib.add_account(self.harness, a)
+            err = lib.add_account(h, a)
             if err:
                 return self.say(err, "bad")
-            self.usage[a] = {}
+            self.usage[(h, a)] = {}
             self.search.set_text("")   # repaints, with it listed
-            self.select(next(n for n, it in enumerate(self.items) if it == ("use", a)))
-            return self.say(f"{a} added: make it the default, start a thread on it and /login")
-        if self.thread and a != self.current:
+            self.select(next(n for n, it in enumerate(self.items) if it == ("use", h, a)))
+            return self.say(f"{a} added: make it the default, start a thread on it and log in there")
+        if self.current and self.current[0] == h and a != self.current[1]:
             self.done("account", "switch", self.thread, a)
-        elif not self.thread:
-            self.make_default(a)
+        elif self.current and self.current[0] != h:
+            self.say(f"The thread runs {lib.HARNESSES[self.current[0]][0]}: Ctrl+D makes this the default", "bad")
+        elif not self.current:
+            self.make_default(h, a)
 
     def key(self, keyval, state):
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_d, Gdk.KEY_D):
             i = self.selected()
             if 0 <= i < len(self.items) and self.items[i] and self.items[i][0] == "use":
-                self.make_default(self.items[i][1])
+                self.make_default(*self.items[i][1:])
             return True
         return super().key(keyval, state)
 
@@ -591,7 +618,7 @@ def main():
     if kind == "harness":
         run(Harness(), "panels.newthread", (620, 440))
     elif kind == "account":
-        run(Account(sys.argv[2] if len(sys.argv) > 2 else ""), "panels.agentaccounts", (680, 480))
+        run(Account(sys.argv[2] if len(sys.argv) > 2 else ""), "panels.agentaccounts", (760, 640))
     elif kind == "quit":
         run(Quit(sys.argv[2:]), "panels.quitagentmux", (560, 300))
     else:

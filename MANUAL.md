@@ -807,27 +807,30 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   remembered (a new one) starts nothing: the home screen asks which agent, with the keyboard on its
   prompt. `+ thread` starts fresh. Skipped for an agent whose conversation already runs straight in
   the project's VS Code kitty. Settings → Projects switches it all off.
-- **More than one Claude Code account.** Both stay logged in. One is the **default**: new threads
-  start on it, and it stays the default until you change it. **`Ctrl+Alt+K`** opens the **Accounts**
-  panel: each account with who's logged in (or *not logged in*), its plan, and its **5-hour** and
-  **weekly** usage as bars (green, amber from 60 %, red from 85 %) with when each resets (`resets Mon
-  01:49 · in 2h 54m`). *this thread* marks the shown thread's account, the green dot and *default* the
+- **More than one Claude Code or Codex account.** All stay logged in. One per agent is the
+  **default**: new threads of that agent start on it, and it stays the default until you change it.
+  **`Ctrl+Alt+K`** opens the **Accounts** panel: a card per account, under its agent (the shown
+  thread's first), with who's logged in (or *not logged in*), its plan, and each usage window as a
+  bar (green, amber from 60 %, red from 85 %) with when it resets (`resets Mon 01:49 · in 2h 54m`):
+  Claude Code's **5-hour** and **weekly**, Codex's (a Free plan has one **monthly**). *this thread* marks the shown thread's account, the green dot and *default* the
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
   Not while the agent is working. Typing a new name offers *Add account “name”*.
-  The usage comes from what Claude Code saved last in each account's `.claude.json` (instant), then
-  asked live with the account's own login (the endpoint Claude Code's `/usage` reads; again every
-  minute while the panel is open). An account whose login token has expired (idle for hours) shows
+  The usage first shows what was read last (Claude Code's own in each account's `.claude.json`,
+  agentmux's in `~/.cache/agentmux/usage.json`), then asks live with the account's own login (what
+  Claude Code's `/usage` and Codex's `/status` read, both undocumented; again every minute while the
+  panel is open). An account whose login token has expired (idle for hours) shows
   its saved numbers, *as of …*: agentmux doesn't renew the token itself (it could log out a Claude
   Code running on it); it renews when a thread next runs on that account.
-  An account is a config folder (`CLAUDE_CONFIG_DIR`): `main` is `~/.claude`, the others are
-  `~/.local/share/agentmux/accounts/claude/<name>/` on each PC (logins never go in the repo), linked to
-  `~/.claude` for everything but the login: settings and hooks, skills, plugins, history and the
-  conversations (`projects/`), which is why another account can resume one. Its own `.claude.json`
+  An account is a config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`): `main` is `~/.claude` /
+  `~/.codex`, the others are `~/.local/share/agentmux/accounts/<agent>/<name>/` on each PC (logins
+  never go in the repo), linked to main's for everything but the login: settings and hooks, skills,
+  plugins, history and the conversations (Claude's `projects/`, Codex's `sessions/`), which is why
+  another account can resume one. Its own `.claude.json`
   starts with main's theme, MCP servers and folder trust. Add one in the panel (or `agentmux account
   add <name>`), make it the default, start a thread: Claude Code's first-run screens and `/login` (as
-  that account). `agentmux account` lists them (`*` the default); `agentmux account default <name>`,
+  that account). `agentmux account` lists them (`*` the default); `agentmux account default <name> [agent]`,
   `agentmux account switch [thread] [name]` do the panel's two things. With more than one account,
   each thread's second line and the status bar name its account, and the home screen the default.
   The first message after a switch reads the whole conversation again on the new account (the cache

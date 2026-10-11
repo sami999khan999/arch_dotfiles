@@ -807,24 +807,32 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   remembered (a new one) starts nothing: the home screen asks which agent, with the keyboard on its
   prompt. `+ thread` starts fresh. Skipped for an agent whose conversation already runs straight in
   the project's VS Code kitty. Settings → Projects switches it all off.
-- **More than one Claude Code account.** Both stay logged in; one is *active* (new threads start on
-  it). **`Ctrl+Alt+K`** opens the **Accounts** panel: each account with who's logged in to it (or
-  *not logged in*), *this thread* beside the shown thread's and *new threads* beside the active one,
-  the next account selected. `Enter` restarts the thread's agent in place on that account, on the same
-  conversation (`claude --resume <id>`: for when its account runs out of usage), and makes it the
-  active one; with no thread shown it only makes it the active one. Not while the agent is working.
-  Typing a new name offers *Add account “name”*.
+- **More than one Claude Code account.** Both stay logged in. One is the **default**: new threads
+  start on it, and it stays the default until you change it. **`Ctrl+Alt+K`** opens the **Accounts**
+  panel: each account with who's logged in (or *not logged in*), its plan, and its **5-hour** and
+  **weekly** usage as bars (green, amber from 60 %, red from 85 %) with when each resets (`resets Mon
+  01:49 · in 2h 54m`). *this thread* marks the shown thread's account, the green dot and *default* the
+  default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
+  conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
+  change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
+  Not while the agent is working. Typing a new name offers *Add account “name”*.
+  The usage comes from what Claude Code saved last in each account's `.claude.json` (instant), then
+  asked live with the account's own login (the endpoint Claude Code's `/usage` reads; again every
+  minute while the panel is open). An account whose login token has expired (idle for hours) shows
+  its saved numbers, *as of …*: agentmux doesn't renew the token itself (it could log out a Claude
+  Code running on it); it renews when a thread next runs on that account.
   An account is a config folder (`CLAUDE_CONFIG_DIR`): `main` is `~/.claude`, the others are
   `~/.local/share/agentmux/accounts/claude/<name>/` on each PC (logins never go in the repo), linked to
   `~/.claude` for everything but the login: settings and hooks, skills, plugins, history and the
   conversations (`projects/`), which is why another account can resume one. Its own `.claude.json`
-  starts with main's theme, MCP servers and folder trust. Add one with `agentmux account add <name>`,
-  `agentmux account use <name>`, then a new thread: Claude Code's first-run screens and `/login` (as
-  that account). `agentmux account` lists them (`*` the active one); `agentmux account switch [thread]
-  [name]` switches without the panel (no name: the next account). With more than one account, each thread's second line and the status bar name
-  its account, and the home screen the active one. The first message after a switch reads the whole
-  conversation again on the new account (the cache is per account): `/compact` first on a long one.
-  A thread reopened after a restart is on the account it had. Remove one: delete its folder.
+  starts with main's theme, MCP servers and folder trust. Add one in the panel (or `agentmux account
+  add <name>`), make it the default, start a thread: Claude Code's first-run screens and `/login` (as
+  that account). `agentmux account` lists them (`*` the default); `agentmux account default <name>`,
+  `agentmux account switch [thread] [name]` do the panel's two things. With more than one account,
+  each thread's second line and the status bar name its account, and the home screen the default.
+  The first message after a switch reads the whole conversation again on the new account (the cache
+  is per account): `/compact` first on a long one. A thread reopened after a restart is on the account
+  it had. Remove one: delete its folder.
 - **Panels close and reopen:** `Ctrl+Alt+1` / `Ctrl+Alt+2` / `Ctrl+Alt+3` (Projects / Threads / Terminals), or the `×` in a
   panel's header (`─` in the terminal list's); a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
   until reopened. Closing Terminals only hides the column: its shells keep running.

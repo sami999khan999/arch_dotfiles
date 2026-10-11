@@ -293,7 +293,7 @@ ACTIONS = [
     ("focus-terminals", "Focus the terminals", "focus terms", "C-M-e"),
     ("focus-next", "Focus the next part", "focus-next", "C-M-f"),
     ("new-thread", "New thread", "new-thread", "C-M-n"),
-    ("accounts", "Accounts: the thread on another one (out of usage: same conversation)", "account pick", "C-M-k"),
+    ("accounts", "Accounts: usage, the default one, the thread on another (same conversation)", "account pick", "C-M-k"),
     ("open-project", "Open project", "open", "C-M-o"),
     ("new-terminal", "New terminal", "term", "C-M-t"),
     ("split-terminal", "Split terminal", "split-term", "C-M-d"),
@@ -408,8 +408,9 @@ def parse_key(text):
 # (~/.claude); the others are folders in ACCOUNTS/<harness>/<name>, per PC: a login never goes in the
 # repo. Everything but the login is shared with main through symlinks (ACCOUNT_SHARED): settings and
 # hooks, skills, plugins and the conversations, so a thread switched to another account goes on with
-# the same conversation (--resume). state "account": harness -> the active one, which new threads use;
-# a thread keeps the one it started on (@account) until it's switched (agentmux account switch).
+# the same conversation (--resume). state "account": harness -> the default one, which new threads start
+# on (agentmux account default); a thread keeps the one it started on (@account) until it's switched
+# (agentmux account switch), which leaves the default as it is.
 ACCOUNTS = f"{os.environ.get('XDG_DATA_HOME', HOME + '/.local/share')}/agentmux/accounts"
 ACCOUNT_ENV = {"claude": "CLAUDE_CONFIG_DIR"}
 ACCOUNT_HOME = {"claude": f"{HOME}/.claude"}
@@ -431,7 +432,7 @@ def accounts(harness):
     return ["main"] + own if harness in ACCOUNT_ENV else ["main"]
 
 
-def active_account(harness):
+def default_account(harness):
     a = load_state().get("account", {}).get(harness, "main")
     return a if a in accounts(harness) else "main"
 
@@ -465,10 +466,82 @@ def add_account(harness, account):
     return None
 
 
+def set_default_account(harness, account):
+    s = load_state()
+    s.setdefault("account", {})[harness] = account
+    save_state(s)
+
+
+def account_config(harness, account):
+    """The account's own settings file, where the agent keeps who's logged in and its last usage."""
+    return f"{HOME}/.claude.json" if account == "main" else f"{account_dir(harness, account)}/.claude.json"
+
+
+def account_login(harness, account):
+    """The account's login (Claude Code's .credentials.json: token, expiry, plan), {} when logged out."""
+    try:
+        return json.load(open(f"{account_dir(harness, account)}/.credentials.json")).get("claudeAiOauth") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def account_who(harness, account):
+    """(email, organization, plan) of the account's login; email None: not logged in."""
+    login = account_login(harness, account)
+    if not login:
+        return None, "", ""
+    try:
+        me = json.load(open(account_config(harness, account))).get("oauthAccount") or {}
+    except (OSError, ValueError):
+        me = {}
+    return me.get("emailAddress", "logged in"), me.get("organizationName", ""), login.get("subscriptionType", "")
+
+
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"   # what Claude Code's /usage reads (undocumented)
+
+
+def account_usage(harness, account, live=False):
+    """{"5h": (percent, reset time), "week": (…), "at": when it was read}, {} when not known. From the
+    account's own .claude.json, where Claude Code keeps the usage it last fetched; live: asked now, with
+    the account's own login (not when its token has expired: Claude Code renews it when it next runs,
+    and renewing it here could race a running one and log it out). A window whose reset time has
+    passed is back at 0."""
+    from datetime import datetime
+    data, at = {}, 0
+    try:
+        cached = json.load(open(account_config(harness, account))).get("cachedUsageUtilization") or {}
+        data, at = cached.get("utilization") or {}, cached.get("fetchedAtMs", 0) / 1000
+    except (OSError, ValueError):
+        pass
+    login = account_login(harness, account)
+    if live and login.get("accessToken") and login.get("expiresAt", 0) / 1000 > time.time() + 60:
+        import urllib.request
+        req = urllib.request.Request(USAGE_URL, headers={"Authorization": "Bearer " + login["accessToken"],
+                                                         "anthropic-beta": "oauth-2025-04-20"})
+        try:
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data, at = json.load(r), time.time()
+        except (OSError, ValueError):
+            pass
+    out = {}
+    for key, field in (("5h", "five_hour"), ("week", "seven_day")):
+        w = data.get(field) or {}
+        if w.get("utilization") is None:
+            continue
+        try:
+            reset = datetime.fromisoformat(w["resets_at"]).timestamp() if w.get("resets_at") else 0
+        except ValueError:
+            reset = 0
+        out[key] = (0.0, 0) if reset and reset < time.time() else (float(w["utilization"]), reset)
+    if out:
+        out["at"] = at
+    return out
+
+
 def set_account(name, account):
     """Thread name's agent goes on with its conversation on another account (the one it's on now when
     it's out of usage): restarted in place on --resume (or --continue, its id unknown), the same
-    thread. That account becomes the active one too. Returns an error or None."""
+    thread. The default account stays as it is. Returns an error or None."""
     t = next((t for t in threads() if t["name"] == name), None)
     if not t or not t["harness"]:
         return "No agent thread to switch"
@@ -485,9 +558,6 @@ def set_account(name, account):
     agents("set-option", "-t", f"={name}:", "@agent_state", "")   # its usage-limit error is the old account's
     if rec:   # reopened on this account after a restart
         remember_session(name, rec["project"], harness, rec["id"], account)
-    s = load_state()
-    s.setdefault("account", {})[harness] = account
-    save_state(s)
     return None
 
 
@@ -598,11 +668,11 @@ def new_thread(path, harness, prompt_file=None, resume=False, session=None, name
     that agent in path, or (session) that exact conversation. prompt_file's text, if given, is its
     first message (the file is removed). Quitting the agent leaves a shell in the thread. Any number
     of threads, of any agent, per project: each is its own session named <project>·<n> (name: that
-    one, if it's free). account: the one it runs on (default: the harness's active account)."""
+    one, if it's free). account: the one it runs on (by default the harness's default account)."""
     if not name or agents("has-session", "-t", f"={name}")[0] == 0:
         name = next_name(path)
     if account not in accounts(harness):
-        account = active_account(harness)
+        account = default_account(harness)
     if not session and not resume and harness == "opencode":   # no hooks to tell its id: name it now
         session = opencode_id()
     cmd = HARNESSES.get(harness, ("", harness))[1]

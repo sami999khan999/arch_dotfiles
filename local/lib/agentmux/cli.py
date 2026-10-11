@@ -42,16 +42,15 @@
                                dismiss its "needs your input" / error notifications (no longer true)
   agentmux hooks               install those hooks in each agent's own config (idempotent)
   agentmux paste <pane>        Ctrl+V in a Codex / agy thread: the clipboard's text, as a terminal paste
-  agentmux account             the accounts (logins) of each agent that can have several, * the active one
+  agentmux account             the accounts (logins) of each agent that can have several, * the default
   agentmux account add <name> [h]
                                a new account (h: claude): start a thread on it and /login there
-  agentmux account use <name> [h]
+  agentmux account default <name> [h]
                                the account new threads start on
-  agentmux account pick        the Accounts panel (Ctrl+Alt+K) for the shown thread
+  agentmux account pick        the Accounts panel (Ctrl+Alt+K): usage, the default, the shown thread's
   agentmux account switch [thread] [name]
                                the thread (the shown one) goes on with its conversation on another
-                               account (the next one), which becomes the active one. With no
-                               thread shown: the next account becomes the active one
+                               account (the next one); the default stays
 
 Layout (tmux -L agentmux):  Projects | Agents | the thread | terminal | terminal list
 Threads are sessions on the agents server (tmux -L agents): the middle pane and the terminals column
@@ -447,20 +446,18 @@ def account(args):
     say = msg if from_key else print
     if sub == "list":
         for h in lib.ACCOUNT_ENV:
-            active = lib.active_account(h)
-            say(f"{h}: " + ", ".join(a + "*" * (a == active) for a in lib.accounts(h)))
+            default = lib.default_account(h)
+            say(f"{h}: " + ", ".join(a + "*" * (a == default) for a in lib.accounts(h)))
     elif sub == "add" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
         err = lib.add_account(h, rest[0])
-        say(err or f"Account {rest[0]} added. agentmux account use {rest[0]}, then a new thread: /login in it")
-    elif sub == "use" and rest:
+        say(err or f"Account {rest[0]} added. agentmux account default {rest[0]}, then a new thread: /login in it")
+    elif sub == "default" and rest:
         h = rest[1] if len(rest) > 1 else "claude"
         if rest[0] not in lib.accounts(h):
             return say(f"No account {rest[0]} for {h}")
-        s = lib.load_state()
-        s.setdefault("account", {})[h] = rest[0]
-        lib.save_state(s)
-        say(f"New {lib.HARNESSES[h][0]} threads start on {rest[0]}")
+        lib.set_default_account(h, rest[0])
+        say(f"{rest[0]} is the default: new {lib.HARNESSES[h][0]} threads start on it")
         poke()
     elif sub == "pick":
         s = lib.load_state()
@@ -469,14 +466,13 @@ def account(args):
         s = lib.load_state()
         name = rest[0] if rest else s.get("threads", {}).get(s.get("project", ""), "")
         t = next((t for t in lib.threads() if t["name"] == name and t["harness"]), None)
-        h = t["harness"] if t else lib.load_state().get("harness", "claude")
-        names = lib.accounts(h)
+        if not t:
+            return say("No agent thread shown")
+        names = lib.accounts(t["harness"])
         if len(names) < 2:
-            return say(f"{lib.HARNESSES.get(h, (h,))[0]} has one account · agentmux account add <name> adds one")
-        cur = (t["account"] or "main") if t else lib.active_account(h)
+            return say(f"{lib.HARNESSES.get(t['harness'], (t['harness'],))[0]} has one account · agentmux account add <name> adds one")
+        cur = t["account"] or "main"
         to = rest[1] if len(rest) > 1 else names[(names.index(cur) + 1) % len(names) if cur in names else 0]
-        if not t:   # nothing shown: the next account for new threads
-            return account(["use", to, h])
         if lib.state_of(t) == "working":
             return say(f"{name} is working: switch it once it stops")
         err = lib.set_account(name, to)
@@ -484,7 +480,7 @@ def account(args):
             return say(err)
         where()
         poke()
-        say(f"{name} goes on on {to} · new threads start there too")
+        say(f"{name} goes on on {to}")
     else:
         sys.exit(__doc__)
 

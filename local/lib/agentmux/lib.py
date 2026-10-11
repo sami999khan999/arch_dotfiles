@@ -439,23 +439,44 @@ def accounts(harness):
     return ["main"] + [a for a in account_names().get(harness, {}) if a != "main"]
 
 
-def new_account(harness, name):
-    """Add an account shown as name (any text). Its own name (its folder's, a thread's @account) is made
-    from it: letters, digits and -, unique. Returns (account, error)."""
+def new_account(harness, name=""):
+    """Add an account shown as name (any text; none: its own until it's logged in, then named after its
+    email, name_from_email). Its own name (its folder's, a thread's @account) is made from it: letters,
+    digits and -, unique. Returns (account, error)."""
     name = name.strip()
-    if not name or len(name) > NAME_MAX:
-        return None, f"A name is 1 to {NAME_MAX} characters"
+    if len(name) > NAME_MAX:
+        return None, f"A name is at most {NAME_MAX} characters"
     if any(account_label(harness, a).lower() == name.lower() for a in accounts(harness)):
         return None, f"There's already an account called {name}"
-    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20].strip("-") or "account"
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:20].strip("-") or "account"   # (no name: account)
     account, n = base, 2
     while account == "main" or account in accounts(harness) or os.path.exists(account_dir(harness, account)):
         account, n = f"{base}-{n}", n + 1
     err = add_account(harness, account)
     if err:
         return None, err
-    set_account_label(harness, account, name)
+    if name:
+        set_account_label(harness, account, name)
     return account, None
+
+
+def name_from_email(harness, account):
+    """A just logged in account without a name of its own is named after its email (before the @;
+    "sami 2" if another account has that name). Returns the account it duplicates (the same email), if any."""
+    email = account_login(harness, account).get("email", "")
+    if "@" not in email:
+        return None
+    for other in accounts(harness):
+        if other != account and account_login(harness, other).get("email") == email:
+            return other
+    if not account_names().get(harness, {}).get(account):
+        base = email.split("@")[0][:NAME_MAX - 2]
+        taken = {account_label(harness, o).lower() for o in accounts(harness) if o != account}
+        name, n = base, 2
+        while name.lower() in taken:
+            name, n = f"{base} {n}", n + 1
+        set_account_label(harness, account, name)
+    return None
 
 
 def remove_account(harness, account):

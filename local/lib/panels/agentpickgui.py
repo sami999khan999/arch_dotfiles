@@ -295,7 +295,7 @@ class Account(Picker):
         self.usage = {(h, a): lib.account_usage(h, a) for h in self.harnesses for a in lib.accounts(h)}
         self.renaming = None   # (harness, account) whose name is being typed
         self.removing = None   # (harness, account) whose Remove was clicked once
-        self.adding = None     # the harness whose + Add account was clicked: its name field shows
+        self.fresh = None      # (harness, account) just added: kept only if its login works
         self.set_hints()
 
     def set_hints(self):
@@ -440,13 +440,7 @@ class Account(Picker):
                        label(f"Add {lib.HARNESSES[h][0]} account “{q}”" if ok else f"A name is at most {lib.NAME_MAX} characters",
                              "accent" if ok else "dim"), classes=("acct-add",))
             yield ("add", h, q), line, ok
-        elif not q and self.adding == h:   # its name, being typed: Enter adds it, Esc doesn't
-            name = Gtk.Entry(placeholder_text="the new account's name, e.g. Work", hexpand=True,
-                             max_length=lib.NAME_MAX, css_classes=["acct-rename"])
-            name.connect("activate", lambda e: self.choose(("add", h, e.get_text())) if e.get_text().strip() else None)
-            GLib.idle_add(lambda: name.grab_focus() and False)
-            yield None, box(False, 12, label("+", "accent", "pick-glyph"), name, classes=("acct-add",)), True
-        elif not q:
+        elif not q:   # straight to its login: named after its email once logged in
             yield ("new", h, None), box(False, 12, label("+", "accent", "pick-glyph"),
                                         label(f"Add {lib.HARNESSES[h][0]} account", "accent"), classes=("acct-add",)), True
 
@@ -475,8 +469,16 @@ class Account(Picker):
         term.set_colors(rgba(TERM_FG), rgba(TERM_BG), [rgba(c) for c in TERM_PALETTE])
         term.connect("child-exited", lambda _t, _status: self.login_done(h, a))
         keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)   # before the terminal
-        keys.connect("key-pressed", lambda _c, keyval, _code, state: self.login_key(keyval, state))
+        keys.connect("key-pressed", lambda _c, keyval, _code, state: self.login_key(term, keyval, state))
         term.add_controller(keys)
+        # the sign-in link opens on a click: agy's own "Click here" (an OSC 8 link) or any URL it prints
+        # (agy can't open the browser itself here: its D-Bus is out of reach)
+        term.set_allow_hyperlink(True)
+        tag = term.match_add_regex(Vte.Regex.new_for_match(r"https?://[^\s\"'<>]+", -1, 0x00000400), 0)   # PCRE2_MULTILINE
+        term.match_set_cursor_name(tag, "pointer")
+        click = Gtk.GestureClick(button=1)
+        click.connect("released", lambda _g, _n, x, y: self.open_link(term, x, y))
+        term.add_controller(click)
         head = box(False, 10, button("\u2039 Back", self.back, "flat"),
                    label(f"Log in \u00b7 {lib.HARNESSES[h][0]} \u00b7 {lib.account_label(h, a)}", "bold"))
         page = box(True, 10, head, term)
@@ -491,16 +493,35 @@ class Account(Picker):
         term.spawn_async(Vte.PtyFlags.DEFAULT, lib.HOME, argv + ["--no-wait"], None, GLib.SpawnFlags.DEFAULT,
                          None, None, -1, None, lambda _t, pid, _err, _data: setattr(self, "login_pid", pid), None)
         term.grab_focus()
-        self.hints = [("Ctrl+W", "back"), ("everything else", "goes to the login")]
+        self.hints = [("click", "a link opens it"), ("Ctrl+C", "copy"), ("Ctrl+V", "paste"), ("Ctrl+W", "back")]
         self.host.show_hints()
 
-    def login_key(self, keyval, state):
-        """Ctrl+W (or Alt+←) leaves the login page; every other key is the terminal's."""
-        if (state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_w, Gdk.KEY_W)) or \
-                (state & Gdk.ModifierType.ALT_MASK and keyval == Gdk.KEY_Left):
+    def login_key(self, term, keyval, state):
+        """Ctrl+W (or Alt+←) leaves the login page; Ctrl+C copies the selection (with none it's Ctrl+C),
+        Ctrl+V pastes (a sign-in code); every other key is the terminal's."""
+        ctrl = state & Gdk.ModifierType.CONTROL_MASK
+        if (ctrl and keyval in (Gdk.KEY_w, Gdk.KEY_W)) or (state & Gdk.ModifierType.ALT_MASK and keyval == Gdk.KEY_Left):
             self.back()
             return True
+        if ctrl and keyval in (Gdk.KEY_c, Gdk.KEY_C) and term.get_has_selection():
+            term.copy_clipboard_format(Vte.Format.TEXT)
+            term.unselect_all()
+            self.say("Copied")
+            return True
+        if ctrl and keyval in (Gdk.KEY_v, Gdk.KEY_V):
+            term.paste_clipboard()
+            return True
         return False
+
+    def open_link(self, term, x, y):
+        """A click on a link (not the end of a drag that selected text) opens it in the browser."""
+        if term.get_has_selection():
+            return
+        url = term.check_hyperlink_at(x, y) or (term.check_match_at(x, y) or (None,))[0]
+        if url:
+            subprocess.Popen(["xdg-open", url], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.say("Opened the sign-in page in the browser")
 
     def back(self):
         """To the cards, ending a login still running (it tidies up after itself: agy's own home goes)."""
@@ -514,15 +535,24 @@ class Account(Picker):
         self.search.grab_focus()
 
     def login_done(self, h, a):
+        """The login ended: a new account is named after its email, or goes again if it isn't logged in
+        (or is one already there, the same email)."""
         self.login_pid = None
-        self.usage[(h, a)] = lib.account_usage(h, a)
+        fresh, self.fresh = self.fresh == (h, a), None
         who = lib.account_login(h, a).get("email")
+        same = lib.name_from_email(h, a) if who else None
+        if fresh and (not who or same):
+            lib.remove_account(h, a)
+            msg = (f"That's {lib.account_label(h, same)} already: not added again" if same
+                   else "Not logged in: the account wasn't added")
+        else:
+            msg = f"{lib.account_label(h, a)}: logged in as {who}" if who else f"{lib.account_label(h, a)}: not logged in"
+        self.usage[(h, a)] = lib.account_usage(h, a)
         self.back()
         self.paint_side()
         self.paint(self.selected())
         self.refresh()   # its usage, now that it can be asked
-        self.say(f"{lib.account_label(h, a)}: logged in as {who}" if who else f"{lib.account_label(h, a)}: not logged in",
-                 "ok" if who else "bad")
+        self.say(msg, "ok" if who and not same else "bad")
 
     def remove(self, h, a):
         if self.removing != (h, a):   # first: ask
@@ -556,20 +586,15 @@ class Account(Picker):
 
     def choose(self, item):
         kind, h, a = item
-        if kind == "new":   # + Add account: a field for its name
-            self.adding = h
-            return self.paint(self.selected())
-        if kind == "add":
-            name = a
-            a, err = lib.new_account(h, name)
+        if kind in ("new", "add"):   # + Add account (or a name typed in the search): made, and its login runs
+            a, err = lib.new_account(h, a or "")
             if err:
                 return self.say(err, "bad")
-            self.adding = None
+            self.fresh = (h, a)   # not logged in when the login ends: it goes again
             self.usage[(h, a)] = {}
-            self.paint_side()
             self.search.set_text("") if self.search.get_text() else self.paint()   # with it listed
-            self.select(next(n for n, it in enumerate(self.items) if it == ("use", h, a)))
-            return self.say(f"{name} added: Log in starts a thread on it, where {lib.HARNESSES[h][0]} asks you to")
+            self.paint_side()
+            return self.login(h, a)
         if self.current and self.current[0] == h:
             if a != self.current[1]:
                 self.done("account", "switch", self.thread, a)
@@ -584,8 +609,8 @@ class Account(Picker):
         return False
 
     def key(self, keyval, state):
-        if (self.renaming or self.removing or self.adding) and keyval == Gdk.KEY_Escape:   # not after all
-            self.renaming = self.removing = self.adding = None
+        if (self.renaming or self.removing) and keyval == Gdk.KEY_Escape:   # not after all
+            self.renaming = self.removing = None
             self.paint(self.selected())
             self.search.grab_focus()
             return True

@@ -49,7 +49,7 @@ CSS = """
 .pick-list.accounts > row { padding: 0; margin-bottom: 10px; background: transparent; }
 .pick-list.accounts > row:not(:first-child) .rule-head { margin-top: 10px; }
 .pick-list.accounts > row:first-child .rule-head { margin-top: 4px; }
-.acct-side { min-width: 190px; margin: 18px 0 18px 18px; background: transparent; }
+.acct-side { min-width: 230px; margin: 18px 0 18px 18px; background: transparent; }
 .acct-side > row { padding: 10px 14px; border-left: 2px solid transparent; }
 .acct-side > row:selected { background: #292e42; border-left-color: #6b8fe0; }
 .acct-card { padding: 14px 18px 16px 18px; border: 1px solid alpha(#3b4261, .7); }
@@ -325,7 +325,7 @@ class Account(Picker):
             names = lib.accounts(h)
             n = f"{len(names)} account{'s' * (len(names) > 1)}"
             sub = label(f"{n} · ● {lib.account_label(h, lib.default_account(h))}", "setting-sub", ellipsize=True)
-            sub.set_max_width_chars(22)   # a long account name doesn't widen the column
+            sub.set_max_width_chars(28)   # a long account name doesn't widen the column
             row = Gtk.ListBoxRow(child=box(True, 3, label(lib.HARNESSES[h][0], "bold"), sub))
             self.side.append(row)
             if h == self.h:

@@ -1,6 +1,7 @@
-# ~/.local/bin for the whole session, not only in fish: what starts at login (agentmux and its tmux
-# servers) runs claude / agy from there too
-export PATH="$HOME/.local/bin:$PATH"
+# ~/.local/bin and mise's shims (node, pnpm, bun) for the whole session, not only in fish: what starts
+# at login runs from there too (agentmux's tmux servers: claude / agy; a push from the Projects panel:
+# a repo's git hooks, e.g. husky running pnpm)
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
 export BROWSER=firefox
 export TERM=xterm-kitty
 export QT_QPA_PLATFORM="wayland;xcb"

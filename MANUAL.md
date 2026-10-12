@@ -415,7 +415,7 @@ It's sent the project list, branches, commit messages and authors and changed fi
 contents; free models may keep what they're sent. Commit's *Write it for me* runs in the same sandbox.
 
 **Changes, live.** A project's page opens on its *Changes* tab: every changed file (modified, new,
-deleted, renamed; staged or not), and the chips above (branch, ahead / behind, how many changed). While
+deleted, renamed; staged or not; a click on one opens Commit on its diff), and the chips above (branch, ahead / behind, how many changed). While
 the panel shows, the project's git status is looked at every 2 s (read-only: no index lock), so an edit,
 a commit, a checkout or a pull shows up by itself, the graph and the tree's dot too. *Graph* and
 *Branches* are the other tabs (`Tab`).

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # commitgui.py — Commit, a popup like every other panel (the screen blurred behind it; Esc or a click
-# outside closes it). The Projects panel opens it (c, or Commit…):  commitgui.py <project, under ~/code>
+# outside closes it). The Projects panel opens it (c, or Commit…; a click on a file in its Changes tab opens it
+# on that file):  commitgui.py <project, under ~/code> [file]
 #   left   the message (subject, then a body if it needs one; the subject's length beside it; Write it for
 #          me: a free model through opencode, picked in the dropdown beside it and kept for next time),
 #          the changed files (all ticked: untick what stays out; a filter, All / None for what it shows,
@@ -61,9 +62,10 @@ class Commit(View):
     css = CSS
     hints = [("Ctrl+Enter", "commit"), ("↑↓", "files"), ("Space", "tick"), ("Esc", "cancel")]
 
-    def __init__(self, rel):
+    def __init__(self, rel, pick=None):
         super().__init__()
         self.rel = rel.strip("/")
+        self.pick = pick   # the file whose diff shows first (else the first one)
         self.path = f"{pj.ROOT}/{self.rel}"
         self.branch = pj.current_branch(self.path) or "HEAD"
         self.title, self.subtitle = f"Commit to {self.branch}", os.path.basename(self.rel)
@@ -173,7 +175,7 @@ class Commit(View):
             getattr(page, f"set_margin_{edge}")(18)
         self.update()
         if self.rows:
-            self.files.select_row(self.rows[0])
+            self.files.select_row(next((r for r in self.rows if r.path == self.pick), self.rows[0]))
         GLib.idle_add(lambda: self.message.grab_focus() and False)
         return page
 
@@ -368,5 +370,5 @@ class Commit(View):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        sys.exit("commitgui.py <project, under ~/code>")
-    run(Commit(sys.argv[1]), "panels.commit", (1500, 900))
+        sys.exit("commitgui.py <project, under ~/code> [file]")
+    run(Commit(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None), "panels.commit", (1500, 900))

@@ -101,6 +101,7 @@ button.danger-fill { background: alpha(#f7768e, .16); color: #f7768e; }
 button.danger-fill:hover { background: alpha(#f7768e, .26); }
 button.danger-fill:disabled { background: alpha(#c0caf5, .04); color: #565f89; }
 .changes > row { padding: 2px 4px; }
+.changes > row:hover { background: #292e42; }
 .st { min-width: 22px; font-weight: 700; }
 """
 
@@ -517,6 +518,7 @@ class Projects(View):
                                    hhomogeneous=False)   # sized by the shown tab, not the widest one
         self.change_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.change_list.add_css_class("changes")
+        self.change_list.connect("row-activated", lambda _l, row: self.ask_commit(row.path))   # its diff in Commit
         self.tab_pages.add_named(scrolled(self.change_list), "changes")
         self.conflict_list = box(True, 4)
         self.tab_pages.add_named(scrolled(self.conflict_list), "conflicts")
@@ -1177,7 +1179,9 @@ class Projects(View):
                       label(path.replace(" -> ", "  →  "), ellipsize=True),
                       label(word + (" · staged" if staged else ""), "dim"))
             row.get_first_child().get_next_sibling().set_hexpand(True)
-            self.change_list.append(Gtk.ListBoxRow(child=row, activatable=False))
+            item = Gtk.ListBoxRow(child=row)
+            item.path = path.split(" -> ")[-1]
+            self.change_list.append(item)
         if not any(len(l) >= 4 for l in lines):
             self.change_list.append(Gtk.ListBoxRow(child=label("Nothing changed: the working tree is clean.", "dim"),
                                                    activatable=False))
@@ -1564,11 +1568,13 @@ class Projects(View):
                          para("Its HDD backup copy moves with it (codesync), and the list records it.", "dim"),
                          self.dialog_buttons(move_btn), focus=tree, handlers=handlers)
 
-    def ask_commit(self):
-        """Commit: its own popup (commitgui.py), like every other panel; the live look sees the result."""
+    def ask_commit(self, path=None):
+        """Commit: its own popup (commitgui.py), like every other panel; the live look sees the result.
+        From a file in the Changes tab: that file's diff shown first."""
         p = self.current()
         if p and p.kind == "repo":
-            self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "commitgui.py"), p.rel)
+            self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "commitgui.py"), p.rel,
+                        *([path] if path else []))
 
     def ask(self):
         """Ask: a read-only chat about the projects, its own popup (askgui.py), about the selected one first."""

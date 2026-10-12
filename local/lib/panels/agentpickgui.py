@@ -877,7 +877,7 @@ def main():
     if kind == "harness":
         run(Harness(), "panels.newthread", (620, 440))
     elif kind == "account":
-        run(Account(sys.argv[2] if len(sys.argv) > 2 else ""), "panels.agentaccounts", (900, 640))
+        run(Account(sys.argv[2] if len(sys.argv) > 2 else ""), "panels.agentaccounts", (1040, 700))
     elif kind == "quit":
         run(Quit(sys.argv[2:]), "panels.quitagentmux", (560, 300))
     else:

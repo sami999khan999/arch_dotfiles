@@ -108,8 +108,8 @@ def pane_name(path):
             for line in out.splitlines():
                 pid, _, name = line.partition(" ")
                 cg = cgroup_of(pid)
-                if cg and not name.startswith("_"):
-                    names[cg] = name
+                if cg:   # a "_" session (agentmux's _watch) is kept as None: asked once, not every sample
+                    names[cg] = None if name.startswith("_") else name
         _panes["names"] = names
     return _panes["names"].get(path)
 
@@ -151,7 +151,8 @@ class Sampler:
     4-thread machine reaches 400), its memory and process count, and what in it is busiest."""
 
     def __init__(self):
-        self.prev, self.ticks, self.at = {}, {}, None
+        self.prev, self.ticks, self.at = {}, {}, None   # ticks: pid -> (CPU ticks, when read)
+        self.pruned = time.time()
         self.forks_at = (forks(), time.time())
         self.new_per_min = 0.0
 
@@ -183,7 +184,10 @@ class Sampler:
 
     def top(self, pids, dt, n=2):
         """The busiest commands among pids since the last reading: [(label, cpu %)]."""
-        busy, hz = {}, os.sysconf("SC_CLK_TCK")
+        busy, hz, now = {}, os.sysconf("SC_CLK_TCK"), time.time()
+        if now - self.pruned > 60:   # forget pids gone (or not asked about) for a minute: a long-lived
+            self.pruned = now        # sampler (the agentmux sidebar) sees every short process of a build
+            self.ticks = {p: v for p, v in self.ticks.items() if now - v[1] < 60}
         for pid in pids:
             f = read(f"/proc/{pid}/stat")
             if not f:
@@ -191,10 +195,10 @@ class Sampler:
             fields = f[f.rindex(")") + 2:].split()
             ticks = int(fields[11]) + int(fields[12])
             before = self.ticks.get(pid)
-            self.ticks[pid] = ticks
+            self.ticks[pid] = (ticks, now)
             if before is None or not dt:
                 continue
-            pct = (ticks - before) / hz / dt * 100
+            pct = (ticks - before[0]) / hz / dt * 100
             if pct > 0:
                 label = label_of(pid)
                 busy[label] = busy.get(label, 0) + pct

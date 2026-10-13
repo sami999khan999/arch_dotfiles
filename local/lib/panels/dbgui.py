@@ -464,6 +464,10 @@ class Databases(View):
             if not live.jobs and now - live.used > db.IDLE:
                 self.disconnect(cid)
 
+    # idle connections and their SSH tunnels close on time also while the workspace is hidden (refresh()
+    # pauses then): it's a look at a few timestamps
+    hidden_refresh = refresh
+
     def set_busy(self, busy):
         self.stop_btn.set_visible(busy and self.sel is not None and self.conn(self.sel[0])["kind"] in ("postgres", "sqlite"))
 

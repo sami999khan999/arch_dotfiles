@@ -20,7 +20,7 @@ Every driver has the same shape, called from one worker thread per connection:
   close()
 Postgres and SQLite also have liam(schema): the schema as Liam ERD's schema.json, for dbliam.py.
 """
-import json, os, shlex, socket, subprocess, time, uuid
+import json, os, shlex, socket, subprocess, tempfile, time, uuid
 
 DIR = os.path.expanduser("~/.local/share/dbclient")
 LIST = f"{DIR}/connections.json"
@@ -231,14 +231,20 @@ class Tunnel:
         s.bind(("127.0.0.1", 0))
         self.port = s.getsockname()[1]
         s.close()
+        # ssh's messages go to a file, not a pipe: it writes a line per failed forwarded connection for
+        # the tunnel's whole life, and a pipe nobody reads fills up (64 KB) and blocks it
+        self.log = tempfile.TemporaryFile("w+")
         self.proc = subprocess.Popen(
             ["ssh", "-N", "-o", "ExitOnForwardFailure=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
              "-o", "ServerAliveInterval=30", "-L", f"127.0.0.1:{self.port}:{host}:{port}", ssh],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=self.log, text=True)
         deadline = time.time() + 15
         while time.time() < deadline:
             if self.proc.poll() is not None:
-                raise DbError(f"SSH to {ssh}: " + (self.proc.stderr.read().strip() or "failed"))
+                self.log.seek(0)
+                msg = self.log.read().strip()
+                self.log.close()
+                raise DbError(f"SSH to {ssh}: " + (msg or "failed"))
             try:
                 socket.create_connection(("127.0.0.1", self.port), 0.3).close()
                 return
@@ -254,6 +260,7 @@ class Tunnel:
                 self.proc.wait(3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        self.log.close()
 
 
 def open_driver(conn):

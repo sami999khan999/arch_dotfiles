@@ -58,13 +58,19 @@ class TermList(App):
         self.ys, self.row_buttons, self.button_xs = {}, {}, []
         self.width = 20
         self.chevron = (PAD, "collapse")   # the header's ‹ / ›: its column, what it does
-        self.ctl, self.buf = None, ""
+        self.ctl, self.buf, self.value, self.lost = None, "", None, 0   # value: the subscription's last
 
     # ---- the control-mode client (as in sidebar.py) ----
     def connect(self):
         lib.agents("new-session", "-d", "-s", lib.WATCH)
-        if self.ctl:
+        if self.ctl:   # the last client, gone: closed and reaped
             self.fds.pop(self.ctl.stdout.fileno(), None)
+            for f in (self.ctl.stdin, self.ctl.stdout):
+                try:
+                    f.close()
+                except OSError:
+                    pass
+            self.ctl.wait()
         self.ctl = subprocess.Popen(lib.AGENTS + ["-C", "attach", "-t", f"={lib.WATCH}"],
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
                                     env=lib.no_tmux_env())
@@ -79,15 +85,23 @@ class TermList(App):
         except (OSError, ValueError, TypeError):
             chunk = ""
         if not chunk and self.ctl.poll() is not None:
-            time.sleep(1)
+            self.lost += 1
+            time.sleep(min(self.lost, 10))
             self.buf = ""
             self.connect()
-            return
+            return False
+        self.lost = 0
         self.buf += chunk
         *lines, self.buf = self.buf.split("\n")
+        changed = False   # as in sidebar.py: only a new subscription value redraws
         for line in lines:
             if line.startswith("%subscription-changed terms ") and " : " in line:
-                self.parse_panes(line.split(" : ", 1)[1].replace("\\037", FS).replace("\\036", RS))
+                value = line.split(" : ", 1)[1]
+                if value != self.value:
+                    self.value = value
+                    self.parse_panes(value.replace("\\037", FS).replace("\\036", RS))
+                    changed = True
+        return changed
 
     def parse_panes(self, value):
         rows = []

@@ -13,7 +13,7 @@
 #        row: y / ↵ / the red button closes, n / Esc / a click elsewhere cancels)
 #        projects: o open project     threads: n new · ↵ on a ⚠ row adopts it · r rescan the VS Code kittys
 #        c or the header's ‹: collapse to a strip of the rows' icons (› or c again: back to its width)
-import os, subprocess, sys, textwrap, time
+import os, subprocess, sys, textwrap, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib
@@ -99,16 +99,28 @@ class Sidebar(App):
         self.cpu = {}         # thread -> (pct, busiest command, (usec, time) of the reading)
         self.working = False  # a thread of the shown project is working (its CPU is followed)
         self.ticks = usage.Sampler()   # its per-process ticks name what's busy
-        self.ctl, self.buf = None, ""
+        self.ctl, self.buf, self.seen = None, "", None   # seen: the subscription's last value
+        self.lost = 0   # reconnects in a row without hearing from the server (the pause grows)
         self.project = None
         self.ys = {}   # screen row -> index in self.rows (for clicks)
         self.width = 80
+        # git status of the projects runs in a thread (one per project, up to 2 s each, used to run
+        # inside the redraw); it wakes the loop through this pipe when it's done
+        self.git_r, self.git_w = os.pipe()
+        self.git_busy = False
+        self.watch(self.git_r, self.git_done)
 
     # ---- the control-mode client ----
     def connect(self):
         lib.agents("new-session", "-d", "-s", lib.WATCH)   # an invisible session to sit on
-        if self.ctl:
+        if self.ctl:   # the last client, gone: closed and reaped (not left a zombie with open pipes)
             self.fds.pop(self.ctl.stdout.fileno(), None)
+            for f in (self.ctl.stdin, self.ctl.stdout):
+                try:
+                    f.close()
+                except OSError:
+                    pass
+            self.ctl.wait()
         self.ctl = subprocess.Popen(lib.AGENTS + ["-C", "attach", "-t", f"={lib.WATCH}"],
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
                                     env=lib.no_tmux_env())
@@ -118,21 +130,31 @@ class Sidebar(App):
         self.watch(self.ctl.stdout.fileno(), self.read_ctl)
 
     def read_ctl(self):
+        """The control client's output. Only a change in the subscription's value redraws: the
+        client also hears of every window rename, copy-mode scroll and paste buffer on the server.
+        False (no redraw) otherwise."""
         try:
             chunk = self.ctl.stdout.read() or ""
         except (OSError, ValueError, TypeError):
             chunk = ""
         if not chunk and self.ctl.poll() is not None:   # server gone: start over in a moment
-            time.sleep(1)
+            self.lost += 1
+            time.sleep(min(self.lost, 10))   # longer each time it's still gone
             self.buf = ""
             self.connect()
-            return
+            return False
+        self.lost = 0
         self.buf += chunk
         *lines, self.buf = self.buf.split("\n")
+        changed = False
         for line in lines:
             if line.startswith("%subscription-changed threads ") and " : " in line:
-                value = line.split(" : ", 1)[1].replace("\\037", FS).replace("\\036", RS)
-                self.parse_threads(value)
+                value = line.split(" : ", 1)[1]
+                if value != self.seen:
+                    self.seen = value
+                    self.parse_threads(value.replace("\\037", FS).replace("\\036", RS))
+                    changed = True
+        return changed
 
     def parse_threads(self, value):
         rows = []
@@ -153,11 +175,12 @@ class Sidebar(App):
         now = {t["name"]: lib.state_of(t) for t in rows if lib.runs_agent(t)}
         was = lambda n: self.last_state.get(n)
         finished = [n for n, st in now.items() if st == "idle" and was(n) == "working"]
-        if finished:
+        tell = self.role == "agents"   # both sidebars see the same change: only the threads one starts
+        if finished:                   # the notification processes (the marks both make: each draws them)
             lib.mark_finished(finished, True)
             harness = {t["name"]: t["harness"] for t in rows}
             for n in finished:   # an agent without a finish hook (opencode): notified from here
-                if harness.get(n) not in lib.HOOK_DONE:
+                if tell and harness.get(n) not in lib.HOOK_DONE:
                     subprocess.Popen([AGENTMUX, "notify-screen", n, "done"], start_new_session=True)
         working = [n for n, st in now.items() if st == "working"]
         if working:   # a new turn: done / error marks and their notices start over
@@ -165,13 +188,13 @@ class Sidebar(App):
                 lib.mark_finished(working, False, key=key)
         if self.last_state:   # not on the first update: it's what changed that counts
             for n, st in now.items():
-                if st == "needs" and was(n) not in (None, "needs"):
+                if tell and st == "needs" and was(n) not in (None, "needs"):
                     subprocess.Popen([AGENTMUX, "notify-screen", n, "needs"], start_new_session=True)
-                if st == "shell" and was(n) not in (None, "shell"):
+                if tell and st == "shell" and was(n) not in (None, "shell"):
                     subprocess.Popen([AGENTMUX, "notify-screen", n, "exited"], start_new_session=True)
         lib.mark_finished([n for n, st in now.items() if st != "needs"], False, key="asked")
         # no longer waiting on you (answered, or the thread ended): its notification goes away
-        for n in [n for n, st in self.last_state.items() if st in ("needs", "error") and now.get(n) not in ("needs", "error")]:
+        for n in [n for n, st in self.last_state.items() if tell and st in ("needs", "error") and now.get(n) not in ("needs", "error")]:
             subprocess.Popen([AGENTMUX, "clear-notices", n], start_new_session=True)
         lib.mark_finished([n for n, st in now.items() if st != "shell"], False, key="exited")
         self.last_state = now
@@ -195,7 +218,8 @@ class Sidebar(App):
             return "done" if st == "idle" and t["name"] in finished else st
         rows = []
         if self.role == "projects":
-            for p in lib.projects(self.threads):   # the subscription's list: no tmux call per redraw
+            listed = lib.projects(self.threads)   # the subscription's list: no tmux call per redraw
+            for p in listed:
                 ts = [t for t in self.threads if t["project"] == p and lib.runs_agent(t)]
                 busy = sum(look(t) == "working" for t in ts)
                 asks = sum(look(t) == "needs" for t in ts)
@@ -208,7 +232,7 @@ class Sidebar(App):
                 git = []
                 branch = lib.git_branch(p)
                 if branch:
-                    st = lib.git_status(p) or {}
+                    st = lib.git_status(p, wait=False) or {}   # what's known; git_refresh() asks again
                     git.append(("\ue0a0 " + branch, "sub" if cur else "muted"))
                     if st.get("changes"):
                         git.append((f" ~{st['changes']}", "amber"))
@@ -243,6 +267,7 @@ class Sidebar(App):
                               else ("idle", "muted") if ts else ("", "muted"))
                 rows.append(Row(lib.project_name(p), ("project", p), glyph, gfg, "text" if cur else "sub",
                                 right, rfg, bold=cur, detail=[git, work]))
+            self.git_refresh([p for p in listed if lib.git_branch(p)])
             if not rows:
                 rows += [Row("Nothing open yet", kind="note"), Row("", kind="gap")]
             rows.append(Row("Open project", ("open",), "+", "accent", "accent"))
@@ -335,9 +360,28 @@ class Sidebar(App):
         if rows and not rows[self.sel].action:
             self.move(1)
 
+    def git_refresh(self, paths):
+        """The projects whose git status is over 30 s old, asked again in a thread (one at a time)."""
+        stale = [p for p in paths if lib.git_stale(p)]
+        if not stale or self.git_busy:
+            return
+        self.git_busy = True
+
+        def work():
+            try:
+                for p in stale:
+                    lib.git_status(p)
+            finally:
+                self.git_busy = False
+                os.write(self.git_w, b"g")
+        threading.Thread(target=work, daemon=True).start()
+
+    def git_done(self):
+        os.read(self.git_r, 512)   # new git numbers: redrawn
+
     def scan_unshared(self, force=False):
         """Agents running straight in this project's VS Code kitty (asks kitty: on project change, on
-        r, and at most every 30 s, never in a loop)."""
+        r, and when the sidebar gets the keyboard if the last look is over 30 s old; never on a timer)."""
         project = lib.load_state().get("project", "")
         if self.role != "agents" or not project:
             self.unshared = []
@@ -674,14 +718,17 @@ class Sidebar(App):
         return new, busy
 
     def timeout(self):
-        # the one periodic look at the VS Code kittys (agents pane), every 30 s; every 5 s while a thread
-        # works or shows its CPU, so the number comes, follows it and goes once the thread is quiet (a
-        # look at /proc and its cgroup: tmux isn't asked)
-        busy = self.role == "agents" and (self.working or any(c[0] >= BUSY_CPU for c in self.cpu.values()))
-        return 5 if busy else 30
+        # threads: every 5 s while one works or shows its CPU, so the number comes, follows it and goes
+        # once the thread is quiet (a look at /proc and its cgroup: tmux isn't asked), else no timer.
+        # projects: once a minute, so the git numbers (asked in a thread) don't go stale
+        if self.role == "projects":
+            return 60
+        busy = self.working or any(c[0] >= BUSY_CPU for c in self.cpu.values())
+        return 5 if busy else None
 
-    def tick(self):
-        self.scan_unshared()
+    def on_focus(self):
+        if self.focused:
+            self.scan_unshared()
 
 
 if __name__ == "__main__":

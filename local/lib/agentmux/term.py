@@ -9,12 +9,31 @@ import os, re, select, signal, sys, termios, time, traceback, tty, unicodedata
 LOG = os.path.expanduser("~/.cache/agentmux/errors.log")
 
 
+LOG_MAX = 256 * 1024   # bytes: past this the log starts again (its last quarter kept)
+_last_error = None
+
+
 def log_error():
-    """An exception in one event goes to ~/.cache/agentmux/errors.log; the screen keeps running."""
+    """An exception in one event goes to ~/.cache/agentmux/errors.log; the screen keeps running. The
+    same traceback as the last one is left out (one failing on every redraw wrote it once a second)."""
+    global _last_error
+    tb = traceback.format_exc()
+    if tb == _last_error:
+        return
+    _last_error = tb
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
+    try:
+        if os.path.getsize(LOG) > LOG_MAX:
+            with open(LOG, "rb") as f:
+                f.seek(-LOG_MAX // 4, os.SEEK_END)
+                tail = f.read()
+            with open(LOG, "wb") as f:
+                f.write(tail[tail.find(b"\n--- ") + 1:])
+    except OSError:
+        pass
     with open(LOG, "a") as f:
         f.write(f"--- {time.strftime('%F %T')} {os.path.basename(sys.argv[0])} {' '.join(sys.argv[1:])}\n")
-        traceback.print_exc(file=f)
+        f.write(tb)
 
 # Spacing, the same on every screen: PAD columns of margin left and right; a header on rows 0-1 (title,
 # underline), a blank row, content from row 3; the bottom row is the key hints, the one above it the
@@ -213,6 +232,7 @@ class App:
     cursor = None
     motion = False   # True: pointer moves arrive as ("hover", x, y) too (any-event mouse mode)
     still = False    # set in key(): nothing changed, skip the next redraw (a hover over the same row)
+    drawn, drawn_size = [], None   # the rows as last written, and the size they were written at
     focused = True   # the pane has the keyboard (focus events, which tmux sends with focus-events on)
 
     def __init__(self):
@@ -244,7 +264,11 @@ class App:
             w, h = 80, 24
         lines = self.render(w, h)[:h]
         lines += [Line() for _ in range(h - len(lines))]
-        out = "\x1b[?25l\x1b[H" + "\r\n".join(l.render(w) for l in lines)
+        rows = [l.render(w) for l in lines]
+        # only the rows that changed are written (a turning spinner is one row, not the whole screen)
+        before = self.drawn if self.drawn_size == (w, h) else [None] * h
+        out = "\x1b[?25l" + "".join(f"\x1b[{y + 1};1H" + row for y, row in enumerate(rows) if row != before[y])
+        self.drawn, self.drawn_size = rows, (w, h)
         if self.cursor:
             out += f"\x1b[{self.cursor[0] + 1};{self.cursor[1] + 1}H\x1b[?25h\x1b[6 q"
         sys.stdout.write(out)
@@ -306,6 +330,9 @@ class App:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
     def handle(self, fd, ready):
+        """What select() found ready. An fd's callback returns False when what it read changes nothing
+        on screen (the sidebars' tmux client hears of much that isn't theirs): no redraw then."""
+        quiet = []
         if not ready:
             self.tick()
         for r in ready:
@@ -315,7 +342,13 @@ class App:
                     self.on_signal()
                 self.woken.clear()
             elif r == fd:
-                data = os.read(fd, 4096).decode(errors="replace")
+                try:
+                    data = os.read(fd, 4096).decode(errors="replace")
+                except OSError:   # EIO: the pane (its terminal) is gone
+                    data = ""
+                if not data:   # end of input: nothing will come any more, and select() would say
+                    self.quit = True   # "ready" for ever (a busy loop until the SIGHUP)
+                    return
                 if data == "\x1b":   # a lone Esc, or the start of a sequence still coming
                     more, _, _ = select.select([fd], [], [], 0.03)
                     if more:
@@ -327,7 +360,9 @@ class App:
                         continue
                     self.key(k)
             else:
-                self.fds[r]()
+                quiet.append(self.fds[r]() is False)
+        if quiet and all(quiet) and len(quiet) == len(ready):   # only fds whose news changed nothing
+            self.still = True
 
     def on_focus(self):
         """The pane gained or lost the keyboard (self.focused). Override if it matters."""

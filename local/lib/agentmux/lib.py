@@ -637,7 +637,9 @@ def save_account_names(names):
 
 
 def account_label(harness, account):
-    name = account_names().get(harness, {}).get(account or "main") or account or "main"
+    # the names file read again only when it changed: the sidebar asks for every thread on every redraw
+    names = memoized("account-names", [ACCOUNT_NAMES], account_names)
+    name = names.get(harness, {}).get(account or "main") or account or "main"
     return name if len(name) <= NAME_MAX else name[:NAME_MAX - 1] + "…"   # one longer from before the limit
 
 
@@ -1244,13 +1246,15 @@ def git_branch(path):
     return head.rsplit("/", 1)[-1] if head.startswith("ref:") else head[:7]
 
 
-def git_status(path, max_age=30):
+def git_status(path, max_age=30, wait=True):
     """{changes: files with uncommitted changes, ahead / behind: commits against the upstream} from one
-    `git status`, at most once per max_age seconds; None for a folder that isn't a repo."""
+    `git status`, at most once per max_age seconds; None for a folder that isn't a repo. wait=False:
+    what's known (maybe old, None if nothing yet), without running git: the sidebars draw with that and
+    ask again in a thread (git_stale)."""
     now = time.time()
     hit = _git.get(path)
-    if hit and now - hit[0] < max_age:
-        return hit[1]
+    if hit and now - hit[0] < max_age or not wait:
+        return hit[1] if hit else None
     # --no-optional-locks: a plain status refreshes .git/index, which codesync then saw as a change
     rc, out = run(["git", "--no-optional-locks", "-C", path, "status", "--porcelain=v2", "--branch", "--untracked-files=normal"], timeout=2)
     st = None
@@ -1264,6 +1268,12 @@ def git_status(path, max_age=30):
                 st["changes"] += 1
     _git[path] = (now, st)
     return st
+
+
+def git_stale(path, max_age=30):
+    """True if git_status(path) would run git now."""
+    hit = _git.get(path)
+    return not hit or time.time() - hit[0] >= max_age
 
 
 def in_vscode(path):

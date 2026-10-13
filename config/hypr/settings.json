@@ -9,9 +9,12 @@
   "hypr": {
     "animations:enabled": true,
     "cursor:zoom_factor": 1.0,
-    "decoration:blur:passes": 5,
+    "decoration:active_opacity": 1.0,
+    "decoration:blur:enabled": true,
+    "decoration:blur:passes": 4,
     "decoration:blur:size": 1,
     "decoration:dim_special": 1.0,
+    "decoration:inactive_opacity": 1.0,
     "decoration:shadow:enabled": true,
     "decoration:shadow:range": 10,
     "input:accel_profile": "adaptive",
@@ -24,7 +27,8 @@
   },
   "panels": {
     "backdrop": true,
-    "darken": 0.3
+    "darken": 0.0,
+    "opacity": 0.7
   },
   "wallpaper": {
     "mode": "fill"

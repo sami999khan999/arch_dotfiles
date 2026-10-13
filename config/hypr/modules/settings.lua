@@ -10,11 +10,14 @@ hl.config({
         zoom_factor = 1.0,
     },
     decoration = {
+        active_opacity = 1.0,
         blur = {
-            passes = 5,
+            enabled = true,
+            passes = 4,
             size = 1,
         },
         dim_special = 1.0,
+        inactive_opacity = 1.0,
         shadow = {
             enabled = true,
             range = 10,

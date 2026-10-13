@@ -373,6 +373,7 @@ class Projects(View):
         self.fetched = set()          # projects fetched since the panel opened
         self.fetching = set()
         self.fetched_all = False      # the stale repos were fetched (once, when the panel opened)
+        self.counting, self.count_again = threading.Lock(), False   # count_changes() runs / asked again meanwhile
         self.shown_rel = None         # the project on the page: the same one again isn't blanked first
         self.tree_seen = None         # what the tree shows (paint_tree skips a repaint that changes nothing)
         self.branch_names = []        # for the graph's branch filter
@@ -620,7 +621,20 @@ class Projects(View):
     def count_changes(self):
         """Every repo's health (changed files, unpushed commits, main behind), then the tree again (the
         Changes section is made of it). Then the repos not fetched for a while are fetched, quietly, so
-        "main behind" is current, and those are looked at again."""
+        "main behind" is current, and those are looked at again. One run at a time: reloads in a row
+        each started one, 8 threads of git processes per repo on top of each other."""
+        if not self.counting.acquire(blocking=False):
+            self.count_again = True
+            return
+        try:
+            self.count_changes_once()
+        finally:
+            self.counting.release()
+        if self.count_again:   # a reload came meanwhile: once more, for the list as it is now
+            self.count_again = False
+            self.count_changes()
+
+    def count_changes_once(self):
         repos = [p for p in self.projects if p.kind == "repo"]
 
         def one(p):
@@ -1084,6 +1098,7 @@ class Projects(View):
                     b["vs_main"] = (ahead, behind)
         dirty, ahead, behind = pj.state(p.rel)
         has_origin = "origin" in pj.remotes(p.path)
+        self.git_seen = (p.rel, gen, branches, has_origin)   # live_seen() redraws with these when only files changed
         changes = status_lines(p.path)
         old = (p.dirty, p.unpushed, p.behind, p.out_of_date, p.conflicts)   # its badges may be stale (a push since the panel opened)
         set_health(p, pj.health(p.rel))
@@ -1133,6 +1148,14 @@ class Projects(View):
                 p.branch = pj.current_branch(p.path)
                 if (p.dirty, p.unpushed, p.behind, p.out_of_date, p.conflicts) != old or seen[1] != (before[1] if before else None):
                     GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))   # its badges, the Changes section
+                known = getattr(self, "git_seen", None)
+                if seen[1:] == before[1:] and known and known[:2] == (p.rel, gen):
+                    # only files changed (an edit, a save): HEAD and the branches are as they were, so the
+                    # branches, conflicts and the 300-commit graph stay; the chips and Changes are redrawn
+                    dirty, ahead, behind = pj.state(p.rel)
+                    GLib.idle_add(self.paint_git, p, gen, known[2], dirty, ahead, behind, known[3])
+                    GLib.idle_add(self.paint_changes, p, gen, seen[0].split("\n") if seen[0] else [])
+                    return
                 self.load_git(p, gen)
             threading.Thread(target=again, daemon=True).start()
         return False

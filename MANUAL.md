@@ -114,7 +114,8 @@ themselves at start (`local/lib/theme/themelib.py`: `recolor(text)`, `rgbf("#6b8
 With Tokyo Night active none of this changes anything: its files are the originals' bytes or empty,
 and `recolor` returns its text untouched. A missing file (a new PC before its first login) means
 Tokyo Night; `hyprland.lua` runs `theme restore` first thing, which makes the files when they're
-missing or out of date.
+missing or out of date: only when one of the files they're made from (listed in `current/.sources`) is
+newer than `current/.stamp`, a quick `find` on every other config reload.
 
 **A new theme:** copy `config/themes/crimson/` to `config/themes/<id>/`, change the name and the 32
 colours, `theme apply <id>`, then take its preview: `grim config/themes/<id>/preview.png` on the

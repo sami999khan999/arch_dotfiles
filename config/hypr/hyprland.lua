@@ -1,7 +1,11 @@
 -- CachyOS Hyprland Configuration
 
--- the colour theme (local/bin/theme): its files are made before the modules read them (a new PC, a synced change)
-pcall(os.execute, "~/.local/bin/theme restore >/dev/null 2>&1")
+-- the colour theme (local/bin/theme): its files are made before the modules read them (a new PC, a synced
+-- change). Only when they may be stale: a source newer than current/.stamp (listed in current/.sources), or
+-- no stamp yet; a find is a few ms, the Python check was 40 ms of every config reload
+pcall(os.execute, [[c=~/.config/themes/current; [ -f $c/.stamp ] && [ -f $c/.sources ] && ]] ..
+    [[[ -z "$(find -L $(cat $c/.sources) -maxdepth 0 -newer $c/.stamp -print -quit 2>/dev/null)" ] ]] ..
+    [[|| ~/.local/bin/theme restore >/dev/null 2>&1]])
 
 require("modules.animations")
 require("modules.autostart")

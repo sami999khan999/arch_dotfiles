@@ -99,12 +99,24 @@ def stamp(tid):
     return h.hexdigest()
 
 
+def sources(tid):
+    """Every file the generated ones depend on (absolute), and the active choice."""
+    rels = [f"config/themes/{T.BASE}/theme.json", f"config/themes/{tid}/theme.json", "config/themes/active"] + \
+        sorted({s for srcs, *_ in TARGETS.values() for s in srcs})
+    return [os.path.join(T.REPO, r) for r in rels]
+
+
 def generate(tid, force=False):
-    """config/themes/current/*: every file for theme tid. Returns False if nothing needed doing."""
+    """config/themes/current/*: every file for theme tid. Returns False if nothing needed doing.
+    current/.sources lists what they're made from: hyprland.lua starts this only when one of those is
+    newer than .stamp (a `find`, not 40 ms of Python on every config reload). So .stamp is touched
+    even when nothing changed (a git checkout makes the sources new without changing them)."""
     mark = os.path.join(T.CURRENT, ".stamp")
     want = stamp(tid)
     try:
         if not force and open(mark).read() == want and all(os.path.exists(os.path.join(T.CURRENT, n)) for n in TARGETS):
+            write_sources(tid)
+            os.utime(mark)
             return False
     except OSError:
         pass
@@ -119,9 +131,21 @@ def generate(tid, force=False):
         if os.path.islink(link):
             os.remove(link)
         os.symlink(os.path.join(T.CURRENT, "btop.theme"), link)
+    write_sources(tid)
     with open(mark, "w") as f:
         f.write(want)
     return True
+
+
+def write_sources(tid):
+    path, text = os.path.join(T.CURRENT, ".sources"), "\n".join(sources(tid)) + "\n"
+    try:
+        if open(path).read() == text:
+            return
+    except OSError:
+        pass
+    with open(path, "w") as f:
+        f.write(text)
 
 
 def set_active(tid):

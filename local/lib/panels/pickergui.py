@@ -9,6 +9,9 @@
 # paste are off here: it picks, it doesn't change files. It remembers its own last folder (picker.json).
 import fnmatch, gc, os, sys
 
+# xdg-desktop-portal starts this backend at its own start-up and waits for it; GTK asking that portal for its
+# settings meanwhile deadlocked both until systemd's timeout (waybar and every GTK app waited with them).
+os.environ["GDK_DEBUG"] = ",".join(filter(None, (os.environ.get("GDK_DEBUG"), "no-portals")))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, Gio, GLib, Gtk, ViewHost, box, button, collect, dropdown, install_css, label
 import filesgui as fg

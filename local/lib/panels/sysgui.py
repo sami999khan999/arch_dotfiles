@@ -501,6 +501,7 @@ class System(View):
         while True:
             if self.compact:  # the card reads what the terminal card read (sysmon), in this thread
                 if not self.awake.is_set():   # hidden: no process walk, no nvidia-smi
+                    sysmon.stop_gpu()
                     self.awake.wait()
                     self.card_stats.tick()    # shown again: two fresh readings a moment apart, not
                     time.sleep(0.4)           # CPU use averaged over the whole time it was hidden

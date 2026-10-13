@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # sysmon.py — minimal system monitor for the rice (Tokyo Night). q / Esc to quit.
-import ctypes, os
+import os, subprocess, threading
 from datetime import datetime
 
 INTERVAL = 1.5
@@ -61,30 +61,44 @@ def disk():
     total = s.f_blocks * s.f_frsize
     return total - s.f_bavail * s.f_frsize, total
 
-class _Utilization(ctypes.Structure):
-    _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
-
-_nvml = None   # (library, device) once opened; False: no NVIDIA driver or GPU
+_gpu = {"proc": None, "last": None, "missing": False}
 
 def gpu():
-    """(use %, temperature °C) of the NVIDIA GPU, None without one. Asked in this process through
-    NVML, the driver's library (0.1 ms): nvidia-smi was a 14 ms process every 1.5 s."""
-    global _nvml
-    if _nvml is None:
-        _nvml = False
-        try:
-            lib, dev = ctypes.CDLL("libnvidia-ml.so.1"), ctypes.c_void_p()
-            if lib.nvmlInit_v2() == 0 and lib.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(dev)) == 0:
-                _nvml = (lib, dev)
-        except OSError:
-            pass
-    if not _nvml:
+    """(use %, temperature °C) of the NVIDIA GPU, None without one. One nvidia-smi that keeps reporting
+    every INTERVAL (-lms), read by a thread: starting one every 1.5 s cost 14 ms each and woke the GPU;
+    the driver's library loaded in this process (NVML) kept 15 MB for the whole session. stop_gpu()
+    ends it while the card is hidden."""
+    p = _gpu["proc"]
+    if _gpu["missing"]:
         return None
-    lib, dev = _nvml
-    use, temp = _Utilization(), ctypes.c_uint()
-    if lib.nvmlDeviceGetUtilizationRates(dev, ctypes.byref(use)) or lib.nvmlDeviceGetTemperature(dev, 0, ctypes.byref(temp)):
-        return None   # 0 = NVML_TEMPERATURE_GPU
-    return float(use.gpu), float(temp.value)
+    if p is None or p.poll() is not None:
+        try:
+            p = subprocess.Popen(["nvidia-smi", "--query-gpu=utilization.gpu,temperature.gpu",
+                                  "--format=csv,noheader,nounits", "-lms", str(int(INTERVAL * 1000))],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except OSError:
+            _gpu["missing"] = True
+            return None
+        _gpu["proc"], _gpu["last"] = p, None
+        got = threading.Event()
+
+        def read():
+            for line in p.stdout:
+                try:
+                    _gpu["last"] = tuple(map(float, line.split(",")[:2]))
+                    got.set()
+                except ValueError:
+                    pass
+            got.set()
+        threading.Thread(target=read, daemon=True).start()
+        got.wait(2)   # its first line, so the card's GPU row doesn't start empty
+    return _gpu["last"]
+
+def stop_gpu():
+    p, _gpu["proc"], _gpu["last"] = _gpu["proc"], None, None
+    if p and p.poll() is None:
+        p.terminate()
+        p.wait()
 
 def app_name(pid, comm):
     if len(comm) < 15:  # comm is cut at 15 chars; only then fall back to the executable name

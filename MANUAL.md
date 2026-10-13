@@ -301,7 +301,7 @@ A folder with repos right inside it is a group, not a local-only project, even w
 **The panel** (`panels/projectsgui.py`): the `~/code` tree on the left (groups fold with ←/→ or a click;
 a repo has a repo icon in the folders' icon column and shows its branch when it isn't on main, ● when it has uncommitted changes; a cloud for one that
 isn't cloned; ⚠ local only; it follows the list, so `projects delete` / `move` on the command line show
-up in a couple of seconds); `/` searches; the dropdown above the search shows one GitHub account's or
+up in a couple of seconds); `/` searches (the matches in their folders, best first); the dropdown above the search shows one GitHub account's or
 org's projects only (or other remotes', or the local-only folders), in every section. Under the tabs, **Sort**:
 *by folder* (the tree), *by status* (a section per status, under way first: In progress, Active, Testing, Blocked,
 Planned, Idea, Paused, Done (folded), then No status), or *Only …* one status's projects. A project's status is the
@@ -341,7 +341,7 @@ button above opens `gh auth login`. *Start a new list instead* creates the priva
 header shows **Clone missing (N)**, which uses the same progress list. The panel notices projects
 cloned or removed outside it (`projects clone` / `delete` in a terminal) within a couple of seconds.
 
-**The list on the left** has tabs (`1`–`4`): **All** (the pinned projects first, with a pin, then the
+**The list on the left** has tabs (`1`–`4`): **All** (the pinned projects first, with a pin, in their folders, then the
 folder tree; each project once, folders fold with a click, Enter or ← →), **Changes** (uncommitted work or
 commits on no remote), **Behind** (GitHub has commits or branches you don't) and **Conflicts** (branches
 or files to merge by hand). Each tab says how many it would show; an empty one is greyed out. **Sync** at

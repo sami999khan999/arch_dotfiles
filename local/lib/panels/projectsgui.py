@@ -48,6 +48,7 @@ STATUS = {"in-progress": ("In progress", "#7aa2f7"), "active": ("Active", "#9ece
           "blocked": ("Blocked", "#f7768e"), "planned": ("Planned", "#7dcfff"), "idea": ("Idea", "#bb9af7"),
           "paused": ("Paused", "#e0af68"), "done": ("Done", "#737aa2")}
 BY_STATUS = "\u00a7status"       # the sort dropdown's "by status" (its other values: a folder tree, one status)
+PINNED, FOUND = "\u00a7pinned", "\u00a7found"   # the pinned / search results' folders: they fold apart from the tree's
 FOLDED.add(f"{BY_STATUS}/done")   # by status, Done starts folded
 INDENT = 18 + 8                  # a tree level: .pj-glyph's width + the rows' spacing
 G_OPEN, G_SHUT = "", ""         # folder open / closed
@@ -709,18 +710,19 @@ class Projects(View):
                 "conflicts": [p.rel for p in repos if p.conflicts]}
 
     def layout(self):
-        """[(kind, key, depth, extra)] in on-screen order: kind is hint, group or project. A search is one
-        flat list of matches, best first. All: the pinned projects, then the folders (each project once);
-        another tab: just its projects, flat, by top folder."""
+        """[(kind, key, depth, extra)] in on-screen order: kind is hint, group or project. A search is the
+        matches in their folders, best first. All: the pinned projects in their folders, then the tree (each
+        project once); another tab: just its projects, flat, by top folder."""
         q = self.search.get_text().strip()
         projects = self.shown()
         if q:
-            found = []
+            found = {}
             for p in projects:
                 m = fuzzy(q, p.name, p.rel)
                 if m:
-                    found.append((-m[0], p.rel, m))
-            return [("project", rel, 0, m) for _, rel, m in sorted(found)]
+                    found[p.rel] = m
+            best = sorted(found, key=lambda r: (-found[r][0], r))
+            return self.nest(best, FOUND, found.get)
         if self.filter != "all":
             items = self.needing(projects)[self.filter]
             if not items:
@@ -731,22 +733,31 @@ class Projects(View):
             return self.status_layout(projects)
         by_rel = {p.rel: p for p in projects}
         pinned = [r for r in self.pinned if r in by_rel]
-        out = [("project", r, 0, "pinned") for r in pinned]
-        groups = set()
-        for p in projects:
-            if p.rel in pinned:   # it's at the top already
-                continue
-            parts = p.rel.split("/")
-            hidden = False
-            for i in range(1, len(parts)):
-                g = "/".join(parts[:i])
-                if g not in groups and not hidden:
-                    groups.add(g)
-                    out.append(("group", g, i - 1, None))
-                if g in self.folded:
-                    hidden = True
-            if not hidden:
-                out.append(("project", p.rel, len(parts) - 1, None))
+        rest = [p.rel for p in projects if p.rel not in pinned]   # a pinned one is at the top already
+        return self.nest(pinned, PINNED, lambda r: "pinned") + self.nest(rest, "", lambda r: None)
+
+    def nest(self, rels, section, extra):
+        """rels in their folders: each folder where its first project comes, all of its projects under it.
+        A folder's key is its path (after section, so a pinned folder folds apart from the tree's one); its
+        extra is how many projects it holds. A project's extra is extra(rel)."""
+        root = {}
+        for r in rels:
+            node = root
+            for d in r.split("/")[:-1]:
+                node = node.setdefault(("dir", d), {})
+            node[("project", r)] = None
+        count = lambda node: sum(1 if sub is None else count(sub) for sub in node.values())
+        out = []
+        def walk(node, path, depth):
+            for (kind, name), sub in node.items():
+                if kind == "project":
+                    out.append(("project", name, depth, extra(name)))
+                    continue
+                key = f"{path}/{name}" if path else name
+                out.append(("group", key, depth, count(sub)))
+                if key not in self.folded:
+                    walk(sub, key, depth + 1)
+        walk(root, section, 0)
         return out
 
     def status_layout(self, projects):
@@ -801,12 +812,12 @@ class Projects(View):
                 row.add_css_class("hint-row")
             elif kind == "group":
                 shut = key in self.folded
-                if extra:   # a status's section: its name in its colour
+                if isinstance(extra, tuple):   # a status's section: its name in its colour
                     name, colour, n = extra
                     title = label(f"<span foreground='{recolor(colour)}'>{GLib.markup_escape_text(name)}</span>",
                                   "bold", markup=True)
                 else:
-                    n = sum(p.rel.startswith(key + "/") and p.rel not in self.pinned for p in self.shown())
+                    n = extra
                     title = label(os.path.basename(key), "bold")
                 line = box(False, 8, label(G_SHUT if shut else G_OPEN, "accent", "pj-glyph"), title, label(str(n), "dim"))
                 row = Gtk.ListBoxRow(child=line)
@@ -815,7 +826,7 @@ class Projects(View):
                 row = Gtk.ListBoxRow(child=self.project_line(by_rel[key], extra))
                 self.rows.setdefault(key, []).append(row)
                 first = first or row
-            row.kind, row.key = kind, key
+            row.kind, row.key, row.extra = kind, key, extra
             # a level is a glyph and its gap: a folder's rows start right under the folder's name
             row.get_child().set_margin_start(depth * INDENT)
             self.tree.append(row)
@@ -833,8 +844,8 @@ class Projects(View):
         return False
 
     def project_line(self, p, match):
-        """A project's row: its icon (a pin when pinned), its name (with its folder in a filtered list or a
-        search), the branch at the right when it isn't the main one; under it, in words, what needs doing:
+        """A project's row: its icon (a pin when pinned), its name (with its folder in a filtered list, the
+        letters a search matched marked), the branch at the right when it isn't the main one; under it, in words, what needs doing:
         17 changed · 3 to push · 5 to pull · 2 new branches · ⚠ 1 to merge. Nothing to do: one line."""
         if p.kind == "repo":
             # the branch only when it isn't main: that's the case worth seeing (main on every row was noise)
@@ -847,18 +858,15 @@ class Projects(View):
             glyph, gclass, right, rclass = G_LOCAL, "amber", "local only", "amber"
         if match == "pinned":
             glyph, gclass = G_PIN, "accent"
-        if match in ("where", "pinned"):   # out of its folder: the folder (dim) before the name
+        if match == "where":   # out of its folder: the folder (dim) before the name
             parent = os.path.dirname(p.rel)
             if parent and os.path.basename(parent).replace("-", "_") in p.name.replace("-", "_"):   # housefind/housefind_1
                 parent = os.path.dirname(parent)
             name = text = label((f"<span foreground='{recolor('#565f89')}'>{GLib.markup_escape_text(parent)}/</span>"
                                  if parent else "") + GLib.markup_escape_text(p.name), markup=True, ellipsize=True)
             name.set_ellipsize(Pango.EllipsizeMode.START)   # a long path loses its start, never the name
-        elif match:
-            name = label(marked(p.name, match[1], HIT), markup=True, ellipsize=True)
-            where = label(marked(os.path.dirname(p.rel), match[2], HIT), "setting-sub", markup=True, ellipsize=True)
-            where.set_max_width_chars(10)
-            text = box(True, 1, name, where)
+        elif match and match != "pinned":   # a search's: the folder is the row above
+            name = text = label(marked(p.name, match[1], HIT), markup=True, ellipsize=True)
         else:
             name = text = label(p.name, *(("dim",) if p.kind == "missing" else ()), ellipsize=True)
         name.set_max_width_chars(10)   # the column keeps its width: long names ellipsize instead
@@ -2135,6 +2143,8 @@ class Projects(View):
             self.switch_tab(order[(order.index(self.tab) + 1) % 4])
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row and row.kind in ("group", "project"):
             group = row.key if row.kind == "group" else os.path.dirname(row.key)
+            if row.kind == "project" and row.extra == "pinned" and group:
+                group = f"{PINNED}/{group}"
             if self.sort == BY_STATUS and row.kind == "project":
                 group = f"{BY_STATUS}/{self.marks.get(row.key) or 'none'}"
             if group and not self.search.get_text() and self.filter == "all":

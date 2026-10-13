@@ -13,6 +13,7 @@
 #               e exec: run a command inside (default: its shell; Tab = as root; ↑↓ history)
 #   images: u pull (update)            L lazydocker            q close
 import json, os, re, shlex, shutil, signal, subprocess, sys, threading, time
+from collections import deque
 from itertools import zip_longest
 
 import dockerlogs
@@ -163,18 +164,42 @@ class DockerPanel(Panel):
             self.sel[tab] = ids[0] if ids else None
 
     def watch_stats(self):
-        """CPU and memory per container: only the Containers tab shows them."""
+        """CPU and memory per container: only the Containers tab shows them. One `docker stats` that
+        streams (a frame a second, each starting with a cursor-home code) while that tab shows, stopped
+        when it's hidden or another tab is: a `--no-stream` run every 2 s waited 2 s for its own two
+        samples each time, so dockerd was always sampling."""
         while True:
             self.awake.wait()
             if self.tab != "containers":
                 time.sleep(0.5)
                 continue
             try:
-                r = docker("stats", "--no-stream", "--format", "{{json .}}")
-                self.stats = {s["ID"]: s for s in map(json.loads, r.stdout.splitlines())}
-            except (OSError, subprocess.TimeoutExpired, ValueError):
-                pass
-            time.sleep(2)
+                p = subprocess.Popen(["docker", "stats", "--format", "{{json .}}"], stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL, text=True)
+            except OSError:
+                time.sleep(5)
+                continue
+
+            def guard():
+                while p.poll() is None:
+                    if not self.awake.is_set() or self.tab != "containers":
+                        p.terminate()
+                        return
+                    time.sleep(0.5)
+            threading.Thread(target=guard, daemon=True).start()
+            frame = {}
+            for line in p.stdout:
+                if "\x1b[H" in line:   # cursor home: a new frame begins, the last one is complete
+                    if frame:
+                        self.stats, frame = frame, {}
+                line = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", line)   # each line ends in erase-line too
+                try:
+                    st = json.loads(line)
+                    frame[st["ID"]] = st
+                except (ValueError, KeyError):
+                    pass
+            p.wait()
+            time.sleep(1)
 
     def watch_resources(self):
         """Images, volumes and networks, with what uses them: at once after an action or a docker event,
@@ -260,18 +285,51 @@ class DockerPanel(Panel):
         self.keep_selection("volumes", [v["ID"] for v in volumes])
         self.keep_selection("networks", [n["ID"] for n in networks])
 
+    def follow_logs(self, sid):
+        """`docker logs --follow` for one container: its last 300 lines, then new ones as they come (a
+        reader thread). Re-reading the last 300 every 2 s rewrote the view even when nothing was new."""
+        p = subprocess.Popen(["docker", "logs", "--follow", "--timestamps", "--tail", "300", sid],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        f = {"id": sid, "proc": p, "lines": deque(maxlen=300), "lock": threading.Lock(), "new": False,
+             "at": time.time()}
+
+        def read():
+            for raw in p.stdout:
+                rec = dockerlogs.parse(raw.decode(errors="replace").rstrip("\n"))
+                with f["lock"]:
+                    f["lines"].append(rec)
+                    f["new"] = True
+            f["new"] = True   # ended (a stopped container: what it had)
+        threading.Thread(target=read, daemon=True).start()
+        return f
+
+    @staticmethod
+    def stop_logs(f):
+        if f and f["proc"].poll() is None:
+            f["proc"].terminate()
+        return None
+
     def watch_detail(self):
         """The slow part of the right-hand side: the selected container's logs, an image's layers."""
+        logs = None   # follow_logs() of the selected container
         while True:
-            self.awake.wait()
+            if not self.awake.is_set():
+                logs = self.stop_logs(logs)
+                self.awake.wait()
             tab, sid = self.tab, self.sel[self.tab]
             try:
                 if tab == "containers" and sid and not sid.startswith(PROJECT):
-                    r = subprocess.run(["docker", "logs", "--timestamps", "--tail", "300", sid],
-                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
-                    records = map(dockerlogs.parse, r.stdout.decode(errors="replace").splitlines())
-                    self.logs = dockerlogs.collapse([x for x in records if not dockerlogs.blank(x)])
-                    self.logs_for = sid
+                    ended = logs and logs["proc"].poll() is not None
+                    if not logs or logs["id"] != sid or (ended and time.time() - logs["at"] > 10):
+                        self.stop_logs(logs)   # another container, or it ended a while ago (restarted?)
+                        logs = self.follow_logs(sid)
+                    # new lines, or none came at all (an empty log): show what there is
+                    if logs["new"] or (self.logs_for != sid and time.time() - logs["at"] > 1):
+                        with logs["lock"]:
+                            logs["new"] = False
+                            records = list(logs["lines"])
+                        self.logs = dockerlogs.collapse([x for x in records if not dockerlogs.blank(x)])
+                        self.logs_for = sid
                 elif tab == "images" and sid and sid not in self.history:
                     r = docker("history", "--no-trunc", "--format", "{{.Size}}\t{{.CreatedBy}}", sid)
                     layers = []
@@ -282,8 +340,10 @@ class DockerPanel(Panel):
                     self.history[sid] = layers
             except (OSError, subprocess.TimeoutExpired):
                 pass
+            if tab != "containers":
+                logs = self.stop_logs(logs)
             # wake early when the tab or selection changes
-            for _ in range(20):
+            for _ in range(10):
                 time.sleep(0.1)
                 if (self.tab, self.sel[self.tab]) != (tab, sid):
                     break

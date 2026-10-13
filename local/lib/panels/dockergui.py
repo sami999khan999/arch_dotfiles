@@ -123,11 +123,13 @@ class Docker(View):
         resources and logs threads are dockerpanel's own."""
         if self.ticking:
             return
+        if not self.model.due():   # docker ps only after a docker event, or every 10 s: else just
+            self.update()          # draw what the stats / logs threads brought (no thread a second)
+            return
         self.ticking = True
 
         def work():
-            if self.model.due():   # docker ps only after a docker event, or every 10 s
-                self.model.tick()
+            self.model.tick()
             GLib.idle_add(self.after_tick)
         threading.Thread(target=work, daemon=True).start()
 
@@ -195,7 +197,10 @@ class Docker(View):
         sel_row = None
         row = self.list.get_first_child()
         for kind, eid, payload in rows:
-            row.set_child(self.row_content(kind, eid, payload))
+            sig = self.row_sig(kind, eid, payload)
+            if getattr(row, "sig", None) != sig:   # a row's widgets are made again only when it changed
+                row.sig = sig
+                row.set_child(self.row_content(kind, eid, payload))
             if eid and eid == m.sel[m.tab]:
                 sel_row = row
             row = row.get_next_sibling()
@@ -217,6 +222,18 @@ class Docker(View):
             lab.set_ellipsize(Pango.EllipsizeMode.END)
             line.append(lab)
         return line
+
+    def row_sig(self, kind, eid, p):
+        """What a row shows, to compare: its payload and the model's live parts it draws (busy, the
+        stats as shown, the project's states, folded)."""
+        m = self.model
+        if kind == "project":
+            return (p, m.busy.get(eid), p in self.folded, tuple(c["State"] for c in m.items if c["project"] == p))
+        if kind == "entry" and m.tab == "containers":
+            st = m.stats.get(eid)
+            shown = (f"{dp.percent(st['CPUPerc']):.1f}", dp.short_size(st["MemUsage"])) if st else None
+            return (repr(p), m.busy.get(eid), shown)
+        return (repr(p), m.busy.get(eid))
 
     def row_content(self, kind, eid, p):
         m = self.model
@@ -309,8 +326,8 @@ class Docker(View):
         key = (m.tab, e["ID"] if e else None)
         if key != self.detail_for:
             self.detail_for, self.actions_sig, self.text_key = key, None, None
-        clear(self.kv)
         if not e:
+            self.kv_rows([])
             self.heading.set_text("Docker isn't answering" if m.error else "Nothing selected")
             self.state.set_text(m.error)
             clear(self.actions)
@@ -324,9 +341,20 @@ class Docker(View):
              "volumes": self.volume_detail, "networks": self.network_detail}[m.tab](e)
 
     def kv_rows(self, pairs):
-        for i, (k, v) in enumerate(pairs):
-            self.kv.attach(label(k, "kv-key"), 0, i, 1, 1)
-            self.kv.attach(label(v, ellipsize=True, wrap=False), 1, i, 1, 1)
+        """The key / value grid: built again only when its keys change; every second it's just the
+        values' text."""
+        keys = [k for k, _ in pairs]
+        if keys != getattr(self, "kv_keys", None):
+            self.kv_keys = keys
+            clear(self.kv)
+            self.kv_vals = []
+            for i, k in enumerate(keys):
+                self.kv.attach(label(k, "kv-key"), 0, i, 1, 1)
+                self.kv_vals.append(label("", ellipsize=True, wrap=False))
+                self.kv.attach(self.kv_vals[-1], 1, i, 1, 1)
+        for lab, (_, v) in zip(self.kv_vals, pairs):
+            if lab.get_text() != v:
+                lab.set_text(v)
 
     def set_actions(self, sig, make):
         """The buttons, from make(): built only when what you can do changes, so an open Exec popover

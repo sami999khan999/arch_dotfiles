@@ -9,7 +9,7 @@
 import os, re, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, box, button, clear, dropdown, label,
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, panel_opacity, box, button, clear, dropdown, label,
                     rule_heading, run, scrolled, setting_row, slider, spin, switch)
 import keys
 import settingslib as S
@@ -245,6 +245,9 @@ class Settings(View):
                              switch(on, lambda v: self.panels("backdrop", v))))
         p.append(setting_row("Panel darken", "How much darker the screen gets behind a panel",
                              slider(0, 0.8, 0.05, darken, lambda v: self.panels("darken", v), fmt="{:.0%}")))
+        p.append(setting_row("Panel opacity", "How solid a panel's own background is: lower shows more of the "
+                             "blur behind it",
+                             slider(0.3, 1.0, 0.05, panel_opacity(), lambda v: self.panels("opacity", v), fmt="{:.0%}")))
         p.append(label("Changes show from the next panel you open.", "setting-sub", wrap=True))
         self.heading(p, "Shadow")
         p.append(setting_row("Window shadow", None,

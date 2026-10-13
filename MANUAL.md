@@ -643,8 +643,9 @@ darkened full-screen window under it that Hyprland blurs like every window, so p
 the same blur, set in one place: Settings → Appearance → Blur; `Backdrop` in `gtkkit.py`,
 `panels-backdrop` in `modules/windowrules.lua`); a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
 and it's still there over its backdrop (it's pinned above the backdrop, so that click can't cover it,
-and unpinned while another workspace shows). Settings → Appearance → Panels: on / off and darkness (the
-blur is Appearance → Blur's, the windows').
+and unpinned while another workspace shows). Settings → Appearance → Panels: on / off, darkness, and Panel opacity
+(how solid the panel's own background is: lower shows more of the blur behind it; the blur is
+Appearance → Blur's, the windows').
 The pair popup (`Super + Alt + P`) has none: you watch the pair while you change it.
 
 | Panel | Opens with | Does |

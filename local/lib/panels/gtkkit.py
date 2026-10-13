@@ -371,7 +371,9 @@ def scrolled(child, vexpand=True):
 
 def install_css(extra=""):
     provider = Gtk.CssProvider()
-    provider.load_from_string(recolor(CSS + extra))
+    # the panel's background at its setting's opacity, after CSS so it wins over the .85 there
+    opacity = f"window.panel {{ background: alpha(#16161e, {panel_opacity():.2f}); }}\n"
+    provider.load_from_string(recolor(CSS + opacity + extra))
     # above USER priority: ~/.config/gtk-4.0/gtk.css (the Noctalia/GTK theme) mustn't restyle panels
     Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
@@ -463,16 +465,27 @@ class View:
 HYPR_SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")
 
 
+def panels_settings():
+    """System Settings → Appearance → Panels, as settings.json keeps it."""
+    import json
+    try:
+        return json.load(open(HYPR_SETTINGS)).get("panels", {})
+    except (OSError, ValueError):
+        return {}
+
+
 def backdrop_setting():
     """What goes behind a popup, from System Settings → Appearance → Panels: (on, darken 0-1). Its blur is
     the windows' (Hyprland's, Appearance → Blur): the backdrop is a see-through window Hyprland blurs."""
-    import json
-    try:
-        p = json.load(open(HYPR_SETTINGS)).get("panels", {})
-    except (OSError, ValueError):
-        p = {}
+    p = panels_settings()
     on = p.get("backdrop", True) not in (False, "off")
     return on, max(0.0, min(float(p.get("darken", 0.25)), 0.9))
+
+
+def panel_opacity():
+    """How solid a panel's own background is (Appearance → Panels → Panel opacity): lower lets more of
+    the blur behind it show through."""
+    return max(0.3, min(float(panels_settings().get("opacity", 0.85)), 1.0))
 
 
 def window_blur():

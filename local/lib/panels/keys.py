@@ -209,7 +209,26 @@ def read_remaps():
     except Exception:
         return []
 
+# what the sections are read from: the Control Center's card asks every few seconds, and reads them
+# again only when one of these changed
+SOURCES = [BINDS, APPS, WSGROUPS, f"{HYPR}/settings.json", f"{HYPR}/settings.local.json",
+           os.path.expanduser("~/.config/agentmux/settings.json")]
+_sections = (None, [])
+
+
 def sections():
+    global _sections
+    stamp = []
+    for path in SOURCES:
+        try:
+            stamp.append(os.stat(path).st_mtime_ns)
+        except OSError:
+            stamp.append(None)
+    if stamp != _sections[0]:
+        _sections = (stamp, read_sections())
+    return _sections[1]
+
+def read_sections():
     out = read_binds()
     apps = read_apps()
     if apps:

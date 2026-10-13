@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # sysmon.py — minimal system monitor for the rice (Tokyo Night). q / Esc to quit.
-import os, subprocess
+import ctypes, os
 from datetime import datetime
 
 INTERVAL = 1.5
+APPS_EVERY = 3   # ticks between two looks at the apps (every process in /proc)
 TOP_APPS = 8
 PAGE = os.sysconf("SC_PAGE_SIZE")
 TICKS = os.sysconf("SC_CLK_TCK")
@@ -28,15 +29,24 @@ def cpu_ticks():
         v = list(map(int, f.readline().split()[1:]))
     return sum(v), v[3] + v[4]  # total, idle+iowait
 
+_temp_file = None   # the CPU sensor's temp1_input, found once
+
 def cpu_temp():
-    base = "/sys/class/hwmon"
-    for h in os.listdir(base):
-        try:
-            if open(f"{base}/{h}/name").read().strip() in ("coretemp", "k10temp"):
-                return int(open(f"{base}/{h}/temp1_input").read()) / 1000
-        except OSError:
-            pass
-    return None
+    global _temp_file
+    if _temp_file is None:
+        base = "/sys/class/hwmon"
+        for h in os.listdir(base):
+            try:
+                if open(f"{base}/{h}/name").read().strip() in ("coretemp", "k10temp"):
+                    _temp_file = f"{base}/{h}/temp1_input"
+                    break
+            except OSError:
+                pass
+    try:
+        with open(_temp_file or "/nonexistent") as f:
+            return int(f.read()) / 1000
+    except OSError:
+        return None
 
 def memory():
     info = {}
@@ -51,15 +61,30 @@ def disk():
     total = s.f_blocks * s.f_frsize
     return total - s.f_bavail * s.f_frsize, total
 
+class _Utilization(ctypes.Structure):
+    _fields_ = [("gpu", ctypes.c_uint), ("memory", ctypes.c_uint)]
+
+_nvml = None   # (library, device) once opened; False: no NVIDIA driver or GPU
+
 def gpu():
-    try:
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=utilization.gpu,temperature.gpu",
-             "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=1).stdout
-        util, temp = map(float, out.split("\n")[0].split(","))
-        return util, temp
-    except Exception:
+    """(use %, temperature °C) of the NVIDIA GPU, None without one. Asked in this process through
+    NVML, the driver's library (0.1 ms): nvidia-smi was a 14 ms process every 1.5 s."""
+    global _nvml
+    if _nvml is None:
+        _nvml = False
+        try:
+            lib, dev = ctypes.CDLL("libnvidia-ml.so.1"), ctypes.c_void_p()
+            if lib.nvmlInit_v2() == 0 and lib.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(dev)) == 0:
+                _nvml = (lib, dev)
+        except OSError:
+            pass
+    if not _nvml:
         return None
+    lib, dev = _nvml
+    use, temp = _Utilization(), ctypes.c_uint()
+    if lib.nvmlDeviceGetUtilizationRates(dev, ctypes.byref(use)) or lib.nvmlDeviceGetTemperature(dev, 0, ctypes.byref(temp)):
+        return None   # 0 = NVML_TEMPERATURE_GPU
+    return float(use.gpu), float(temp.value)
 
 def app_name(pid, comm):
     if len(comm) < 15:  # comm is cut at 15 chars; only then fall back to the executable name
@@ -169,16 +194,23 @@ class SystemPanel(Panel):
 
     def __init__(self):
         self.t0, self.i0 = cpu_ticks()
-        self.p0 = processes()
+        self.p0, self.pt0 = processes(), self.t0
+        self.apps, self.n = [], 0
         self.stats = None
 
     def tick(self):
         t1, i1 = cpu_ticks()
-        p1 = processes()
         dt = t1 - self.t0
         cpu = (1 - (i1 - self.i0) / dt) * 100 if dt else 0
-        self.stats = (cpu, cpu_temp(), memory(), disk(), gpu(), top_apps(self.p0, p1, dt))
-        self.t0, self.i0, self.p0 = t1, i1, p1
+        # the apps every APPS_EVERY ticks, their CPU over that time: reading every process's stat
+        # (~300 files) was most of the card's cost
+        if self.n % APPS_EVERY == 0 or not self.apps:
+            p1 = processes()
+            self.apps = top_apps(self.p0, p1, t1 - self.pt0)
+            self.p0, self.pt0 = p1, t1
+        self.n += 1
+        self.stats = (cpu, cpu_temp(), memory(), disk(), gpu(), self.apps)
+        self.t0, self.i0 = t1, i1
 
     def draw(self, w, h):
         return render(*self.stats) if self.stats else ""

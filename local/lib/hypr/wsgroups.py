@@ -58,12 +58,22 @@ def windows(ws, clients=None):
                   else (1, c.get("stableId", 0)))
 
 
+_order = (None, [])   # (order.json's mtime, its list): windows() asks for every workspace
+
+
 def load_order():
+    global _order
     try:
-        with open(ORDER) as f:
-            return [a for a in json.load(f) if isinstance(a, str)]
-    except (OSError, ValueError, TypeError):
+        seen = os.stat(ORDER).st_mtime_ns
+    except OSError:
         return []
+    if seen != _order[0]:
+        try:
+            with open(ORDER) as f:
+                _order = (seen, [a for a in json.load(f) if isinstance(a, str)])
+        except (OSError, ValueError, TypeError):
+            return []
+    return list(_order[1])
 
 
 def move(address, step):

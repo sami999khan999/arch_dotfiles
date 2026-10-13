@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # netpanel.py — network status panel (Tokyo Night) for the Control Center.
 #   enter  manage connections (nmtui)     esc / q  quit
-import re, subprocess, time
+import re, subprocess, threading, time
 
 INTERVAL = 1.0
 HISTORY = 40
@@ -30,7 +30,9 @@ def details(dev):
     gw = re.search(r"default via (\S+)", run("ip", "route", "show", "default", "dev", dev))
     dns = [l.split(":", 1)[1] for l in run("nmcli", "-t", "-f", "IP4.DNS", "device", "show", dev).splitlines() if ":" in l]
     wifi = ""
-    for l in run("nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "device", "wifi").splitlines():
+    # --rescan no: the list as NetworkManager has it (asking for it otherwise rescans when it's over
+    # 30 s old: the radio scans and the command waits)
+    for l in run("nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "device", "wifi", "list", "--rescan", "no").splitlines():
         if l.startswith("yes:"):
             _, ssid, sig = l.split(":", 2)
             wifi = f"{ssid}  {sig}%"
@@ -87,12 +89,32 @@ class NetworkPanel(Panel):
 
     def __init__(self):
         self.down, self.up = [0.0] * HISTORY, [0.0] * HISTORY
+        self.reading = False
+        self.on_details = None   # called (on the reading's thread) when refresh_later() has new details
         self.refresh()
         self.prev, self.prev_t = counters(self.dev), time.time()
 
     def refresh(self):
         self.dev, self.typ, self.state, self.conn = active_device()
         self.info, self.last_info = details(self.dev), time.time()
+
+    def refresh_later(self):
+        """refresh() in a thread: five nmcli / ip processes, which the GTK panel's main thread doesn't
+        wait for. on_details() once they're in."""
+        if self.reading:
+            return
+        self.reading, self.last_info = True, time.time()
+
+        def read():
+            try:
+                dev = active_device()
+                self.info = details(dev[0])
+                self.dev, self.typ, self.state, self.conn = dev
+            finally:
+                self.reading = False
+            if self.on_details:
+                self.on_details()
+        threading.Thread(target=read, daemon=True).start()
 
     def tick(self, details=True):
         now, cur = time.time(), counters(self.dev)
@@ -101,7 +123,7 @@ class NetworkPanel(Panel):
         self.up = (self.up + [max(cur[1] - self.prev[1], 0) / dt])[-HISTORY:]
         self.prev, self.prev_t = cur, now
         if details and now - self.last_info > 10:  # connection details change rarely
-            self.refresh()
+            self.refresh_later() if self.on_details else self.refresh()
 
     def draw(self, w, h):
         return render(self.dev, self.typ, self.state, self.conn, self.info, self.down, self.up, self.prev)

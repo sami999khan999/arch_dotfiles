@@ -10,7 +10,7 @@
 import os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, hypr_events, label, rule_heading, run, scrolled
 
 
 def load_wsgroups():
@@ -56,6 +56,13 @@ class Workspaces(View):
     def build(self):
         self.load()
         if self.compact:
+            # the card follows Hyprland's events instead of a 2 s timer (it shows no titles, so a window
+            # opened, closed or moved and a workspace switch are all that change it; a saved group
+            # reloads the config)
+            self.interval = 0
+            self.queued = False
+            hypr_events(self.window, (b"openwindow>>", b"closewindow>>", b"movewindowv2>>", b"workspace>>",
+                                      b"focusedmon>>", b"configreloaded>>"), self.changed)
             return self.build_tile()
         self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.list.connect("row-selected", lambda _l, row: row and self.select(row.ws))
@@ -250,13 +257,26 @@ class Workspaces(View):
         pop.set_child(menu if menu.get_first_child() else label("no apps open", "dim"))
         return pop
 
+    def changed(self, _event):
+        if not self.queued and getattr(self.host, "shown", True):   # hidden: shown_changed() refreshes
+            self.queued = True                                       # once it's back
+
+            def later():
+                self.queued = False
+                self.refresh()
+                return False
+            GLib.timeout_add(50, later)   # one refresh for a burst (a move is several events)
+
     # ---- actions ---------------------------------------------------------------------------------
     def refresh(self):
-        """Every 2 s: counts and window list follow what's open. The form is left alone while
-        it's being edited, so a refresh never eats what you typed."""
-        old = (self.groups, [(c["address"], c["workspace"]["id"], c["title"]) for c in self.clients], self.active)
+        """Every 2 s (the card: on Hyprland's events): counts and window list follow what's open. The
+        form is left alone while it's being edited, so a refresh never eats what you typed."""
+        # the card shows no titles: a terminal's changing title doesn't rebuild its ten rows
+        seen = lambda: (self.groups, [(c["address"], c["workspace"]["id"], "" if self.compact else c["title"])
+                                      for c in self.clients], self.active)
+        old = seen()
         self.load()
-        new = (self.groups, [(c["address"], c["workspace"]["id"], c["title"]) for c in self.clients], self.active)
+        new = seen()
         if new != old and self.compact:
             self.paint_tile()
             return

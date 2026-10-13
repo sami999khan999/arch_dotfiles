@@ -9,7 +9,7 @@
 import os, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, debounced, label, rule_heading, run, scrolled
 import audiopanel
 
 CSS = """
@@ -47,6 +47,9 @@ class Audio(View):
         self.sel = None         # (kind, id) of the selected row, kept across rebuilds
         self.updating = False   # while refresh() moves the sliders, their changes aren't user input
         self.reload_queued = False
+        self.shown, self.stale = True, False   # hidden (the Control Center's workspace): reload once shown
+        # a slider drag sets the volume once it rests a moment, not a pactl process per pixel
+        self.set_volume = debounced(lambda args: audiopanel.pactl(*args), 60)
 
     popup = "~/.local/lib/panels/audiogui.py"
 
@@ -86,10 +89,19 @@ class Audio(View):
 
     def reload(self):
         self.reload_queued = False
+        if not self.shown:   # nobody sees it: five pactl runs once it shows again, not on every change
+            self.stale = True
+            return False
         self.refresh()
         if self.on_change:
             self.on_change()
         return False
+
+    def shown_changed(self, shown):
+        self.shown = shown
+        if shown and self.stale:
+            self.stale = False
+            self.refresh()
 
     # ---- drawing ---------------------------------------------------------------------------------
     def refresh(self):
@@ -193,7 +205,7 @@ class Audio(View):
     def slid(self, key, value):
         if self.updating:
             return
-        audiopanel.pactl(f"set-{WHAT[key[0]]}-volume", str(key[1]), f"{round(value)}%")
+        self.set_volume((f"set-{WHAT[key[0]]}-volume", str(key[1]), f"{round(value)}%"))
 
     def act(self, k, key=None):
         """audiopanel's keys (LEFT/RIGHT volume, m mute, ENTER default) on a device."""
@@ -204,7 +216,7 @@ class Audio(View):
         audiopanel.act(key[0], d, k)
         if k == "ENTER" and key[0] != "input":
             self.say(f"{d['name']} is now the default {'output' if key[0] == 'sink' else 'input'}")
-        self.refresh()
+        # no refresh() here: the change comes back as a PipeWire event, and follow() reloads then
 
     def wiremix(self):
         subprocess.Popen([TUI, "wiremix"], start_new_session=True,

@@ -8,7 +8,7 @@
 import os, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, Gtk, View, box, button, label, rgbf, rule_heading, run
+from gtkkit import Gdk, GLib, Gtk, View, box, button, label, rgbf, rule_heading, run
 import netpanel
 
 CSS = ".red { color: #f7768e; }"
@@ -46,6 +46,8 @@ class Network(View):
     def __init__(self):
         super().__init__()
         self.net = netpanel.NetworkPanel()   # keeps the traffic history between readings
+        self.net.on_details = lambda: GLib.idle_add(lambda: self.update() and False)   # nmcli in a thread
+        self.rows = None   # the details' keys as drawn: their labels are only rebuilt when these change
 
     @property
     def icon(self):
@@ -128,7 +130,7 @@ class Network(View):
 
     def shown_changed(self, shown):
         if shown:
-            self.net.refresh()   # the connection may have changed meanwhile (nmcli was skipped)
+            self.net.refresh_later()   # the connection may have changed meanwhile (nmcli was skipped)
             self.update()
 
     def update(self):
@@ -149,13 +151,21 @@ class Network(View):
 
         kv = [("IP", ip), ("Gateway", gw), ("DNS", dns)] + ([("Wi-Fi", wifi)] if wifi else [])
         kv += [("Received", netpanel.total(n.prev[0])), ("Sent", netpanel.total(n.prev[1]))]
-        while (child := self.details.get_first_child()) is not None:
-            self.details.remove(child)
-        for i, (k, v) in enumerate(kv):
-            key = label(k, "dim")
-            key.set_size_request(80 if self.compact else 90, -1)
-            self.details.attach(key, 0, i, 1, 1)
-            self.details.attach(label(v, ellipsize=True), 1, i, 1, 1)
+        keys = [k for k, _ in kv]
+        if keys != self.rows:   # (Wi-Fi came or went) built again; otherwise only their text changes
+            while (child := self.details.get_first_child()) is not None:
+                self.details.remove(child)
+            self.values = []
+            for i, k in enumerate(keys):
+                key = label(k, "dim")
+                key.set_size_request(80 if self.compact else 90, -1)
+                self.details.attach(key, 0, i, 1, 1)
+                self.values.append(label("", ellipsize=True))
+                self.details.attach(self.values[-1], 1, i, 1, 1)
+            self.rows = keys
+        for value, (_, v) in zip(self.values, kv):
+            if value.get_text() != v:
+                value.set_text(v)
 
     def manage(self):
         subprocess.Popen([TUI, "nmtui"], start_new_session=True,

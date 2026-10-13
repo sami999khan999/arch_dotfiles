@@ -445,12 +445,20 @@ def ai_models():
     """The models opencode offers (its free ones without an account), or [] when it can't say."""
     if not shutil.which("opencode"):
         return []
-    try:
-        r = subprocess.run(["opencode", "models"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                           timeout=60)
-    except subprocess.TimeoutExpired:
-        return []
-    return [l.strip() for l in r.stdout.splitlines() if "/" in l and " " not in l.strip()]
+    # opencode's background server answers a folder it hasn't loaded yet with an empty list (it loads the
+    # providers after replying), and with --standalone every time: ask again (the popup's first open showed
+    # only the kept model)
+    for _ in range(3):
+        try:
+            r = subprocess.run(["opencode", "models"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                               timeout=60)
+        except subprocess.TimeoutExpired:
+            return []
+        models = [l.strip() for l in r.stdout.splitlines() if "/" in l and " " not in l.strip()]
+        if models or r.returncode:
+            return models
+        time.sleep(0.5)
+    return []
 
 
 def set_ai_model(model):
@@ -560,6 +568,24 @@ def commit_changes(rel, message, paths=None, push_after=False):
         ok, out = push(path)
         msg += ", pushed" if ok else f"; push failed: {out}"
     return ok, msg
+
+
+def discard_changes(rel, paths):
+    """Throw away the changes to paths (new files too; a rename as git status shows it, "old -> new") — into
+    a stash, not into nothing: a click too many is undone with git stash pop. (ok, message)."""
+    path = f"{ROOT}/{rel.strip('/')}"
+    if not paths:
+        return False, "nothing picked"
+    n, files = len(paths), [p for shown in paths for p in shown.split(" -> ")]
+    # unstaged first: stash's pathspec must match the index or an untracked file, and a staged rename's old
+    # name is in neither (the stash failed, an empty one left behind)
+    ok, out = git(path, "reset", "-q", "--", *files)
+    if ok:
+        ok, out = git(path, "stash", "push", "-q", "--include-untracked",
+                      "-m", f"discarded in Commit: {n} file{'s' * (n != 1)}", "--", *files)
+    if not ok:
+        return False, last_line(out, "git stash failed")
+    return True, f"discarded {n} file{'s' * (n != 1)} (git stash pop brings {'them' if n != 1 else 'it'} back)"
 
 
 def push(path):

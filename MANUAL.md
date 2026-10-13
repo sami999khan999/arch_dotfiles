@@ -387,7 +387,13 @@ how each branch stands against main.
 out; each with its `+`/`−` lines, the name before its folder; a filter, and *All* / *None* for the files
 it shows; `Space` ticks the selected one), and on the right the selected file's diff (a click on a file,
 or `↑↓` in the list: each line numbered, added / removed lines tinted, a header saying where each change
-starts, a long line wrapped under its text); *Push it to GitHub after* (the button says *Commit & push N files*). A normal
+starts, a long line wrapped under its text); **Discard…** (small, red, above the diff, nowhere near Commit)
+asks first, then throws away the changes to the file on the right or to every ticked file (a new file is
+removed); they go into a `git stash`, so `git stash pop` in the project brings them back. At the bottom,
+**Commit & push N files** (`Ctrl+Enter`; it publishes a branch GitHub doesn't have yet) closes Commit once
+done; **Commit N files** (`Ctrl+Shift+Enter`) only commits and stays open on the files left; **Push N**
+pushes the commits not on GitHub yet (**Publish** for a new branch); **Sync** brings GitHub's side down, as
+the Projects panel's Sync does (fetch, fast-forward what's only behind, never merge or push). A normal
 `git commit`: the project's hooks run. **Write it for me** has a free model write the message from the
 ticked files' changes, in the style of the repo's recent commits, through `opencode run` (the free tier only
 works from inside opencode). The dropdown beside it picks the model from opencode's free ones

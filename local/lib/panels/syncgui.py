@@ -354,8 +354,14 @@ class CodeSync(View):
 
     # ---- actions ---------------------------------------------------------------------------------
     def refresh(self):
+        """Every second: the state as the service saved it. Both panes are made again only when
+        something in it changed, or every 10 s for the "… ago" times; actions repaint at once."""
         self.load()
-        self.paint()
+        seen = (json.dumps(self.state, sort_keys=True, default=str), repr(self.cfg), self.paused, self.pid,
+                repr(getattr(self, "trash", None)), repr(getattr(self, "proposal", None)), int(time.time() // 10))
+        if seen != getattr(self, "painted", None):
+            self.painted = seen
+            self.paint()
 
     def later(self, fn, *args):
         """Run fn on the GTK thread (from a background thread)."""

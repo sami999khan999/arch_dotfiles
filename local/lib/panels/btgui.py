@@ -65,7 +65,7 @@ def friendly(err):
 class Bluetooth(View):
     title = "Bluetooth"
     icon = ICON_OTHER
-    interval = 2.0   # BlueZ's signals do the work; this only re-reads in case one was missed
+    interval = 10.0   # BlueZ's signals do the work; this only re-reads in case one was missed
     hints = [("↑↓", "select"), ("Enter", "connect / pair"), ("f", "forget"), ("p", "power"), ("s", "scan"),
              ("Esc", "close")]
     css = CSS
@@ -115,9 +115,10 @@ class Bluetooth(View):
                 self.devices[path] = d
 
     def changed(self, *_):
-        """A BlueZ signal: re-read once the burst is over (a scan sends many)."""
+        """A BlueZ signal: re-read once the burst is over (a scan sends many: every nearby device's
+        signal strength, several times a second)."""
         if not self.pending:
-            self.pending = GLib.timeout_add(150, self.on_changed)
+            self.pending = GLib.timeout_add(500, self.on_changed)
 
     def on_changed(self):
         self.pending = 0
@@ -320,7 +321,9 @@ class Bluetooth(View):
             self.set_subtitle("no adapter")
 
         mine, near, nameless = self.groups()
-        shape = (bool(self.adapter), powered, tuple(mine), tuple(near), nameless, bool(a.get("Discovering")))
+        # which devices, not their order: nearby ones are sorted by signal strength, which changes all
+        # the time while scanning, and each change rebuilt the list (the order is renewed with it)
+        shape = (bool(self.adapter), powered, tuple(mine), frozenset(near), nameless, bool(a.get("Discovering")))
         if shape != self.shape:
             self.shape = shape
             self.rebuild(mine, near, nameless, powered)

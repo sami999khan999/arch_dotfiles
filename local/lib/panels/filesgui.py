@@ -371,8 +371,16 @@ class Files(View):
             self.store.items_changed(0, self.store.get_n_items(), self.store.get_n_items())
         return False
 
+    def shown_changed(self, shown):
+        if shown and getattr(self, "stale", False):
+            self.stale = False
+            self.reload()
+
     def watch(self, path):
         """Changes in the folder (made here or elsewhere) reload it, a quarter second after the last."""
+        if self.monitor and getattr(self, "watching", None) == path:
+            return   # the same folder reloaded: its monitor stays
+        self.watching = path
         if self.monitor:
             self.monitor.cancel()
         self.reload_timer = 0
@@ -390,6 +398,9 @@ class Files(View):
 
     def reload(self):
         self.reload_timer = 0
+        if not getattr(self.host, "shown", True):   # its workspace is hidden: once it shows again
+            self.stale = True
+            return False
         if self.cwd and os.path.isdir(self.cwd):
             self.go(self.cwd, remember=False, keep={e.name for e in self.selected()})
         elif self.cwd:   # the folder itself went: the nearest one still there

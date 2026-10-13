@@ -325,16 +325,22 @@ class Settings(View):
                              button("Open folder", lambda: self.launch("xdg-open", S.WALLS))))
 
     def load_thumb(self, path, pic):
-        """A small copy of the picture, made once and kept in ~/.cache."""
-        from gi.repository import GdkPixbuf
+        """A small copy of the picture, made once and kept in ~/.cache. A new one is made in a thread:
+        decoding a 4K wallpaper on the main thread froze the page for each picture."""
         os.makedirs(THUMBS, exist_ok=True)
         thumb = f"{THUMBS}/{os.path.basename(path)}.png"
-        try:
-            if not os.path.exists(thumb) or os.path.getmtime(thumb) < os.path.getmtime(path):
+
+        def make():
+            from gi.repository import GdkPixbuf
+            try:
                 GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 340, 192, True).savev(thumb, "png", [], [])
+                GLib.idle_add(lambda: pic.set_filename(thumb) and False)
+            except GLib.Error:
+                pass
+        if not os.path.exists(thumb) or os.path.getmtime(thumb) < os.path.getmtime(path):
+            threading.Thread(target=make, daemon=True).start()
+        else:
             pic.set_filename(thumb)
-        except GLib.Error:
-            pass
         return False
 
     def page_theme(self, p):
@@ -807,9 +813,21 @@ class Settings(View):
         def tick():
             import datetime
             clock.set_text(datetime.datetime.now().strftime("%H:%M:%S" if t["h24"] else "%I:%M:%S %p"))
-            return clock.get_root() is not None
-        tick()
-        GLib.timeout_add(1000, tick)
+            return True
+        # ticks only while the page shows: the pages are kept once built, so a timer tied to the
+        # window ticked every second until Settings closed, whatever page was open
+        timer = {"id": 0}
+
+        def mapped(*_):
+            tick()
+            timer["id"] = timer["id"] or GLib.timeout_add(1000, tick)
+
+        def unmapped(*_):
+            if timer["id"]:
+                GLib.source_remove(timer["id"])
+                timer["id"] = 0
+        clock.connect("map", mapped)
+        clock.connect("unmap", unmapped)
         self.heading(p, "Time")
         zones = S.timezones()
         p.append(setting_row("Time zone", "Type to search",

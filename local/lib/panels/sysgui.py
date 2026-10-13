@@ -1033,22 +1033,28 @@ class System(View):
     def paint_storage(self, s):
         """Each drive as a block: its name and type, read / write now, a map of its partitions
         (one bar, each partition's share of the drive, filled as far as it's used), then a line
-        per partition. The partition lines share their columns across drives."""
+        per partition. The partition lines share their columns across drives. Built again only when
+        something it shows changed (an idle drive's page stays as it is)."""
+        layout = []
+        for d in s["drives"]:
+            parts = []
+            for p in d.get("children") or [d]:
+                mounts = sorted((m for m in (p.get("mountpoints") or []) if m), key=len)
+                used, free = self.space(mounts[0]) if mounts else (None, None)
+                parts.append((p, mounts, used, free))
+            rd, wr = s["rates"].get(d["kname"], (0, 0))
+            busy = s["busy"].get(d["kname"], 0)
+            layout.append((d, parts, [rate(v) if v >= 1024 else "idle" for v in (rd, wr)],
+                           f"{busy:.0f}" if busy >= 1 else "idle"))
+        sig = repr(layout)
+        if sig == getattr(self, "storage_sig", None):
+            return
+        self.storage_sig = sig
         clear(self.storage)
         cols = [Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(5)]
         names = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)   # "Space" / "Activity" labels
         pcts = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)    # the % at the end of those rows
-        for i, d in enumerate(s["drives"]):
-            parts = []
-            for p in d.get("children") or [d]:
-                mounts = sorted((m for m in (p.get("mountpoints") or []) if m), key=len)
-                used = free = None
-                if mounts:
-                    st = os.statvfs(mounts[0])
-                    total, free = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
-                    used = total - free
-                parts.append((p, mounts, used, free))
-
+        for i, (d, parts, _, _) in enumerate(layout):
             # heading: the drive, and its read / write rates as two small readouts
             name = label((d.get("model") or d["name"]).strip(), "heading", ellipsize=True)
             kind = "HDD" if d.get("rota") else "SSD"
@@ -1121,6 +1127,20 @@ class System(View):
                 line.set_margin_top(4)
                 block.append(line)
             self.storage.append(block)
+
+    def space(self, mount):
+        """(used, free) bytes of a mounted filesystem, looked at every 10 s: statvfs of the NTFS data
+        drive isn't free, and it was asked every 1.5 s."""
+        cache = self.__dict__.setdefault("spaces", {})
+        at, value = cache.get(mount, (0, None))
+        if time.time() - at > 10:
+            try:
+                st = os.statvfs(mount)
+                value = (st.f_blocks * st.f_frsize - st.f_bavail * st.f_frsize, st.f_bavail * st.f_frsize)
+            except OSError:
+                value = (None, None)
+            cache[mount] = (time.time(), value)
+        return value
 
     def drive_map(self, size, parts):
         """One bar for the drive: a segment per partition, as wide as its share of the drive,

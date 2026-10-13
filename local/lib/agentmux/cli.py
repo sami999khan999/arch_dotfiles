@@ -1518,13 +1518,42 @@ def settings():
 
 def save_widths():
     """Remember the sidebar and column widths (after a drag, Ctrl+Alt+←→ or the window resizing). Not
-    while a panel is maximized: those widths are the maximized ones."""
-    if opt("@max"):
+    while a panel is maximized: those widths are the maximized ones. One at a time: a drag fires the
+    hook at every step, and a run that finds another going leaves it a note to look once more when
+    it's done, instead of all of them racing on state.json."""
+    import fcntl
+    os.makedirs(lib.RUN, exist_ok=True)
+    again = os.path.join(lib.RUN, "save-widths.again")
+    with open(os.path.join(lib.RUN, "save-widths.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            open(again, "w").close()
+            return
+        while True:
+            save_widths_once()
+            try:
+                os.remove(again)   # another step came meanwhile: the widths as they are now
+            except FileNotFoundError:
+                break
+
+
+def save_widths_once():
+    # every pane's width and the window's from one list-panes, the roles' pane ids from one
+    # show-options: tmux runs this on every step of a drag or a window resize, and asking per pane
+    # (pane(), size()) was some 60 tmux processes each time
+    opts = dict(shlex.split(line)[:2] for line in lib.app("show-options", "-g")[1].splitlines()
+                if line.startswith("@") and len(shlex.split(line)) >= 2)
+    if opts.get("@max"):
         return
+    now, total = {}, 0
+    for line in lib.app("list-panes", "-a", "-F", "#{pane_id} #{pane_width} #{window_width}")[1].splitlines():
+        pid, pw, ww = (line.split() + ["0", "0"])[:3]
+        now[pid], total = int(pw), int(ww)
+    pane = lambda role: opts.get(f"@p_{role}") if opts.get(f"@p_{role}") in now else None
+    size = lambda p: now.get(p, 0) if p else 0
     s = lib.load_state()
     w = s.get("widths", {})
-    total = int(lib.app("display-message", "-p", "#{window_width}")[1] or 0)
-    size = lambda p: int(lib.app("display-message", "-p", "-t", p, "#{pane_width}")[1] or 0) if p else 0
     # the terminal list squeezed below its icons (tmux takes a resize out of the rightmost pane, or a
     # drag went too far): back to its last width. That resize runs this again, with the right widths.
     if pane("termlist") and size(pane("termlist")) < MIN["termlist"]:

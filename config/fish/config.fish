@@ -18,8 +18,13 @@ end
 
 # Dev toolchains: rustup's cargo bin, mise-managed node/pnpm/bun, zoxide (`z dir`)
 fish_add_path -g ~/.cargo/bin
-if type -q mise
+# Interactive: mise's hook (tool versions follow the folder you cd into). A script or `fish -c` (tmux
+# runs pane commands through the shell) gets its shims on PATH instead, which pick the version per
+# folder too: no mise process, which was 30 of fish's 45 ms startup
+if status is-interactive; and type -q mise
     mise activate fish | source
+else if test -d ~/.local/share/mise/shims
+    fish_add_path -g ~/.local/share/mise/shims
 end
 if status is-interactive; and type -q zoxide
     zoxide init fish | source

@@ -244,12 +244,38 @@ def is_repo(path):
 
 
 def remotes(path):
-    """{name: url} from the repo's config."""
+    """{name: url} from the repo's config: read from .git/config itself (a scan at login asked git once
+    per repo); through git when the file is anything but plain (an include, a worktree's .git file)."""
+    found = read_remotes(os.path.join(path, ".git", "config"))
+    if found is not None:
+        return found
     ok, out = git(path, "config", "--get-regexp", r"^remote\..*\.url$")
     found = {}
     for line in out.splitlines() if ok else []:
         key, _, url = line.partition(" ")
         found[key[len("remote."):-len(".url")]] = url
+    return found
+
+
+def read_remotes(config):
+    """{name: url} of a plain .git/config, None if it isn't one this reads (no file, an include)."""
+    try:
+        text = open(config).read()
+    except OSError:
+        return None
+    found, remote = {}, None
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("["):
+            m = re.fullmatch(r'\[\s*remote\s+"((?:[^"\\]|\\.)*)"\s*\]', line)
+            if line.lower().startswith(("[include", "[includeif")) or (line.lower().startswith("[remote") and not m):
+                return None
+            remote = m.group(1).replace('\\"', '"').replace("\\\\", "\\") if m else None
+        elif remote is not None and re.match(r"url\s*=", line, re.I):
+            value = line.split("=", 1)[1].strip()
+            if value.startswith('"') or "\\" in value or ";" in value or "#" in value:
+                return None   # quoting, escapes or a comment after it: git reads that one
+            found.setdefault(remote, value)
     return found
 
 
@@ -274,8 +300,9 @@ def entry(rel):
         e["remote"] = name
     if rs:
         e["remotes"] = rs
-    if current_branch(path):
-        e["branch"] = current_branch(path)
+    branch = current_branch(path)
+    if branch:
+        e["branch"] = branch
     return e
 
 

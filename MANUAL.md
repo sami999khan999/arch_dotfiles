@@ -295,6 +295,8 @@ write it.
 
 **Local only** projects (a folder with files and no git remote) can't be cloned back: only the SSD and
 the HDD have them. The panel and `projects` mark them in amber; put them in git and push to make them safe.
+A folder with repos right inside it is a group, not a local-only project, even with files of its own
+(`potherbazar/`: its frontend and backend repos, and a `docker-compose.yml` for both, which only the HDD backs up).
 
 **The panel** (`panels/projectsgui.py`): the `~/code` tree on the left (groups fold with ←/→ or a click;
 a repo has a repo icon in the folders' icon column and shows its branch when it isn't on main, ● when it has uncommitted changes; a cloud for one that

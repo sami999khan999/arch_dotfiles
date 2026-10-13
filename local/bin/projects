@@ -51,7 +51,9 @@ functions.
 
 Scan rules: a folder with a .git is a project (its insides aren't searched); a folder with files of its
 own and no git is a "local only" project (no remote: only the SSD and the HDD have it); a folder with
-only folders in it is a group (potherbazar/: one project's frontend and backend repos) and is searched. A listed project whose
+only folders in it is a group (potherbazar/: one project's frontend and backend repos) and is searched, and
+so is one with a repo right inside it (files of its own next to them, a docker-compose.yml for both, don't
+make it local only: that hid its repos). A listed project whose
 folder is gone stays listed (maybe just not cloned on this PC), unless its URL turned up somewhere
 else: then it moved. inbox/ is scratch and isn't recorded.
 
@@ -574,6 +576,18 @@ def has_files(path):
         return False
 
 
+def holds_repo(path):
+    try:
+        return any(e.is_dir(follow_symlinks=False) and is_repo(e.path) for e in os.scandir(path))
+    except OSError:
+        return False
+
+
+def is_group(path):
+    """A folder searched for projects, not one itself (the scan rules in the header)."""
+    return not is_repo(path) and (not has_files(path) or holds_repo(path))
+
+
 def walk():
     """(repos, local_only): paths relative to ROOT, by the scan rules in the header."""
     repos, local = [], []
@@ -592,7 +606,7 @@ def walk():
             path = f"{ROOT}/{sub}"
             if is_repo(path):
                 repos.append(sub)
-            elif has_files(path):
+            elif not is_group(path):
                 local.append(sub)
             elif depth + 1 < MAX_DEPTH:
                 todo.append((sub, depth + 1))
@@ -610,7 +624,7 @@ def groups():
             continue
         for name in names:
             sub = f"{rel}/{name}" if rel else name
-            if name.startswith(".") or name in SKIP or is_repo(f"{ROOT}/{sub}") or has_files(f"{ROOT}/{sub}"):
+            if name.startswith(".") or name in SKIP or not is_group(f"{ROOT}/{sub}"):
                 continue
             out.append(sub)
             if depth + 1 < MAX_DEPTH:

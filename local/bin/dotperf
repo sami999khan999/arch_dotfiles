@@ -113,8 +113,15 @@ def measure(found):
     """{name: {cpu, new, mem}} over SECONDS: CPU from the cgroups, new processes by watching /proc."""
     start = {p: usage.usec(p) for p in found}
     seen, new = set(os.listdir("/proc")), {p: 0 for p in found}
-    t0 = time.time()
+    t0, last = time.time(), None
     while time.time() - t0 < SECONDS:
+        # /proc/loadavg ends in the newest pid: /proc is listed only when a process was started since
+        # (listing it every 3 ms was most of a core for the whole minute)
+        newest = usage.read("/proc/loadavg").rsplit(" ", 1)[-1]
+        if newest == last:
+            time.sleep(0.003)
+            continue
+        last = newest
         now = set(os.listdir("/proc"))
         for pid in now - seen:
             if pid.isdigit():
@@ -164,13 +171,20 @@ def table(now, base, bad):
         print(f"{RED}worse: {name}: {what}{RESET}")
 
 
+RETRIES = 4   # a day's tries after the first: a PC busy all day is measured tomorrow, not every hour on
+
+
 def later(minutes, why, quiet):
-    """Not now (busy, or just started): the timer's run tries again in a while."""
-    if quiet:
+    """Not now (busy, or just started): the timer's run tries again in a while, up to RETRIES times
+    (counted in the retry's own arguments)."""
+    tries = int(os.environ.get("DOTPERF_TRY", "0"))
+    if quiet and tries < RETRIES:
         subprocess.run(["systemd-run", "--user", f"--on-active={minutes}min", "--collect", "-u",
-                        f"dotperf-retry-{int(time.time())}", os.path.abspath(sys.argv[0]), "--quiet"],
-                       capture_output=True)
-    print(f"dotperf: {why}; " + (f"trying again in {minutes} min" if quiet else "try again later"))
+                        f"dotperf-retry-{int(time.time())}", f"--setenv=DOTPERF_TRY={tries + 1}",
+                        os.path.abspath(sys.argv[0]), "--quiet"], capture_output=True)
+        print(f"dotperf: {why}; trying again in {minutes} min")
+    else:
+        print(f"dotperf: {why}; " + ("not trying again today" if quiet else "try again later"))
 
 
 def run(save, quiet):
@@ -205,11 +219,21 @@ def run(save, quiet):
 
 def enable():
     os.makedirs(UNITS, exist_ok=True)
+    changed = False   # install.sh runs this on every dotsync: systemd is reloaded only for new units
     for unit, text in (("dotperf.service", SERVICE), ("dotperf.timer", TIMER)):
-        with open(os.path.join(UNITS, unit), "w") as f:
+        path = os.path.join(UNITS, unit)
+        try:
+            if open(path).read() == text:
+                continue
+        except OSError:
+            pass
+        with open(path, "w") as f:
             f.write(text)
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "--user", "enable", "--now", "dotperf.timer"], check=True, capture_output=True)
+        changed = True
+    if changed:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    if changed or subprocess.run(["systemctl", "--user", "is-enabled", "-q", "dotperf.timer"]).returncode:
+        subprocess.run(["systemctl", "--user", "enable", "--now", "dotperf.timer"], check=True, capture_output=True)
     print("dotperf: measured once a day (a notification only when the desktop got heavier)")
 
 

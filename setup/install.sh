@@ -43,7 +43,7 @@ link() {
   [[ -e "$src" ]] || return 0
 
   # already correct
-  if [[ -L "$dst" && "$(readlink -f "$dst")" == "$(readlink -f "$src")" ]]; then
+  if [[ -L "$dst" && "$dst" -ef "$src" ]]; then   # -ef: the same file once resolved (no readlink processes)
     say "ok       ${dst/#$HOME/\~}"
     return 0
   fi

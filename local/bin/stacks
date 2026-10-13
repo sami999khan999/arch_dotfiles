@@ -164,11 +164,21 @@ def show():
 
 def enable():
     os.makedirs(UNITS, exist_ok=True)
+    changed = False   # install.sh runs this on every dotsync: systemd is reloaded only for new units
     for unit, text in (("stacks.service", SERVICE), ("stacks.timer", TIMER)):
-        with open(os.path.join(UNITS, unit), "w") as f:
+        path = os.path.join(UNITS, unit)
+        try:
+            if open(path).read() == text:
+                continue
+        except OSError:
+            pass
+        with open(path, "w") as f:
             f.write(text)
-    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "--user", "enable", "--now", "stacks.timer"], check=True)
+        changed = True
+    if changed:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    if changed or subprocess.run(["systemctl", "--user", "is-enabled", "-q", "stacks.timer"]).returncode:
+        subprocess.run(["systemctl", "--user", "enable", "--now", "stacks.timer"], check=True)
     print(f"stacks: idle Docker stacks are checked every 15 min (asks after {IDLE_MIN} min unused)")
 
 

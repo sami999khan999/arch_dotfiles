@@ -138,7 +138,8 @@ right click on it) switches its style, and the choice is kept:
 - **off**: nothing
 It's drawn exactly as wide as the gap, which it measures on the bar, so it follows the right side as
 that changes (a longer title, the play button, the clock's long view) and never moves or resizes
-anything else (`scripts/visualizer.py`).
+anything else (`scripts/visualizer.py`). It costs nothing while silent (it doesn't follow the bar until
+something plays), pauses cava on **off**, and draws nothing under a fullscreen window.
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. awww draws them (`scripts/wallpaper.sh`): a screen whose workspace has windows shows a

@@ -64,7 +64,8 @@
   "custom/codesync": {
     "exec": "~/.local/bin/codesync bar",
     "return-type": "json",
-    "interval": 20,
+    // codesync signals each status change; the 5 min look only catches a service that died
+    "interval": 300,
     "signal": 11,
     "on-click": "~/.local/lib/panels/syncgui.py",
     "on-click-right": "~/.local/bin/codesync now",
@@ -269,7 +270,7 @@
     "tooltip-format-wifi": "{essid} ({frequency} GHz)",
     "tooltip-format-ethernet": "Connected",
     "tooltip-format-disconnected": "Disconnected",
-    "interval": 3,
+    "interval": 10,   // the Wi-Fi strength; a connection change shows at once (netlink)
     "spacing": 1,
     "on-click": "~/.local/lib/panels/netgui.py"
   },
@@ -375,8 +376,10 @@
   "custom/idle-indicator": {
     "on-click": "~/.config/hypr/scripts/toggle.sh idle",
     "exec": "~/.config/hypr/scripts/indicator.sh idle",
+    // toggle.sh signals a change at once; the minute's look only catches hypridle starting after the
+    // bar at login, or dying
     "signal": 9,
-    "interval": 10,
+    "interval": 60,
     "return-type": "json"
   },
   // the bell beside the clock: new notifications (a dot), do not disturb (crossed out). Click: the

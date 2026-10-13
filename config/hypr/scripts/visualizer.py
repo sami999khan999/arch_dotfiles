@@ -22,8 +22,9 @@ play / pause.
 The graph fills the gap between the workspace buttons and the right section of the bar, to the
 pixel. The gap is measured on the bar itself while the graph shows: a one-pixel-high screenshot of
 the bar (grim) finds the divider after the workspace buttons and the first one of the right section,
-every second and just after a window change, so any change on the right (a title, the play button,
-an indicator, the clock, the code-backup icon) is followed within a second, to the pixel. Without a
+once waybar has redrawn after a change it hears of (the title, the play button, an indicator, the
+clock, the volume) and every 5 s for what nothing announces (the code-backup icon). Silent, it does
+nothing at all: no events followed, no timer; it catches up when the graph starts. Without a
 measurement (grim missing, the dividers not found) the gap is worked out from what's on the right:
 the window title and the group count (their text), the play button, the idle / do-not-disturb
 indicators, the clock's view (short or long) and the volume's digits. cava always makes RAW_BARS; each shown bar is the
@@ -35,7 +36,7 @@ It's the last module of the left section and may shrink (max-length; the bar has
 section, see config.jsonc): GTK then shrinks it rather than push the right section, so the clock and
 the power button can't move whatever happens. The sums below just make it fill the gap exactly.
 """
-import importlib.machinery, importlib.util, json, math, os, shutil, signal, socket, subprocess, sys, threading, time
+import importlib.machinery, importlib.util, json, math, os, shutil, signal, subprocess, sys, threading, time
 
 # The reference: on the 1366 px screen the gap is GAP_REF px with a TITLE_REF-character title, the
 # group count "⊞ 1/1", the play button showing, no indicator, the short clock and a 3-digit volume. Every difference
@@ -68,6 +69,9 @@ STYLES = ["bars", "solid", "mirror", "dots", "wave", "off"]
 RAW_BARS = 64         # what cava makes; more than ever fit
 FPS = 25              # frames per second (cava's framerate; also how often waybar can redraw)
 SILENT_AFTER = 2.0    # seconds of silence before the module hides
+MEASURE_EVERY = 5     # s: while it shows, the gap is measured again this often (and after each change it
+                      # hears of: a change on the right that nothing announces, the code-backup icon)
+SETTLE = 0.3          # s: after a change, waybar has redrawn the bar by then (the measurement sees the bar)
 BLOCKS = "▁▂▃▄▅▆▇█"
 # braille dots from the bottom up: the left column (dots 7 3 2 1), the right one (8 6 5 4)
 DOTS_LEFT, DOTS_RIGHT = (0x40, 0x04, 0x02, 0x01), (0x80, 0x20, 0x10, 0x08)
@@ -100,6 +104,8 @@ noise_reduction = 77
 """
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+from hyprsock import follow   # the event socket, reconnecting with a pause
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 PID_DIR = os.path.join(RUN, "waybar-visualizer")   # one file per running copy, named by its pid
 STATE_FILE = os.path.join(RUN, "waybar-visualizer.state")
@@ -143,7 +149,8 @@ def screen_width():
 
 
 state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "indicators": 0, "load": "",
-         "clock": CLOCK_REF_LEN, "volume": VOLUME_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15, "lead": 0, "trail": 0, "playing": False}
+         "clock": CLOCK_REF_LEN, "volume": VOLUME_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15,
+         "lead": 0, "trail": 0, "playing": False, "covered": False}
 
 _layout = None
 
@@ -209,6 +216,7 @@ LOCK = threading.Lock()   # one recount at a time: Pango isn't thread-safe (two 
                           # be reached"), and the bars froze until waybar restarted it
 WAKE = threading.Event()  # SIGUSR1 / SIGUSR2: the tick thread recounts now (not the handler itself,
                           # which could run in the middle of a Pango call on the main thread)
+SETTLING = threading.Event()   # settle(): one recount SETTLE s after the last of a burst of changes
 
 
 def recount():
@@ -216,6 +224,22 @@ def recount():
     exactly (read by the loop). The gap is measured while it shows; silent, the sums do."""
     with LOCK:
         _recount()
+
+
+def settle():
+    """Recount once waybar has redrawn the right side after a change: one timer for a burst of events
+    (a thread and a screenshot per event was the old way)."""
+    SETTLING.set()
+
+
+def settler():
+    while True:
+        SETTLING.wait()
+        while SETTLING.is_set():   # each new change restarts the wait
+            SETTLING.clear()
+            time.sleep(SETTLE)
+        if state["playing"]:
+            recount()
 
 
 def covered():
@@ -226,7 +250,8 @@ def covered():
 
 def _recount():
     s = state
-    if s["playing"] and covered():   # its fullscreen>> event recounts once it's gone
+    s["covered"] = s["playing"] and covered()
+    if s["covered"]:   # nothing drawn meanwhile; its fullscreen>> event recounts once it's gone
         return
     measured = measured_gap() if s["playing"] else None
     gap = measured if measured is not None else modelled_gap()
@@ -321,27 +346,21 @@ def read_windows():
 
 
 def follow_windows():
-    """Hyprland's event socket: the title and the group count change with the focused window."""
-    sock = os.path.join(RUN, "hypr", os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
-    wanted = (b"activewindow>>", b"windowtitle>>", b"workspace>>", b"openwindow>>", b"closewindow>>",
-              b"movewindow>>", b"fullscreen>>")
-    while True:
-        read_windows()
-        recount()
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.connect(sock)
-            buf = b""
-            while data := s.recv(4096):
-                buf += data
-                *events, buf = buf.split(b"\n")
-                if any(e.startswith(wanted) for e in events):
-                    read_windows()
-                    recount()
-                    # again once waybar has redrawn the right side (the measurement sees the bar)
-                    threading.Timer(0.3, recount).start()
-        except OSError:
-            time.sleep(2)
+    """Hyprland's event socket: the title and the group count change with the focused window. Only
+    while the graph shows: silent, nothing is drawn, and catch_up() reads them when it starts."""
+    wanted = (b"activewindow>>", b"workspace>>", b"openwindow>>", b"closewindow>>", b"movewindow>>",
+              b"fullscreen>>")
+
+    def events(lines):
+        if not state["playing"]:
+            return
+        # another window's title (a spinner in a terminal elsewhere) changes nothing on the bar
+        if any(e.startswith(wanted) or (e.startswith(b"windowtitle>>") and
+                                         "0x" + e[13:].decode(errors="ignore") == wintitle.shown)
+               for e in lines):
+            read_windows()
+            settle()
+    follow(events)
 
 
 def follow_player():
@@ -351,11 +370,10 @@ def follow_player():
                              stderr=subprocess.DEVNULL, text=True)
         for line in p.stdout:
             state["player"] = line.strip() in ("Playing", "Paused")
-            recount()
-            threading.Timer(0.3, recount).start()
+            settle()
         p.wait()
         state["player"] = False
-        recount()
+        settle()
         time.sleep(2)
 
 
@@ -371,17 +389,17 @@ def volume():
 def follow_volume():
     """pactl's events: a sink changed (or the default sink did). A new volume can change the volume
     module's width (its digits, its icon): recount, and again once waybar has redrawn it."""
-    shown = volume()
     while True:
         p = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, text=True)
         for line in p.stdout:
-            if " on sink #" in line or " on server" in line:
+            # silent, nothing is drawn: catch_up() reads the volume when the graph starts (a sink's
+            # every state change is an event too, each was a wpctl process)
+            if state["playing"] and (" on sink #" in line or " on server" in line):
                 now = volume()
-                if now is not None and now != shown:
-                    shown, state["volume"] = now, len(str(now))
-                    recount()
-                    threading.Timer(0.3, recount).start()
+                if now is not None and len(str(now)) != state["volume"]:
+                    state["volume"] = len(str(now))
+                    settle()
         p.wait()
         time.sleep(2)
 
@@ -400,19 +418,44 @@ def read_rest():
     state["clock"] = len(clock.plain_text(clock.load()["long"]))
 
 
+def catch_up():
+    """Everything the gap depends on, read afresh: the graph starts showing (silent, nobody follows
+    them)."""
+    read_windows()
+    read_rest()
+    state["volume"] = len(str(volume() or 100))
+    state["style"] = read_style()
+
+
 def tick():
-    """The clock's view and the style every second, the indicators every 10 (pgrep; toggle.sh sends
-    SIGUSR1 when one changes), all of them at once on SIGUSR1 / SIGUSR2."""
-    n = 0
+    """SIGUSR1 (the clock's view, an indicator, the busy warning) / SIGUSR2 (the style): read them and
+    recount. While the graph shows, also every MEASURE_EVERY s; silent, it sleeps until a signal."""
+    signalled = True
     while True:
-        if n % 10 == 0:
+        if signalled:
             read_rest()
+            state["style"] = read_style()
+            pause_cava(state["style"] == "off")
         else:
-            state["clock"] = len(clock.plain_text(clock.load()["long"]))
-        state["style"] = read_style()
+            state["clock"] = len(clock.plain_text(clock.load()["long"]))   # the long view's day at midnight
         recount()
-        n = 0 if WAKE.wait(1) else n + 1
+        signalled = WAKE.wait(MEASURE_EVERY if state["playing"] else None)
         WAKE.clear()
+
+
+cava = None
+
+
+def pause_cava(off):
+    """Style "off": cava is stopped (SIGSTOP), not just ignored, so nothing reads the sound 25 times a
+    second; the next style starts it again."""
+    if cava is not None and cava.poll() is None:
+        if off:
+            time.sleep(0.2)   # the loop has seen "off" by now and hidden the module
+            if state["style"] == "off":
+                cava.send_signal(signal.SIGSTOP)
+        else:
+            cava.send_signal(signal.SIGCONT)
 
 
 def emit(text, cls):
@@ -420,7 +463,7 @@ def emit(text, cls):
 
 
 def main():
-    global WIDTH, wintitle, clock, wsgroups
+    global WIDTH, wintitle, clock, wsgroups, cava
     WIDTH = screen_width()
     wintitle = load("wintitle", os.path.join(HERE, "wintitle.py"))
     clock = load("clock", os.path.join(HERE, "clock.py"))
@@ -441,9 +484,9 @@ def main():
     signal.signal(signal.SIGUSR1, lambda *_: WAKE.set())
     signal.signal(signal.SIGUSR2, lambda *_: WAKE.set())
     signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
-    for watcher in (follow_windows, follow_player, follow_volume, tick):
-        threading.Thread(target=watcher, daemon=True).start()
     cava = subprocess.Popen(["cava", "-p", conf], stdout=subprocess.PIPE, text=True, bufsize=1)
+    for watcher in (follow_windows, follow_player, follow_volume, tick, settler):
+        threading.Thread(target=watcher, daemon=True).start()
     last, heard = None, 0.0
     for line in cava.stdout:
         levels = [int(v) for v in line.strip().rstrip(";").split(";") if v.isdigit()]
@@ -454,9 +497,13 @@ def main():
             out = ("", "silent")
             state["playing"] = False
         elif not state["playing"]:   # starts showing: measure the gap first
+            catch_up()
             state["playing"] = True
             recount()
+            WAKE.set()   # the tick thread measures every MEASURE_EVERY s from now
             continue
+        elif state["covered"]:   # a fullscreen window over the bar: nobody sees a frame
+            out = ("", "silent")
         else:
             out = (draw(levels), state["style"])
         if out != last:

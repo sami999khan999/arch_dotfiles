@@ -427,6 +427,12 @@ class View:
         """Instead of refresh() while the window's workspace isn't on a screen (workspace apps only):
         nothing by default; a view whose graph keeps a history samples here, without drawing."""
 
+    @property
+    def hidden_interval(self):
+        """Seconds between hidden_refresh() calls while hidden: the view's interval if it has a
+        hidden_refresh() of its own, else 0, and the window's timer stops altogether."""
+        return self.interval if type(self).hidden_refresh is not View.hidden_refresh else 0
+
     def shown_changed(self, shown):
         """The window's workspace came on a screen (or went): by default refresh at once, so the first
         frame shown is current."""
@@ -612,8 +618,8 @@ class ViewHost:
         click = Gtk.GestureClick(propagation_phase=Gtk.PropagationPhase.CAPTURE)
         click.connect("pressed", self._on_click)
         self.win.add_controller(click)
-        if self.view.interval:
-            GLib.timeout_add(int(self.view.interval * 1000), self._tick)
+        self.timer, self.timer_every = 0, 0
+        self.arm_timer()
         return self.win
 
     def present(self):
@@ -700,27 +706,36 @@ class ViewHost:
         """A workspace app (the Control Center, Projects, Docker…) stays open on its workspace: while
         that isn't on a screen, refresh() pauses (hidden_refresh() instead) and nobody sees the work."""
         self.shown, self.check_queued = True, False
+        self.me = None   # this window as Hyprland lists it: its address, workspace, pinned
 
-        def changed(_e):
+        def changed(e):
+            if e.startswith((b"movewindowv2>>", b"pin>>", b"openwindow>>", b"closewindow>>")):
+                addr = "0x" + e.split(b">>", 1)[1].split(b",", 1)[0].decode(errors="replace")
+                if self.me is not None and addr != self.me["address"]:
+                    return   # another window: where this one is didn't change
+                self.me = None   # this one moved (or isn't known yet): look it up again
             if not self.check_queued:   # one check for a burst of events
                 self.check_queued = True
                 GLib.idle_add(self.check_shown)
-        hypr_events(self.win, (b"workspace", b"focusedmon", b"activespecial", b"movewindow",
-                               b"openwindow", b"closewindow", b"pin"), changed)
+        hypr_events(self.win, (b"workspace", b"focusedmon", b"activespecial", b"movewindowv2>>",
+                               b"openwindow>>", b"closewindow>>", b"pin>>"), changed)
 
     def check_shown(self):
         import json
         self.check_queued = False
         try:
             mons = json.loads(hypr_socket("j/monitors") or "[]")
-            me = next((c for c in json.loads(hypr_socket("j/clients") or "[]")
-                       if c["pid"] == os.getpid() and c["title"] == self.win.get_title()), None)
+            if self.me is None:   # the client list only when this window moved: a workspace switch
+                self.me = next((c for c in json.loads(hypr_socket("j/clients") or "[]")   # needs monitors only
+                                if c["pid"] == os.getpid() and c["title"] == self.win.get_title()), None)
+            me = self.me
             on = {m["activeWorkspace"]["id"] for m in mons} | {m["specialWorkspace"]["id"] for m in mons}
             shown = me is None or me["pinned"] or me["workspace"]["id"] in on   # unknown: as before
         except (ValueError, KeyError, TypeError):
             shown = True
         if shown != self.shown:
             self.shown = shown
+            self.arm_timer()
             self.view.shown_changed(shown)
         return False
 
@@ -729,8 +744,20 @@ class ViewHost:
         backdrop that click raised; both close, the popup fading out over the backdrop as with Esc."""
         self.win.close()
 
+    def arm_timer(self):
+        """The refresh timer at the view's pace: its interval while shown; hidden, its hidden_interval
+        (none at all for most views: an idle panel on another workspace doesn't wake up)."""
+        every = self.view.interval if getattr(self, "shown", True) else self.view.hidden_interval
+        if every == self.timer_every:
+            return
+        if self.timer:
+            GLib.source_remove(self.timer)
+        self.timer = GLib.timeout_add(int(every * 1000), self._tick) if every else 0
+        self.timer_every = every
+
     def _tick(self):
         if not self.win:
+            self.timer, self.timer_every = 0, 0
             return False
         (self.view.refresh if getattr(self, "shown", True) else self.view.hidden_refresh)()
         return True
@@ -811,13 +838,19 @@ class PanelApp(ViewHost, Gtk.Application):
             self.watch_shown()
 
 
+_libc = None
+
+
 def collect():
     """The garbage collector, then glibc gives what's free back to the system: it keeps freed memory for
     reuse, so a panel stayed as big as its busiest moment (a big folder, a dialog since closed). True,
     for a GLib timer."""
-    import ctypes
+    global _libc
+    if _libc is None:
+        import ctypes
+        _libc = ctypes.CDLL("libc.so.6")
     gc.collect()
-    ctypes.CDLL("libc.so.6").malloc_trim(0)
+    _libc.malloc_trim(0)
     return True
 
 

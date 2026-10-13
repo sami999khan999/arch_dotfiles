@@ -140,9 +140,14 @@ class ControlCenter(View):
         """Workspace 10 isn't on a screen: only the cards that keep a history sample, on their schedule."""
         now = time.time()
         for v in self.views:
-            if v.interval and now - self.last.get(v, 0) >= v.interval:
+            if v.hidden_interval and now - self.last.get(v, 0) >= v.hidden_interval:
                 self.last[v] = now
                 v.hidden_refresh()
+
+    @property
+    def hidden_interval(self):
+        # hidden, the window's timer goes at the pace of the cards that sample (the network graphs), or stops
+        return min((v.hidden_interval for v in self.views if v.hidden_interval), default=0)
 
     def shown_changed(self, shown):
         now = time.time()

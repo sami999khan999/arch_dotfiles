@@ -78,7 +78,8 @@ RECENT = 200  # changed paths remembered for the panel
 DEFAULTS = {
     "quiet": 3,          # seconds without changes before syncing
     "max_wait": 30,      # ...but never wait longer than this while changes keep coming
-    "full_every": 900,   # a full sync this often anyway, in case a change was missed (seconds)
+    "full_every": 21600, # a sync this often anyway, in case a change was missed (s): rarely, so the HDD can
+                         # spin down; one is also made at start and after inotify overflows (an event then)
     "trash_days": 30,    # keep deleted / overwritten versions this many days
 }
 
@@ -91,13 +92,23 @@ def notify(msg, urgency="normal"):
     subprocess.run(["notify-send", "-u", urgency, "-a", "codesync", "Code sync", msg], capture_output=True)
 
 
+_settings = (None, None)   # (the file's mtime, what it said): the service asks on every loop
+
+
 def settings():
-    s = dict(DEFAULTS)
+    global _settings
     try:
-        s.update({k: v for k, v in json.load(open(SETTINGS)).items() if k in DEFAULTS})
-    except (OSError, json.JSONDecodeError):
-        pass
-    return s
+        seen = os.stat(SETTINGS).st_mtime
+    except OSError:
+        seen = 0
+    if _settings[0] != seen:
+        s = dict(DEFAULTS)
+        try:
+            s.update({k: v for k, v in json.load(open(SETTINGS)).items() if k in DEFAULTS})
+        except (OSError, json.JSONDecodeError):
+            pass
+        _settings = (seen, s)
+    return dict(_settings[1])
 
 
 # ---- state (read by waybar and the panel) --------------------------------------------------------
@@ -121,8 +132,10 @@ def save_state(**kw):
         with open(tmp, "w") as f:
             json.dump(state, f)
         os.replace(tmp, STATE)  # readers never see half a file
-    if kw.get("status", before) != before or "last_sync" in kw:
-        subprocess.run(["pkill", f"-RTMIN+{WAYBAR_SIGNAL}", "-x", "waybar"])
+    if kw.get("status", before) != before:   # (a sync's last_sync comes with its "ok" just after)
+        sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+        import waybarsig   # waybar's pid, not a pkill process
+        waybarsig.send(WAYBAR_SIGNAL)
 
 
 def status(s, detail=""):
@@ -358,19 +371,24 @@ class Watcher:
         if self.fd < 0:
             raise OSError(ctypes.get_errno(), "inotify_init1 failed")
         self.paths = {}  # watch descriptor -> directory
+        self.incomplete = False   # out of inotify watches: some folders unwatched
         self.skip = ignore_patterns()[0]
         self.add_tree(root)
         self.ignore_seen = None   # the ignore list's mtime when its file patterns were read
 
-    def ignored(self, d, name):
-        """An event not worth a sync: a file the ignore list leaves out (*.pyc, .DS_Store…), or one of
-        git's short-lived *.lock files (a status in an editor or a sidebar made them every few seconds)."""
+    def reread_ignore(self):
+        """The ignore list takes effect without a restart (looked at once per batch of events, not per
+        event: an npm install is thousands)."""
         try:
             seen = os.stat(IGNORE).st_mtime
         except OSError:
             seen = 0
-        if seen != self.ignore_seen:   # the list takes effect without a restart
+        if seen != self.ignore_seen:
             self.ignore_seen, self.files = seen, ignore_patterns()[1]
+
+    def ignored(self, d, name):
+        """An event not worth a sync: a file the ignore list leaves out (*.pyc, .DS_Store…), or one of
+        git's short-lived *.lock files (a status in an editor or a sidebar made them every few seconds)."""
         if name.endswith(".lock") and "/.git/" in d + "/":
             return True
         return any(fnmatch(name, p) for p in self.files)
@@ -386,11 +404,13 @@ class Watcher:
                 self.paths[wd] = d
             elif ctypes.get_errno() == 28:  # ENOSPC: out of watches
                 log("warning: inotify watch limit reached; relying on the periodic full sync")
+                self.incomplete = True
                 return
 
     def read(self):
         """Handle waiting events; True if anything relevant changed."""
         data, i, relevant = os.read(self.fd, 65536), 0, False
+        self.reread_ignore()
         while i < len(data):
             wd, mask, _, size = struct.unpack_from("iIII", data, i)
             name = data[i + 16:i + 16 + size].rstrip(b"\0").decode(errors="replace")
@@ -430,7 +450,7 @@ def watch():
             except BlockingIOError:
                 pass
     w = Watcher(SRC)
-    save_state(watched=len(w.paths), started=time.time())
+    save_state(watched=len(w.paths), started=time.time(), pid=os.getpid())
     sync("start")
     last_full = last_clean = time.time()
     clean_trash(settings()["trash_days"])
@@ -439,6 +459,8 @@ def watch():
 
     while True:
         cfg, paused = settings(), os.path.exists(PAUSED)
+        if w.incomplete:   # some folders aren't watched: their changes only show in a full sync
+            cfg["full_every"] = min(cfg["full_every"], 900)
         now = time.time()
         if pending_since and not paused:
             timeout = min(cfg["quiet"] - (now - last_event), cfg["max_wait"] - (now - pending_since))
@@ -497,6 +519,14 @@ def watch():
 
 # ---- commands ------------------------------------------------------------------------------------
 def service_pid():
+    # the pid the service saved when it started, if that process is still it: no systemctl process
+    # each time (the bar asks on every change)
+    pid = load_state().get("pid")
+    try:
+        if pid and b"codesync\0watch" in open(f"/proc/{pid}/cmdline", "rb").read():
+            return pid
+    except OSError:
+        pass
     out = subprocess.run(["systemctl", "--user", "show", "codesync", "-p", "MainPID", "--value"],
                          capture_output=True, text=True).stdout.strip()
     return int(out) if out.isdigit() and out != "0" else None
@@ -703,7 +733,10 @@ def bar():
         tip.append(s["detail"])
     if s.get("last_sync"):
         last = s.get("last", {})
-        tip.append(f"Last sync {ago(s['last_sync'])} · {last.get('changes', 0)} changes")
+        # a time, not "2 min ago": the bar redraws only on a change, so that would go stale
+        when = time.localtime(s["last_sync"])
+        day = "" if time.strftime("%F", when) == time.strftime("%F") else time.strftime("%d %b ", when)
+        tip.append(f"Last sync at {day}{time.strftime('%H:%M', when)} · {last.get('changes', 0)} changes")
     t = s.get("today", {})
     if t.get("date") == datetime.date.today().isoformat():
         tip.append(f"Today: {t.get('syncs', 0)} syncs · {t.get('files', 0)} files · {human(t.get('bytes', 0))}")

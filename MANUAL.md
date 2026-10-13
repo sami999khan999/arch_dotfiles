@@ -231,12 +231,16 @@ Code lives on the SSD in `~/code` (fast); `codesync` copies every change to the 
   .venv, caches… A project can add its own `.syncignore`. Ignored files are never copied and are left
   untouched on the HDD.
 - Safety: nothing runs if the HDD isn't mounted, and an empty `~/code` is never mirrored.
+- Besides the syncs after a change, a full one runs at start, after inotify loses track (an overflow),
+  and every 6 hours (`full_every`): rarely, so the HDD can spin down. Every 15 min instead on a PC out
+  of inotify watches, where some folders aren't watched.
 - **Empty code folder, full backup** (new PC, wiped SSD, wrong folder picked): syncing holds, the
   icon turns amber and a notification says so. In the panel press `r` (or run `codesync restore`) to
   copy the backup into the code folder — nothing is deleted — and syncing resumes by itself.
 
 **Waybar:** the sync icon next to the logo shows the state: grey (up to date), white (changes waiting),
-blue (syncing or restoring), amber (paused, or restore needed), red (problem). Hover for a summary;
+blue (syncing or restoring), amber (paused, or restore needed), red (problem). Hover for a summary
+(the last sync's time);
 click opens the Code Sync panel (a window, `panels/syncgui.py`: backed-up files/folders/size, what the ignore list skips, free space,
 old versions, per-folder breakdown, today's activity, recent changed files, the two folders and the
 timing settings: ↑↓ pick, ←→ change a setting). Right-click syncs now, middle-click pauses/resumes.

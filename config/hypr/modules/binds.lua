@@ -139,6 +139,9 @@ function toggleDesktopFloat(w)
     hl.dispatch(hl.dsp.window.move({ x = math.floor(m.x + r.left + (aw - fw) / 2),
                                      y = math.floor(m.y + r.top + (ah - fh) / 2), window = target }))
 end
+hl.on("window.close", function(w)   -- a closed window's place is forgotten (the table lasts the session)
+    if w then floatPlace[w.address] = nil end
+end)
 
 -- A tiled window that gets the focus covers its workspace's desktop floats, as on a desktop. Hyprland
 -- always draws floating windows above tiled ones, except above a maximized window: there a float shows

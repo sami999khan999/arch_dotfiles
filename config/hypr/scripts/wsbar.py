@@ -12,7 +12,7 @@ after a real change. The buttons have no tooltip: GTK hides a tooltip on every c
 while clicking a button to cycle its windows (the group count by the title shows the same).
 Started by waybar itself (custom/wsbar, which prints nothing and stays hidden).
 """
-import json, os, signal, socket, subprocess, sys, time
+import json, os, signal, sys, time
 
 WORKSPACES = range(1, 11)
 CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
@@ -23,15 +23,17 @@ REFRESH = (b"workspace", b"createworkspace", b"destroyworkspace", b"focusedmon",
 
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
-from hyprsock import query as hypr   # the socket, not a hyprctl process per question
+from hyprsock import follow, query as hypr   # the socket, not a hyprctl process per question
+import waybarsig
 
 
-last = None   # what the buttons show now, to skip updates that change nothing
+last = None    # what the buttons show now, to skip updates that change nothing
+glyphs = None  # workspaces.conf's icons, read again after a config reload (Settings saves, then reloads)
 
 
 def icons():
     """Each workspace's glyph: the 6th column of workspaces.conf (it moves with its app when the
-    workspaces are reordered in Settings). Read on every update: a reload is one of them."""
+    workspaces are reordered in Settings)."""
     out = {}
     try:
         for line in open(CONF):
@@ -44,11 +46,13 @@ def icons():
 
 
 def write(urgent):
-    global last
+    global last, glyphs
+    if glyphs is None:
+        glyphs = icons()
     active = (hypr("activeworkspace") or {}).get("id")
     counts = {w["id"]: w.get("windows", 0) for w in hypr("workspaces") or []}
     urgent.discard(active)
-    states, glyphs = {}, icons()
+    states = {}
     for ws in WORKSPACES:
         n = counts.get(ws, 0)
         cls = "active" if ws == active else "urgent" if ws in urgent else "occupied" if n else "empty"
@@ -61,38 +65,31 @@ def write(urgent):
         with open(path + ".tmp", "w") as f:
             json.dump(state, f, ensure_ascii=False)
         os.replace(path + ".tmp", path)  # a button never reads a half-written file
-    subprocess.run(["pkill", f"-RTMIN+{SIGNAL}", "-x", "waybar"])
+    waybarsig.send(SIGNAL)
 
 
 def main():
     os.makedirs(RUN, exist_ok=True)
     signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
-    sock = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr",
-                        os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
     urgent = set()
-    while True:
-        write(urgent)
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.connect(sock)
-            buf = b""
-            while data := s.recv(4096):
-                buf += data
-                *events, buf = buf.split(b"\n")
-                changed = False
-                for e in events:
-                    kind, _, arg = e.partition(b">>")
-                    if kind == b"urgent":  # remember which workspace holds the urgent window
-                        addr = "0x" + arg.decode(errors="ignore")
-                        for c in hypr("clients") or []:
-                            if c.get("address") == addr:
-                                urgent.add(c["workspace"]["id"])
-                    changed |= kind in REFRESH
-                if changed:
-                    time.sleep(0.02)  # let a burst of events (move + focus) settle
-                    write(urgent)
-        except OSError:
-            time.sleep(2)
+
+    def events(lines):
+        global glyphs
+        changed = False
+        for e in lines:
+            kind, _, arg = e.partition(b">>")
+            if kind == b"urgent":  # remember which workspace holds the urgent window
+                addr = "0x" + arg.decode(errors="ignore")
+                for c in hypr("clients") or []:
+                    if c.get("address") == addr:
+                        urgent.add(c["workspace"]["id"])
+            if kind == b"configreloaded":
+                glyphs = None
+            changed |= kind in REFRESH
+        if changed:
+            time.sleep(0.02)  # let a burst of events (move + focus) settle
+            write(urgent)
+    follow(events, lambda: write(urgent))
 
 
 if __name__ == "__main__":

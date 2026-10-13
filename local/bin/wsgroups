@@ -17,7 +17,7 @@
 
 Groups are stored in ~/.config/hypr/workspaces.conf.
 """
-import json, os, re, shlex, signal, socket, subprocess, sys, time
+import json, os, re, shlex, signal, subprocess, sys, time
 
 CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
 STATE = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "wsgroups")
@@ -32,7 +32,7 @@ def hypr(*args):
 
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
-from hyprsock import query   # the socket: the bar asks on every window event, hyprctl was a process each
+from hyprsock import follow, query   # the socket: the bar asks on every window event, hyprctl was a process each
 
 
 def dispatch(lua):
@@ -335,10 +335,8 @@ def bar_status():
 
 
 def bar():
-    sock = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr",
-                        os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
-    wanted = ("workspace>>", "activewindow>>", "openwindow>>", "closewindow>>",
-              "movewindow>>", "focusedmon>>", "configreloaded>>")
+    wanted = (b"workspace>>", b"activewindow>>", b"openwindow>>", b"closewindow>>",
+              b"movewindow>>", b"focusedmon>>", b"configreloaded>>")
     last = None
     def emit():
         nonlocal last
@@ -346,27 +344,15 @@ def bar():
         if out != last:
             print(out, flush=True)
             last = out
+    def events(lines):
+        if any(e.startswith(wanted) for e in lines):
+            time.sleep(0.05)  # let hyprland settle
+            emit()
     # move() changes the order without a Hyprland event: it signals the bar (SIGUSR1) instead
     signal.signal(signal.SIGUSR1, lambda *_: emit())
     with open(BAR_PID, "w") as f:
         f.write(str(os.getpid()))
-    while True:
-        emit()
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.connect(sock)
-            buf = b""
-            while True:
-                data = s.recv(4096)
-                if not data:
-                    break
-                buf += data
-                *events, buf = buf.split(b"\n")
-                if any(e.decode(errors="ignore").startswith(wanted) for e in events):
-                    time.sleep(0.05)  # let hyprland settle
-                    emit()
-        except OSError:
-            time.sleep(2)
+    follow(events, emit)
 
 
 # ---- manager UI --------------------------------------------------------------------------------

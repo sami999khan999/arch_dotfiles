@@ -43,7 +43,9 @@ def change(fn):
 
 
 def signal_bar():
-    subprocess.run(["pkill", "-RTMIN+10", "-x", "waybar"], capture_output=True)
+    sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+    import waybarsig   # waybar's pid, not a pkill process
+    waybarsig.send(10)
 
 
 def mako(*args):

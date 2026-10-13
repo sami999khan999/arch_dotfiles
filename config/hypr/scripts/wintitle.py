@@ -11,7 +11,7 @@ With a long title and the play button the right section fills the bar: while the
 loadwatch.py writes its text to $XDG_RUNTIME_DIR/loadwatch.json and sends SIGUSR1 to the pids in
 $XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
 """
-import json, os, re, signal, socket, sys, time
+import json, os, re, signal, sys
 
 MAX = 30  # max width of the title, in characters (longer ones end in …)
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
@@ -27,10 +27,11 @@ CLEANUP = [
 
 
 POPUPS = ("TUI.float", "panels.")   # popup panels (and the backdrop behind one), as in wsgroups
+shown = ""   # the address of the window whose title shows ("" on an empty workspace)
 
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
-from hyprsock import query as hypr   # the socket, not a hyprctl process per question
+from hyprsock import follow, query as hypr   # the socket, not a hyprctl process per question
 
 
 def focused():
@@ -56,7 +57,10 @@ def room():
 
 
 def title():
-    t = focused().get("title", "").strip()
+    global shown
+    win = focused()
+    shown = win.get("address", "")
+    t = win.get("title", "").strip()
     for rx in CLEANUP:
         t = rx.sub("", t)
     full, most = t, MAX - room()
@@ -65,10 +69,22 @@ def title():
     return {"text": t, "tooltip": full if full != t else "", "class": "empty" if not t else "window"}
 
 
+WANTED = (b"activewindow>>", b"workspace>>", b"closewindow>>", b"focusedmon>>")
+
+
+def concerns(events):
+    """Whether these events can change the title. A title change of the focused window also comes as
+    activewindow; windowtitle counts only for the window shown under a popup: any other window's
+    title (a spinner in a terminal on another workspace) is none of the bar's business."""
+    for e in events:
+        if e.startswith(WANTED):
+            return True
+        if e.startswith(b"windowtitle>>") and "0x" + e[13:].decode(errors="ignore") == shown:
+            return True
+    return False
+
+
 def main():
-    sock = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr",
-                        os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
-    wanted = (b"activewindow>>", b"windowtitle>>", b"workspace>>", b"closewindow>>", b"focusedmon>>")
     last = None
 
     def emit():
@@ -83,19 +99,7 @@ def main():
     open(me, "w").close()
     signal.signal(signal.SIGUSR1, lambda *_: emit())   # the warning came or went: the title's room changed
     signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
-    while True:
-        emit()
-        try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.connect(sock)
-            buf = b""
-            while data := s.recv(4096):
-                buf += data
-                *events, buf = buf.split(b"\n")
-                if any(e.startswith(wanted) for e in events):
-                    emit()
-        except OSError:
-            time.sleep(2)
+    follow(lambda events: concerns(events) and emit(), emit)
 
 
 if __name__ == "__main__":

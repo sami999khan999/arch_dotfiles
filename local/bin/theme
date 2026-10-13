@@ -179,14 +179,19 @@ def reload_running():
             os.kill(pid, 10)
         except OSError:
             pass
-    for name, cmd in (("swayosd-server", ["swayosd-server"]), ("walker", ["walker", "--gapplication-service"])):
-        if pids(name):                            # these read their stylesheet once, at start
-            sh("pkill", "-x", name)
-            time.sleep(0.3)
-            sh("uwsm", "app", "--", *cmd, detach=True)
-    sh("systemctl", "--user", "restart", "waybar")
+    # these read their stylesheet once, at start: both stopped, one pause, both started
+    again = [cmd for name, cmd in (("swayosd-server", ["swayosd-server"]),
+                                   ("walker", ["walker", "--gapplication-service"])) if pids(name)]
+    for cmd in again:
+        sh("pkill", "-x", cmd[0])
+    if again:
+        time.sleep(0.3)
+    for cmd in again:
+        sh("uwsm", "app", "--", *cmd, detach=True)
+    sh("systemctl", "--user", "--no-block", "restart", "waybar")   # not waited for: it starts while the rest goes
     if sh("tmux", "-L", "agentmux", "has-session", "-t", "=main") == 0:
-        sh(os.path.expanduser("~/.local/bin/agentmux"), "reload")   # both tmux configs, the screens, the bar
+        # both tmux configs, the screens, the bar: on its own (some hundred tmux calls), not waited for
+        sh(os.path.expanduser("~/.local/bin/agentmux"), "reload", detach=True)
     restart_panels()
 
 
@@ -215,18 +220,20 @@ def restart_panels():
         clients = json.loads(subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout)
     except (ValueError, OSError):
         return
+    stopped = {}   # pid -> its workspace: all asked to stop at once, then one wait for all of them
     for c in clients:
         if str(c.get("class", "")).startswith("sami.") and c.get("pid") and not busy_with_git(c["pid"]):
-            ws = str(c["workspace"]["id"])
             try:
                 os.kill(c["pid"], 15)
+                stopped[c["pid"]] = str(c["workspace"]["id"])
             except OSError:
-                continue
-            for _ in range(30):   # gone first, or wsgroups would find the old window and launch nothing
-                if not os.path.exists(f"/proc/{c['pid']}"):
-                    break
-                time.sleep(0.1)
-            sh(os.path.expanduser("~/.local/bin/wsgroups"), "launch", ws, "--background", detach=True)
+                pass
+    for _ in range(30):   # gone first, or wsgroups would find the old windows and launch nothing
+        if not any(os.path.exists(f"/proc/{pid}") for pid in stopped):
+            break
+        time.sleep(0.1)
+    for ws in dict.fromkeys(stopped.values()):
+        sh(os.path.expanduser("~/.local/bin/wsgroups"), "launch", ws, "--background", detach=True)
 
 
 def apply(tid):

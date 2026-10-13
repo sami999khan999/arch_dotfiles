@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# Omarchy-style system menu via walker's dmenu mode
-choice=$(printf "%s\n" "  Lock" "󰤄  Suspend" "󰍃  Log out" "󰜉  Restart" "󰐥  Shutdown" \
-  | walker --dmenu --placeholder "System…") || exit 0
-
-case "$choice" in
-  *Lock)      loginctl lock-session ;;
-  *Suspend)   systemctl suspend ;;
-  *"Log out") uwsm stop ;;
-  *Restart)   systemctl reboot ;;
-  *Shutdown)  systemctl poweroff ;;
-esac
+# The power menu: Lock, Suspend, Log out, Restart, Shutdown (local/lib/panels/powergui.py, a popup like the
+# other panels; a second run closes it). Called by Super + Esc, the power key and the bar's power button
+exec ~/.local/lib/panels/powergui.py

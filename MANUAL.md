@@ -668,6 +668,7 @@ The pair popup (`Super + Alt + P`) has none: you watch the pair while you change
 | Code Sync (`syncgui.py`) | waybar sync icon | see Code backup above |
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
 | Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |
+| Power (`powergui.py`) | `Super + Esc`, the power key, waybar power button | Lock, Suspend, Log out, Restart, Shutdown as tiles: a tile's letter (`L S O R P`), `←→` + `Enter` or a click; Log out, Restart and Shutdown ask once (the tile turns red: the same again within 3 s does it) |
 | System agent (`sysagentgui.py`) | `Super + Ctrl + S`, waybar sparkles icon | ask an AI about this PC, strictly read-only: see System agent below |
 
 **Busy warning.** While the CPU stays busy (85% for 30 s) a red chip appears left of the idle indicator,

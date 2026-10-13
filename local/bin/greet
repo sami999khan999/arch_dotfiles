@@ -4,7 +4,8 @@ summary, laid out for the terminal it opens in.
 
 The bagel is a torus drawn as text (after Andy Sloane's donut.c): rotated, lit from above-behind and
 shaded cell by cell in Tokyo Night blues. It turns slowly until you press a key; that key still
-reaches the shell (it is never read here), so you can just start typing. A resize stops it too.
+reaches the shell (it is never read here), so you can just start typing. A resize stops it too, and
+so does the end of its TURNS-th turn (a terminal left open doesn't draw 10 frames a second for ever).
 The spin is a seamless loop of LOOP frames. Drawing one costs tens of ms of Python, so each loop is
 drawn once per bagel size, as it plays, and kept in ~/.cache/greet/: after that a frame is a copy.
 Only the bagel's rows are redrawn, and a colour is only sent where it changes.
@@ -24,6 +25,7 @@ import json, math, os, select, shutil, signal, subprocess, sys, termios, time, u
 
 FPS = 10              # slow and calm; also what an uncached first loop can afford to draw
 LOOP = 120            # frames per full turn (12 s): the cache holds one loop
+TURNS = 5             # then it rests (on the loop's first frame: where it started)
 SHADES = " .,-~:;=!*#$@"    # blank, then dim to bright
 NARROW, BAGEL = 60, 90      # columns: below NARROW nothing, from BAGEL the bagel too
 GAP = 4                     # columns between the bagel and the summary, and between two sections
@@ -357,7 +359,7 @@ def main():
     out.write("\x1b[?25l")
     start, n = time.time(), 0
     try:
-        while not resized:
+        while not resized and n < TURNS * LOOP:
             n += 1
             frame = bagel.get(n % LOOP)
             # up to the bagel's first row, then each of its rows in place (the panel stays as it is)

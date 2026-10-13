@@ -1,11 +1,10 @@
 {
   "agy": {
-    "main": "agy 1",
-    "account": "agy 2"
+    "main": "agy 1"
   },
   "claude": {
     "main": "claude 2",
-    "work": "claude 1"
+    "account": "claude 1"
   },
   "codex": {
     "main": "codex 1"

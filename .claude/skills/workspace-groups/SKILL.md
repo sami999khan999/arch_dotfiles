@@ -19,7 +19,7 @@ Readers of that file:
 - `config/hypr/modules/wsgroups.lua` — sends each class to its workspace, maximizes new windows
   once (not with `fullscreen_state`, which would block real fullscreen), makes workspaces 1–10
   persistent, binds Alt + 1…0 (window N here), Super + Ctrl + 1…0 (go/launch), Super + N.
-- `local/bin/wsgroups` — the CLI, the waybar group label (`wsgroups bar`) and the terminal manager
+- `local/lib/hypr/wsgroups.py` (launched by `local/bin/wsgroups`; the terminal manager is `local/lib/panels/wstui.py`) — the CLI, the waybar group label (`wsgroups bar`) and the terminal manager
   (`wsgroups tui`, also the Control Center card). The manager window is `local/lib/panels/wsgui.py`
   (GTK); `wsgroups` with no arguments opens it.
 - `config/hypr/scripts/wsbar.py` — the waybar workspace buttons; each button's glyph is the 6th column.

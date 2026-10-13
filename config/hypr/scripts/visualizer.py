@@ -467,7 +467,7 @@ def main():
     WIDTH = screen_width()
     wintitle = load("wintitle", os.path.join(HERE, "wintitle.py"))
     clock = load("clock", os.path.join(HERE, "clock.py"))
-    wsgroups = load("wsgroups", os.path.expanduser("~/.local/bin/wsgroups"))
+    import wsgroups   # ~/.local/lib/hypr, on the path for hyprsock
     emit("", "silent")
     while not shutil.which("cava"):
         time.sleep(10)           # not installed (yet): stay hidden, start once it is

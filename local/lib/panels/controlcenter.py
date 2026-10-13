@@ -14,7 +14,7 @@
 #
 #   Tab / Shift+Tab or a click   move between cards (the focused card has a blue border)
 #   everything else             goes to the focused card
-import importlib.machinery, importlib.util, os, select, shutil, sys, termios, time, traceback, tty
+import os, select, shutil, sys, termios, time, traceback, tty
 
 os.environ["CONTROL_CENTER"] = "1"  # before the cards import panelkit: they draw edge to edge
 import panelkit
@@ -26,12 +26,9 @@ from netpanel import NetworkPanel
 
 
 def load_wsgroups():
-    path = os.path.expanduser("~/.local/bin/wsgroups")
-    loader = importlib.machinery.SourceFileLoader("wsgroups", path)
-    spec = importlib.util.spec_from_loader("wsgroups", loader)
-    mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
-    return mod
+    sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+    import wsgroups
+    return wsgroups
 
 
 class Card:

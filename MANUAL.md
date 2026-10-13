@@ -641,7 +641,7 @@ click an open window to jump to it. Keys when no field is focused: `1`–`0` sel
 
 Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
 taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
-Loaded by `config/hypr/modules/wsgroups.lua`; the program is `local/bin/wsgroups`.
+Loaded by `config/hypr/modules/wsgroups.lua`; the program is `local/lib/hypr/wsgroups.py` (the command `local/bin/wsgroups` launches it).
 
 ### Panels
 

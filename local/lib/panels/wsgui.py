@@ -7,18 +7,16 @@
 #
 # All the logic (workspaces.conf, launching, tidying) is wsgroups' own; this only draws it.
 # The Control Center still embeds the terminal version (wsgroups.UI).
-import importlib.machinery, importlib.util, os, re, subprocess, sys
+import os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
 
 
 def load_wsgroups():
-    path = os.path.expanduser("~/.local/bin/wsgroups")
-    loader = importlib.machinery.SourceFileLoader("wsgroups", path)
-    module = importlib.util.module_from_spec(importlib.util.spec_from_loader("wsgroups", loader))
-    loader.exec_module(module)
-    return module
+    sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
+    import wsgroups
+    return wsgroups
 
 
 class Workspaces(View):

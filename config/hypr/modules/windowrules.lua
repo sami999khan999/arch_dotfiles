@@ -161,10 +161,11 @@ hl.window_rule({
     opacity     = "1.0 override 1.0 override",
 })
 
--- Blur behind the bar, launcher and notifications
+-- Blur behind the bar and notifications (walker blurs its own box: a backdrop-filter in its style.css,
+-- since Hyprland skips this rule for a GTK 4 surface that asks for blur itself)
 hl.layer_rule({
   name = "omarchy-stack",
-  match = { namespace = "^(waybar|walker|notifications|swayosd)$" },
+  match = { namespace = "^(waybar|notifications|swayosd)$" },
   blur = true,
   ignore_alpha = 0.5,
 })

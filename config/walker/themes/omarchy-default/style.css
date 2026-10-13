@@ -1,4 +1,5 @@
 /* Walker — Tokyo Night. Same colors, square corners as waybar and the Control Center. */
+@define-color bg       #16161e;
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -30,9 +31,13 @@ scrollbar {
   -gtk-icon-size: 30px;
 }
 
-/* the panel */
+/* the panel: see-through and blurred behind as the GTK panels (gtkkit's .85 under the windows' 0.97).
+   GTK 4.24 asks Hyprland for blur itself (ext-background-effect), only where a backdrop-filter is, and
+   Hyprland then ignores the layer rule: so the blur covers this box, not the shadow or the screen around.
+   The strength is Hyprland's (Appearance → Blur), not this px */
 .box-wrapper {
-  background: alpha(@base, 0.94);
+  background: alpha(@bg, 0.82);
+  backdrop-filter: blur(10px);
   border: 1px solid alpha(@line, 0.7);
   border-radius: 0;
   padding: 14px;

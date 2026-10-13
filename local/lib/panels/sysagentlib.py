@@ -452,10 +452,16 @@ def opencode_config(gate_url, server="sys", agent="sysread", rules=None):
     # non-interactive run can't ask, so every call is rejected (never pass --auto: it would approve them),
     # and they'd only see the model sandbox anyway
     deny.update(bash="ask", read="ask")
+    # ...but listed, models reach for them first: each rejected try cost a 2-4 s round trip before the
+    # model fell back to the gate (a simple question took 20 s to its first real call). So every agent's
+    # rules end saying so
+    only = (f"\n\nYour only working tools are the {server}_* ones. opencode's own bash, read and other "
+            f"built-in tools are switched off: every call to them is rejected and wastes the user's time, so "
+            f"never call them and use the {server}_* tool that does the job instead.")
     return {"$schema": "https://opencode.ai/config.json", "autoupdate": False, "share": "disabled",
             "mcp": {server: {"type": "remote", "url": gate_url, "enabled": True, "oauth": False}},
             "permission": {**deny, f"{server}_*": "allow"},
-            "agent": {agent: {"mode": "primary", "description": "read-only agent", "prompt": rules or RULES,
+            "agent": {agent: {"mode": "primary", "description": "read-only agent", "prompt": (rules or RULES) + only,
                               "steps": 40, "permission": {**deny, f"{server}_*": "allow"}}}}
 
 

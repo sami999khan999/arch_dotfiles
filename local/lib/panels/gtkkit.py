@@ -377,6 +377,10 @@ def install_css(extra=""):
     # above USER priority: ~/.config/gtk-4.0/gtk.css (the Noctalia/GTK theme) mustn't restyle panels
     Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
                                               Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+    # a steady caret: GTK 4 fades a blinking one in and out, redrawing the whole window every frame for
+    # 10 s after each key or click (60 fps; the System agent's large window over its blurred backdrop
+    # kept the GPU ~50 % busy and the desktop stuttered)
+    Gtk.Settings.get_default().set_property("gtk-cursor-blink", False)
 
 
 class View:

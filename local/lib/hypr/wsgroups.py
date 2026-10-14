@@ -91,10 +91,21 @@ def move(address, step):
         return False
     order = [c["address"] for c in windows(me["workspace"]["id"], clients)]
     i = order.index(address) if address in order else -1
-    j = i + step
-    if i < 0 or not 0 <= j < len(order):
+    return place(address, i + step, clients) if i >= 0 else False
+
+
+def place(address, to, clients=None):
+    """Window address to place `to` (0 = Super + Q) among its workspace's windows, the others moving up
+    or down one (a drag in the Workspaces panel); move() is a step of it."""
+    clients = clients if clients is not None else query("clients") or []
+    me = next((c for c in clients if c["address"] == address), None)
+    if not me:
         return False
-    order[i], order[j] = order[j], order[i]
+    order = [c["address"] for c in windows(me["workspace"]["id"], clients)]
+    if address not in order or not 0 <= to < len(order) or order.index(address) == to:
+        return False
+    order.remove(address)
+    order.insert(to, address)
     live = {c["address"] for c in clients}
     keep = [a for a in load_order() if a in live and a not in order]
     os.makedirs(STATE, exist_ok=True)

@@ -640,7 +640,7 @@ change it; keys: `← →` width,
 |---|---|
 | `Super + Ctrl + G`, or click it in waybar | open (or close) the manager window: map open apps to workspaces, edit, launch, tidy |
 | `Super + X` | window-switcher mode on / off. While it's on, the bar's window counter takes the accent colour and shows the focused window's letter (`W 2/4`), and `Super + Q W E R T Y U I O P` don't do their usual things (close, Files, Settings…): they pick window 1…10. It stays on until `Super + X` again (also across `hyprctl reload`) |
-| `Super + Q…P` (in that mode) | switch to window N of the current workspace: the letter row under the digits, Q = 1 … P = 10 (in the order they were opened; reorder them with ↑ ↓ in the Workspaces panel's Open windows list — the bar's `2/4` and the letters follow, for as long as the windows stay open) |
+| `Super + Q…P` (in that mode) | switch to window N of the current workspace: the letter row under the digits, Q = 1 … P = 10 (in the order they were opened; reorder them by dragging a row in the Workspaces panel's Open windows list (Super + Ctrl + G), or Alt + ↑ ↓ on it — the bar's `2/4` and the letters follow, for as long as the windows stay open) |
 | `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
 | `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…), or the app itself when none is open there (the Control Center after it was closed) |

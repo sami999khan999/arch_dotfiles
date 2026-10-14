@@ -19,11 +19,21 @@ def load_wsgroups():
     return wsgroups
 
 
+G_DRAG = "\U000f01dd"   # a window row's grip (nf-md-drag)
+CSS = """
+.win-order > row { padding: 6px 8px; }
+.win-order > row.drop-above { box-shadow: inset 0 2px #6b8fe0; }
+.win-order > row.drop-below { box-shadow: inset 0 -2px #6b8fe0; }
+.drag-handle { min-width: 14px; }
+"""
+
+
 class Workspaces(View):
     title, subtitle = "Workspaces", "Super + X, then Super + Q…P switches windows"
     hints = [("1-0", "select"), ("Enter", "save"), ("l", "launch"), ("g", "go"), ("t", "tidy"), ("Esc", "close")]
     popup = "~/.local/bin/wsgroups"
     icon = "\U000f0570"   # nf-md-view_carousel, as in waybar
+    css = CSS
 
     def __init__(self, ws):
         super().__init__()
@@ -31,6 +41,7 @@ class Workspaces(View):
         self.groups, self.clients, self.active = {}, [], 1
         self.sel = None
         self.armed = 0          # GLib source id while "Remove" waits for its second click
+        self.dragging = False   # a window row is being dragged: refresh() doesn't rebuild under it
 
     # ---- data ------------------------------------------------------------------------------------
     def load(self):
@@ -209,34 +220,116 @@ class Workspaces(View):
         self.paint_windows()
 
     def paint_windows(self):
-        """The workspace's open windows in their Super + Q…P order; ↑ ↓ on a row move it (wsgroups move)."""
+        """The workspace's open windows in their Super + Q…P order. Drag a row (by anywhere on it) to its
+        new place, or Alt + ↑ ↓ on the focused one (wsgroups place); a click focuses the window."""
         clear(self.win_box)
         wins = self.windows(self.sel)
         self.win_box.append(rule_heading("Open windows", str(len(wins)), spaced=True))
         if not wins:
             self.win_box.append(label("none", "dim"))
-        win_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        win_list.set_activate_on_single_click(True)
-        win_list.connect("row-activated", lambda _l, row: self.focus(row.address))
-        for i, w in enumerate(wins, 1):
-            up = button("\u2191", lambda a=w["address"]: self.move(a, "up"), "flat", tooltip="Move up: one letter earlier (Super + Q…P)")
-            down = button("\u2193", lambda a=w["address"]: self.move(a, "down"), "flat", tooltip="Move down: one Alt number higher")
-            for btn, can in ((up, i > 1), (down, i < len(wins))):   # the first can't go up, the last down:
-                btn.set_sensitive(can)                               # hidden, their place kept (arrows line up)
-                btn.set_opacity(1 if can else 0)
-            line = box(False, 12, label(f"Super+{'QWERTYUIOP'[i - 1]}" if i <= 10 else "", "dim"), label(w["title"] or w["class"], ellipsize=True),
-                       box(False, 0, up, down))
-            row = Gtk.ListBoxRow(child=line, tooltip_text="Click to focus this window")
-            row.address = w["address"]
-            win_list.append(row)
-        self.win_box.append(win_list)
+            return
+        self.win_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, css_classes=["win-order"])
+        self.win_list.set_activate_on_single_click(True)
+        self.win_list.connect("row-activated", lambda _l, row: self.focus(row.address))
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)   # before the list's own ↑ ↓
+        keys.connect("key-pressed", self.order_key)
+        self.win_list.add_controller(keys)
+        drop = Gtk.DropTarget.new(str, Gdk.DragAction.MOVE)
+        drop.connect("motion", self.drag_over)
+        drop.connect("leave", lambda *_: self.mark_drop(None))
+        drop.connect("drop", self.dropped)
+        self.win_list.add_controller(drop)
+        for i, w in enumerate(wins):
+            key = label(f"Super+{'QWERTYUIOP'[i]}" if i < 10 else "", "dim")
+            key.set_width_chars(7)
+            title = label(w["title"] or w["class"], ellipsize=True)
+            title.set_hexpand(True)
+            line = box(False, 12, label(G_DRAG, "dim", "drag-handle"), key, title,
+                       label(w["class"], "dim", ellipsize=True))
+            line.set_hexpand(True)
+            line.get_last_child().set_max_width_chars(16)
+            line.get_last_child().set_width_chars(16)   # a column: the titles end in one place
+            line.get_last_child().set_xalign(1.0)
+            row = Gtk.ListBoxRow(child=line, tooltip_text="Click to focus · drag (or Alt + \u2191\u2193) to reorder")
+            row.address, row.index = w["address"], i
+            row.set_cursor_from_name("grab")
+            src = Gtk.DragSource(actions=Gdk.DragAction.MOVE)
+            src.connect("prepare", lambda *_a, a=w["address"]: Gdk.ContentProvider.new_for_value(a))
+            src.connect("drag-begin", self.drag_begin, row)
+            src.connect("drag-end", self.drag_end)
+            row.add_controller(src)
+            self.win_list.append(row)
+        self.win_box.append(self.win_list)
 
-    def move(self, address, way):
-        """↑ / ↓ on a window: its place in the Super + Q…P order (only the list is drawn again: the form
-        above keeps what's being typed)."""
-        self.ws.move(address, -1 if way == "up" else 1)
-        self.clients = self.ws.query("clients") or []
-        self.paint_windows()
+    # ---- reordering: drag a row, or Alt + ↑ ↓ ----------------------------------------------------------
+    def drag_begin(self, src, drag, row):
+        self.dragging = True   # refresh() leaves the list alone meanwhile
+        src.set_icon(Gtk.WidgetPaintable.new(row), 20, row.get_height() // 2)
+
+    def drag_end(self, *_):
+        self.dragging = False
+        self.mark_drop(None)
+
+    def drop_slot(self, y):
+        """Where a drop at y goes: (the row it's on, before it?), or (None, False) off the rows."""
+        row = self.win_list.get_row_at_y(int(y))
+        if row is None:
+            return None, False
+        ok, rect = row.compute_bounds(self.win_list)
+        return row, (y < rect.get_y() + rect.get_height() / 2) if ok else True
+
+    def drag_over(self, _target, _x, y):
+        self.mark_drop(*self.drop_slot(y))
+        return Gdk.DragAction.MOVE
+
+    def mark_drop(self, row, before=False):
+        """A blue line where the dragged window would go."""
+        child = self.win_list.get_first_child() if getattr(self, "win_list", None) else None
+        while child:
+            child.remove_css_class("drop-above")
+            child.remove_css_class("drop-below")
+            child = child.get_next_sibling()
+        if row is not None:
+            row.add_css_class("drop-above" if before else "drop-below")
+
+    def dropped(self, _target, address, _x, y):
+        row, before = self.drop_slot(y)
+        self.mark_drop(None)
+        if row is None:
+            return False
+        me = next((r for r in self.order_rows() if r.address == address), None)
+        if me is None:
+            return False
+        slot = row.index if before else row.index + 1     # the gap it's dropped in
+        to = slot - 1 if slot > me.index else slot         # its own place no longer counts
+        GLib.idle_add(lambda: self.place(address, to) and False)   # after the drag is done with the rows
+        return True
+
+    def order_rows(self):
+        child = self.win_list.get_first_child()
+        while child:
+            yield child
+            child = child.get_next_sibling()
+
+    def order_key(self, _ctl, keyval, _code, state):
+        if not state & Gdk.ModifierType.ALT_MASK or keyval not in (Gdk.KEY_Up, Gdk.KEY_Down):
+            return False
+        row = self.window.get_focus()
+        while row is not None and not isinstance(row, Gtk.ListBoxRow):
+            row = row.get_parent()
+        if row is not None and hasattr(row, "address"):
+            self.place(row.address, row.index + (-1 if keyval == Gdk.KEY_Up else 1))
+        return True
+
+    def place(self, address, to):
+        """A window to place `to` in the Super + Q…P order (only the list is drawn again: the form above
+        keeps what's being typed); the moved row keeps the keyboard."""
+        if self.ws.place(address, to):
+            self.clients = self.ws.query("clients") or []
+            self.paint_windows()
+            row = next((r for r in self.order_rows() if r.address == address), None)
+            if row is not None:
+                row.grab_focus()
 
     def app_menu(self):
         pop = Gtk.Popover()
@@ -274,6 +367,8 @@ class Workspaces(View):
         # the card shows no titles: a terminal's changing title doesn't rebuild its ten rows
         seen = lambda: (self.groups, [(c["address"], c["workspace"]["id"], "" if self.compact else c["title"])
                                       for c in self.clients], self.active)
+        if self.dragging:
+            return
         old = seen()
         self.load()
         new = seen()

@@ -409,14 +409,20 @@ class Account(Picker):
         head.get_first_child().set_hexpand(True)
         rest = share - used
         if days <= 1:
-            plan = f"the last day: all {left:.0f}% left is today's"
-        else:
-            plan = f"{left:.0f}% left over {days:.1f} days: {share:.1f}% a day"
+            plan = f"the last day: all {left:.0f}% left at 00:00 is today's"
+        else:   # counted from the start of today, so the share stays put through the day
+            d, h = int(days), round(days % 1 * 24)
+            d, h = (d + 1, 0) if h == 24 else (d, h)
+            plan = f"at 00:00 {left:.0f}% left, {d}d {h}h to the reset: {left:.0f} ÷ {days:.2f} days = {share:.1f}% a day"
         state = f"{rest:.1f}% left today" if rest >= 0.05 else \
             f"{-rest:.1f}% over today's share" if rest < -0.05 else "today's share used up"
         foot = box(False, 8, label(plan, "setting-sub", ellipsize=True), label(state, colour if rest < 0.05 else "setting-sub"))
         foot.get_first_child().set_hexpand(True)
-        return box(True, 6, head, self.bar(used, share, colour), foot, classes=("usage", "today"))
+        row = box(True, 6, head, self.bar(used, share, colour), foot, classes=("usage", "today"))
+        now_days = max((reset - time.time()) / 86400, 1 / 24)
+        row.set_tooltip_text(f"Today's share is fixed at the start of the day.\nFrom right now: {100 - pct:.0f}% left "
+                             f"for {until(reset).split(' · in ')[-1]} = {(100 - pct) / max(now_days, 1):.1f}% a day")
+        return row
 
     def card(self, h, a, default, q):
         """An account's card, or None if the search leaves it out."""

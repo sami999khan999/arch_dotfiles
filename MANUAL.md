@@ -854,7 +854,7 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   GPT models*: Opus, Sonnet, GPT-OSS; each a weekly limit). Percentages are *used* (agy's own screen
   says what's *left*). Under them, **today · weekly budget** (or monthly) shows how to make that limit
   last until it resets. Take what was left when today began and spread it evenly over the days until
-  the reset (`38% left over 5.5 days: 6.9% a day`). That's today's share, and it stays fixed through the
+  the reset (`at 00:00 38% left, 5d 12h to the reset: 38 ÷ 5.50 days = 6.9% a day`; the tooltip has the same sum counted from right now). That's today's share, and it stays fixed through the
   day. Its bar and `2.4% of 6.9%` show how much of the share today has used, and the colour turns amber
   and then red as it fills. The right end shows what's left today, or how far over you are. Where the
   limit stood at the start of the day is kept with the usage readings (`~/.cache/agentmux/usage.json`,

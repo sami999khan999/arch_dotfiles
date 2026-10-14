@@ -24,7 +24,7 @@ RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 STATE = f"{RUN}/waybar-clock.json"   # {"long": bool, "month": offset of the tooltip's month}
 PID = f"{RUN}/waybar-clock.pid"
 
-DIM, TEXT, LINE, ACCENT = (recolor(c) for c in ("#565f89", "#c0caf5", "#3b4261", "#6b8fe0"))   # the colour theme (local/bin/theme)
+DIM, SUB, TEXT, LINE, ACCENT = (recolor(c) for c in ("#565f89", "#a9b1d6", "#c0caf5", "#3b4261", "#6b8fe0"))   # the colour theme (local/bin/theme)
 SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")   # the Settings panel's 24-hour switch
 
 
@@ -59,11 +59,20 @@ def plain_text(long, now=None):
     return f"{now:%a %d %b}  {now:{time_fmt()}}"
 
 
+def time_markup(now):
+    """The time in bold, a 12-hour clock's AM / PM smaller and dimmed after it."""
+    t = f"{now:{time_fmt()}}"
+    if t[-2:] in ("AM", "PM"):
+        return f"<b>{t[:-3]}</b><span size='small' color='{DIM}'> {t[-2:]}</span>"
+    return f"<b>{t}</b>"
+
+
 def markup(long, now):
+    """Day name dimmed, the date a step brighter, the time brightest."""
     if long:
-        return (f"<span color='{DIM}'>{now:%A}</span>  {now:%d %b}  "
-                f"<span color='{DIM}'>wk</span> {now:%V}  <b>{now:{time_fmt()}}</b>")
-    return f"<span color='{DIM}'>{now:%a %d %b}</span>  <b>{now:{time_fmt()}}</b>"
+        return (f"<span color='{DIM}'>{now:%A}</span>  <span color='{SUB}'>{now:%d %b}</span>  "
+                f"<span color='{DIM}'>wk {now:%V}</span>  {time_markup(now)}")
+    return f"<span color='{DIM}'>{now:%a}</span> <span color='{SUB}'>{now:%d %b}</span>  {time_markup(now)}"
 
 
 def month_calendar(offset, today):

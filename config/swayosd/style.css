@@ -1,5 +1,6 @@
 /* swayosd (volume, brightness, the media key's play / pause) — the panels' and notifications' look:
-   their dark background, a 1px line at 70 %, JetBrains Mono 10, square corners */
+   their dark background, a 1px line at 70 %, JetBrains Mono 9, square corners; compact (swayosd's own
+   margins and icon size made a play / pause popup 390 x 86 px) */
 @define-color background-color alpha(#16161e, 0.94);
 @define-color border-color alpha(#3b4261, 0.7);
 @define-color label #c0caf5;
@@ -10,20 +11,26 @@
 window {
   border-radius: 0;
   border: 1px solid @border-color;
-  padding: 10px 16px;
+  padding: 0 6px;
 
   background-color: @background-color;
 }
 
 label {
   font-family: 'JetBrainsMono Nerd Font';
-  font-size: 10pt;
+  font-size: 9pt;
 
   color: @label;
 }
 
 image {
+  -gtk-icon-size: 16px;
   color: @image;
+}
+
+/* swayosd's box: its default margins are most of the popup's height */
+window > box {
+  margin: 6px;
 }
 
 progressbar, trough {

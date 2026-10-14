@@ -3,8 +3,9 @@
     "main": "agy 1"
   },
   "claude": {
-    "main": "claude 2",
-    "account": "claude 1"
+    "main": "claude 3",
+    "account": "claude 2",
+    "account-2": "claude 1"
   },
   "codex": {
     "main": "codex 1"

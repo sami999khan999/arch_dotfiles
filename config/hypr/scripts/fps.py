@@ -160,9 +160,12 @@ def emit(fps):
 capture()
 frames, shown, start, fmt = 0, None, time.monotonic(), None
 while True:
-    # nothing drawn and 0 shown: wait for the next frame however long it takes
-    timeout = None if frames == 0 and shown == 0 else max(0.0, start + 1 - time.monotonic())
-    if select.select([sock], [], [], timeout)[0]:
+    # nothing drawn and 0 shown: wait for the next frame however long it takes, and count the
+    # second from when it comes
+    still = frames == 0 and shown == 0
+    if select.select([sock], [], [], None if still else max(0.0, start + 1 - time.monotonic()))[0]:
+        if still:
+            start = time.monotonic()
         for obj, opcode, args in receive():
             if obj == output:
                 on_output(obj, opcode, args)   # a new mode: its refresh rate
@@ -185,9 +188,7 @@ while True:
                     time.sleep(1)   # the output is off or changing mode: try again shortly
                 capture()
     now = time.monotonic()
-    if shown == 0 and frames and now - start > 1:
-        start = now   # woke from a still screen: the second starts at this first frame
-    elif now - start >= 1:
+    if now - start >= 1:
         if frames != shown:
             emit(frames)
             shown = frames

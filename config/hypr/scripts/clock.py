@@ -106,21 +106,23 @@ def serve():
 
 
 def poke():
-    """Redraw the clock now, and let the visualizer recount (the long view is wider): every copy
-    of visualizer.py (one per bar) has its pid as a file name in waybar-visualizer/."""
+    """Redraw the clock now, and let the visualizer recount and the window title give up or take back
+    room (the long view is wider): every copy of visualizer.py / wintitle.py (one per bar) has its pid
+    as a file name in waybar-visualizer/ / waybar-wintitle/."""
     try:
         os.kill(int(open(PID).read()), signal.SIGUSR1)
     except (OSError, ValueError):
         pass
-    try:
-        pids = os.listdir(f"{RUN}/waybar-visualizer")
-    except OSError:
-        pids = []
-    for pid in pids:
+    for folder in ("waybar-visualizer", "waybar-wintitle"):
         try:
-            os.kill(int(pid), signal.SIGUSR1)
-        except (OSError, ValueError):
-            pass
+            pids = os.listdir(f"{RUN}/{folder}")
+        except OSError:
+            pids = []
+        for pid in pids:
+            try:
+                os.kill(int(pid), signal.SIGUSR1)
+            except (OSError, ValueError):
+                pass
 
 
 def main(argv):

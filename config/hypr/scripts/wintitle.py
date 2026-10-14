@@ -7,15 +7,17 @@ its full width; MAX keeps the centre section compact, so it stays put as titles 
 Prints one JSON line per change (return-type json).
 
 With a long title and the play button the right section fills the bar: while the busy-CPU warning shows
-(custom/load, loadwatch.py) the title gives up its width, or the power button went off the screen.
-loadwatch.py writes its text to $XDG_RUNTIME_DIR/loadwatch.json and sends SIGUSR1 to the pids in
-$XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
+(custom/load, loadwatch.py) or the clock is in its long view (clock.py toggle) the title gives up their
+extra width, or the power button went off the screen. loadwatch.py writes its text to
+$XDG_RUNTIME_DIR/loadwatch.json, the clock its view to waybar-clock.json; both send SIGUSR1 to the pids
+in $XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
 """
-import json, os, re, signal, sys
+import json, os, re, signal, sys, time
 
 MAX = 30  # max width of the title, in characters (longer ones end in …)
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 LOAD_STATE = os.path.join(RUN, "loadwatch.json")
+CLOCK_STATE = os.path.join(RUN, "waybar-clock.json")
 PID_DIR = os.path.join(RUN, "waybar-wintitle")
 
 CLEANUP = [
@@ -47,13 +49,18 @@ def focused():
 
 
 def room():
-    """Characters the busy-CPU warning takes while it shows: its text (11px, a little narrower than the
-    title's characters) and its padding."""
+    """Characters the title gives up: the busy-CPU warning's while it shows (its text, 11px, a little
+    narrower than the title's characters, and its padding), and what the clock's long view adds to the
+    short one ("Wednesday  14 Oct  wk 42" for "Wed 14 Oct": the day's full name and the week)."""
     try:
         text = json.load(open(LOAD_STATE)).get("text", "")
     except (OSError, ValueError):
-        return 0
-    return len(text) + 1 if text else 0
+        text = ""
+    try:
+        long = json.load(open(CLOCK_STATE)).get("long")
+    except (OSError, ValueError):
+        long = False
+    return (len(text) + 1 if text else 0) + (len(time.strftime("%A")) - 3 + 1 + 7 if long else 0)
 
 
 def title():
@@ -97,7 +104,7 @@ def main():
     os.makedirs(PID_DIR, exist_ok=True)
     me = os.path.join(PID_DIR, str(os.getpid()))   # loadwatch signals by pid: a name match hits editors too
     open(me, "w").close()
-    signal.signal(signal.SIGUSR1, lambda *_: emit())   # the warning came or went: the title's room changed
+    signal.signal(signal.SIGUSR1, lambda *_: emit())   # the warning or the clock's long view: the title's room changed
     signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
     follow(lambda events: concerns(events) and emit(), emit)
 

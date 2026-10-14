@@ -361,14 +361,17 @@ cloned or removed outside it (`projects clone` / `delete` in a terminal) within 
 **The list on the left** has tabs (`1`–`4`): **All** (the pinned projects first, with a pin, in their folders, then the
 folder tree; each project once, folders fold with a click, Enter or ← →), **Changes** (uncommitted work or
 commits on no remote), **Behind** (GitHub has commits or branches you don't) and **Conflicts** (branches
-or files to merge by hand). Each tab says how many it would show; an empty one is greyed out. **Sync** at
-the end of the tabs syncs every project. A row says what needs doing in words, under the name: *17
+or files to merge by hand). Each tab says how many it would show; an empty one is greyed out. The counts
+follow every repo on their own: a commit, push, pull or fetch anywhere (VS Code, a terminal, an agent) recounts
+that repo within a couple of seconds, and coming back to the workspace recounts them all (edits) when it's
+been a couple of minutes. **Sync** at the end of the tabs syncs every project; while it runs it counts up
+in blue (`12 / 75`) and the list and tabs follow as each repo is done. A row says what needs doing in words, under the name: *17
 changed · 3 to push · 5 to pull · 2 new branches · ⚠ 1 to merge* (hover for the details), with the branch
 checked out at the right when it isn't the main one. In a filtered tab the projects are one flat list
 (by name, or by status with *Sort: by status*), with their folder in front of the name (pin a project with *Pin* or `p`;
 pins are in the list, so every PC has them). When the panel
-opens, every repo not fetched in the last hour is fetched in the background, 8 at a time, so "behind" is
-current.
+opens, and when you come back to it after an hour, every repo not fetched in the last hour is fetched in
+the background, 8 at a time, so "behind" is current.
 
 **Branches against main.** A project's page opens with two cards: **Status** (the checked-out branch's
 state, its remotes, when it was last fetched) and **Branches**, where main (the repo's main branch, whatever
@@ -886,8 +889,9 @@ the right end. Used today counts from the day's first usage reading (kept in
   another PC gets its folder here the first time a thread runs on it). The default stays per PC.
   The usage first shows what was read last (Claude Code's own in each account's `.claude.json`,
   agentmux's in `~/.cache/agentmux/usage.json`), then asks live with the account's own login (what
-  Claude Code's `/usage`, Codex's `/status` and Antigravity read, all undocumented; again every minute
-  while the panel is open). An account whose login token has expired (idle for hours) shows
+  Claude Code's `/usage`, Codex's `/status` and Antigravity read, all undocumented; every account at
+  once, again every minute while the panel is open, and right away with **Update** in the header or `F5`).
+  A thread's turn shows at once: the panel follows the usage files. An account whose login token has expired (idle for hours) shows
   its saved numbers, *as of …*: agentmux doesn't renew the token itself (it could log out a Claude
   Code running on it); it renews when a thread next runs on that account.
   An account is a config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`): `main` is `~/.claude` /

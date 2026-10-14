@@ -14,14 +14,16 @@
 #   setup  on a PC without the list: restore it from its repo URL and clone everything, or start a new one.
 #
 # Opening runs `projects scan` in the background (the list follows ~/code); selecting a project fetches
-# it if its last fetch is over 10 minutes old, so "to pull" is current. Every git call runs in a thread.
+# it if its last fetch is over 10 minutes old, so "to pull" is current. The tabs' counts follow each repo's
+# .git (a commit, push or fetch anywhere) and are redone when the workspace shows again (edits; a fetch of
+# the repos not fetched for an hour). Every git call runs in a thread.
 # The data, clone, new and pull are the `projects` command's.
 import importlib.machinery, importlib.util, os, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from gtkkit import (Gdk, GLib, Gtk, Pango, View, backdrop_setting, window_blur, box, button, clear, dropdown, label, recolor, rgbf, rule_heading, wrap_box,
+from gtkkit import (Gdk, Gio, GLib, Gtk, Pango, View, backdrop_setting, window_blur, box, button, clear, dropdown, label, recolor, rgbf, rule_heading, wrap_box,
                     run, scrolled, switch)
 from keys import fuzzy
 from keysgui import marked
@@ -67,6 +69,7 @@ CSS = """
 .pj-filters .tab { padding: 6px 8px; }
 .pj-filters .tab:disabled { color: #3b4261; background: transparent; }
 button.pj-sync { padding: 4px 10px; }
+button.pj-sync.busy { color: #6b8fe0; }   /* syncing: its progress, not greyed out (a click does nothing then) */
 .pj-status { font-size: 9pt; }
 .pj-glyph { min-width: 18px; }
 .graph > row { padding: 0 10px 0 0; min-height: 24px; }
@@ -298,7 +301,8 @@ def set_health(p, h):
     field by field the tree, painted meanwhile on the main thread, could show half old, half new."""
     p.__dict__.update(dirty=h["dirty"], unpushed=h["unpushed"], main=h["main"], behind=h["behind"],
                       out_of_date=h["out_of_date"], conflicts=h["diverged"] + h["unmerged"],
-                      to_sync=h["to_sync"], behind_branches=h["behind_branches"], new_branches=h["new_branches"])
+                      to_sync=h["to_sync"], behind_branches=h["behind_branches"], new_branches=h["new_branches"],
+                      counted=time.time())   # the .git watch skips the echo of a count's own fetch
 
 
 def status_lines(path):
@@ -372,13 +376,18 @@ class Projects(View):
         self.rows = {}                # rel -> (row, dot label) for in-place updates
         self.fetched = set()          # projects fetched since the panel opened
         self.fetching = set()
-        self.fetched_all = False      # the stale repos were fetched (once, when the panel opened)
+        self.fetched_all = 0          # when the stale repos were last fetched (on opening; again on showing, at most hourly)
+        self.counted_all = time.time()   # when every repo was last counted (again on showing, at most every 2 min)
+        self.watches = {}             # rel -> its .git's file monitors (watch_repos)
+        self.git_moved = set()        # repos whose .git changed: counted again shortly (or once shown)
+        self.git_timer = 0
         self.counting, self.count_again = threading.Lock(), False   # count_changes() runs / asked again meanwhile
         self.shown_rel = None         # the project on the page: the same one again isn't blanked first
         self.tree_seen = None         # what the tree shows (paint_tree skips a repaint that changes nothing)
         self.branch_names = []        # for the graph's branch filter
         self.org = ""                 # the tree's owner filter: an owner_of() key ("" = every owner)
         self.syncing = False          # Sync all is running
+        self.sync_done = (0, 0)       # its progress: (repos done, of)
         self.filter = "all"           # the list's tab (FILTERS)
         self.busy = False             # a clone / create is running
         self.stop = None              # the clone run's stop event
@@ -447,6 +456,7 @@ class Projects(View):
         self.paint_orgs()
         self.paint_sort()
         self.paint_tree()
+        self.watch_repos()
         if os.path.exists(pj.LIST):
             self.pages.set_visible_child_name("empty")
             threading.Thread(target=self.background, daemon=True).start()
@@ -613,10 +623,64 @@ class Projects(View):
                 self.folded.discard("/".join(parts[:i]))
         self.paint_tree()
         self.update_counts()
+        self.watch_repos()
         if select:
             self.select_rel(select)
         threading.Thread(target=self.count_changes, daemon=True).start()
         return False
+
+    # ---- the tabs' counts follow every repo: a watch on its .git, nothing polled -------------------
+    def watch_repos(self):
+        """A commit, checkout, pull, push or fetch anywhere (VS Code, a terminal, an agent) writes in the
+        repo's .git (index, HEAD, FETCH_HEAD, its branches): that repo is counted again (git_changed).
+        Edits alone don't touch .git: those are counted when the workspace shows (shown_changed)."""
+        want = {p.rel: p.path for p in self.projects if p.kind == "repo"}
+        for rel in [r for r in self.watches if r not in want]:
+            for m in self.watches.pop(rel):
+                m.cancel()
+        for rel, path in want.items():
+            if rel in self.watches:
+                continue
+            ms = []
+            for sub in ("", "refs/heads", "refs/remotes/origin"):   # a monitor sees only its own folder
+                d = os.path.join(path, ".git", sub)
+                if os.path.isdir(d):
+                    m = Gio.File.new_for_path(d).monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
+                    m.connect("changed", lambda *_a, r=rel: self.git_changed(r))
+                    ms.append(m)
+            self.watches[rel] = ms
+
+    def git_changed(self, rel):
+        if rel in self.fetching or self.syncing:   # the panel's own fetch / sync counts it when it's done
+            return
+        self.git_moved.add(rel)
+        if not self.git_timer and getattr(self.host, "shown", True):   # a burst of writes: one count
+            self.git_timer = GLib.timeout_add(1500, self.count_moved)
+
+    def count_moved(self):
+        self.git_timer = 0
+        by_rel = {p.rel: p for p in self.projects if p.kind == "repo"}
+        # not one counted a moment ago (the echo of its own fetch, or the live look at the shown one)
+        moved = [by_rel[r] for r in self.git_moved if r in by_rel and time.time() - getattr(by_rel[r], "counted", 0) > 1.5]
+        self.git_moved.clear()
+        if moved:
+            def go():
+                with ThreadPoolExecutor(4) as pool:
+                    list(pool.map(lambda p: set_health(p, pj.health(p.rel)), moved))
+                GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
+            threading.Thread(target=go, daemon=True).start()
+        return False
+
+    def shown_changed(self, shown):
+        """Back on screen: what changed meanwhile. The repos whose .git moved; every repo if it's been a
+        couple of minutes (edits); fetched again if it's been an hour (Behind)."""
+        if not shown:
+            return
+        if time.time() - self.counted_all > 120:
+            self.git_moved.clear()
+            threading.Thread(target=self.count_changes, daemon=True).start()
+        elif self.git_moved and not self.git_timer:
+            self.count_moved()
 
     def count_changes(self):
         """Every repo's health (changed files, unpushed commits, main behind), then the tree again (the
@@ -635,6 +699,7 @@ class Projects(View):
             self.count_changes()
 
     def count_changes_once(self):
+        self.counted_all = time.time()
         repos = [p for p in self.projects if p.kind == "repo"]
 
         def one(p):
@@ -644,16 +709,16 @@ class Projects(View):
         GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
         stale = [p for p in repos if (pj.fetched_ago(p.path) or STALE_ALL + 1) > STALE_ALL
                  and p.rel not in self.fetching]
-        if not stale or self.fetched_all:
+        if not stale or time.time() - self.fetched_all < STALE_ALL:
             return
-        self.fetched_all = True   # once per panel run
+        self.fetched_all = time.time()   # when the panel opens; then on showing, at most hourly (shown_changed)
 
         def fetch(p):
             self.fetching.add(p.rel)
             pj.git(p.path, "fetch", "--all", "--prune", "-q", timeout=120)
-            self.fetching.discard(p.rel)
             self.fetched.add(p.rel)
             one(p)
+            self.fetching.discard(p.rel)
         with ThreadPoolExecutor(8) as pool:
             list(pool.map(fetch, stale))
         GLib.idle_add(lambda: self.paint_tree(keep_scroll=True))
@@ -803,8 +868,10 @@ class Projects(View):
             b.set_label(f"{name} {n}" if n or key == "all" else name)
             b.set_sensitive(bool(n) or key in ("all", self.filter))
             (b.add_css_class if key == self.filter else b.remove_css_class)("on")
-        self.sync_btn.set_label("Syncing\u2026" if self.syncing else "\uf021 Sync")
-        self.sync_btn.set_sensitive(not self.syncing)
+        self.sync_btn.set_label("\uf021 {} / {}".format(*self.sync_done) if self.syncing else "\uf021 Sync")
+        (self.sync_btn.add_css_class if self.syncing else self.sync_btn.remove_css_class)("busy")
+        n = sum(p.kind == "repo" for p in self.projects)   # as wide as its longest count: the tabs never move
+        self.sync_btn.get_child().set_width_chars(len(f"\uf021 {n} / {n}"))
 
     def paint_tree(self, keep_scroll=False):
         # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
@@ -1734,14 +1801,18 @@ class Projects(View):
             return
         repos = [p for p in self.projects if p.kind == "repo"]
         self.syncing, done, reps = True, [0], []
+        self.sync_done = (0, len(repos))
+        lock = threading.Lock()
 
         def one(p):
             rep = pj.sync(p.rel)
             set_health(p, pj.health(p.rel))
             p.branch = pj.current_branch(p.path)
-            reps.append(rep)
-            done[0] += 1
-            GLib.idle_add(lambda n=done[0]: self.say(f"syncing {n} / {len(repos)}…", seconds=300) and False)
+            with lock:
+                reps.append(rep)
+                done[0] += 1
+                n = done[0]
+            GLib.idle_add(self.sync_progress, n, len(repos))
 
         def go():
             with ThreadPoolExecutor(8) as pool:
@@ -1750,7 +1821,16 @@ class Projects(View):
             GLib.idle_add(lambda: (self.say(sync_summary(reps), "ok", seconds=15), self.paint_tree(keep_scroll=True),
                                    self.current() and self.show_detail(fetch=False)) and False)
         self.say(f"syncing {len(repos)} projects…", seconds=300)
+        self.paint_filters()   # the button says so at once
         threading.Thread(target=go, daemon=True).start()
+
+    def sync_progress(self, n, total):
+        """A repo synced: the button and status line count up, the tabs and the list follow as it goes."""
+        self.sync_done = (n, total)
+        if self.syncing:
+            self.say(f"syncing {n} / {total}…", seconds=300)
+            self.paint_tree(keep_scroll=True)   # repaints only what changed; the tabs' counts always
+        return False
 
     def fetch(self):
         p = self.openable()

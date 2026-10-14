@@ -31,7 +31,7 @@ the service holds with status "restore" until `codesync restore` fills the code 
 Timing lives in ~/.config/codesync/settings.json (the panel edits it; the service rereads it live).
 Live status for waybar and the panel: ~/.local/state/codesync.json.
 """
-import ctypes, datetime, fcntl, json, os, re, select, shutil, signal, struct, subprocess, sys, time
+import ctypes, datetime, fcntl, html, json, os, re, select, shutil, signal, struct, subprocess, sys, time
 from fnmatch import fnmatch
 
 CONF_DIR = os.path.expanduser("~/.config/codesync")
@@ -728,9 +728,9 @@ def bar():
     words = {"ok": "up to date", "pending": "changes waiting", "syncing": "syncing…",
              "paused": "paused", "error": "problem", "off": "service not running",
              "restore": "restore needed", "restoring": "restoring…"}
-    tip = [f"Code backup · {words.get(st, st)}"]
+    tip = [f"<b>Code backup</b> · {words.get(st, st)}"]
     if st in ("error", "restore", "restoring") and s.get("detail"):
-        tip.append(s["detail"])
+        tip.append(html.escape(s["detail"]))   # the tooltip is markup
     if s.get("last_sync"):
         last = s.get("last", {})
         # a time, not "2 min ago": the bar redraws only on a change, so that would go stale
@@ -743,7 +743,8 @@ def bar():
     tot = s.get("totals")
     if tot:
         tip.append(f"Backed up: {tot['files']:,} files · {human(tot['size'])}")
-    tip += ["", f"{SRC.replace(os.path.expanduser('~'), '~')} → {DST}", "Click: details · Right-click: sync now · Middle: pause/resume"]
+    tip += [f"<span alpha='55%'>{html.escape(SRC.replace(os.path.expanduser('~'), '~'))} → {html.escape(DST)}",
+            "Click: details · Right-click: sync now · Middle: pause/resume</span>"]
     print(json.dumps({"text": ICONS.get(st, ICONS["ok"]), "class": st, "tooltip": "\n".join(tip)},
                      ensure_ascii=False))
 

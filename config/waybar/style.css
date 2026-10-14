@@ -300,14 +300,16 @@ window#waybar {
   opacity: 0;
 }
 
+/* every tooltip: a first line in bold (what it is), then values, then dimmed hints (markup's
+   alpha='55%', so they follow the theme's text colour) */
 tooltip {
   background: alpha(@base, 0.97);
-  border: 1px solid @line;
+  border: 1px solid alpha(@line, 0.7);
 }
 
 tooltip label {
   color: @text;
-  padding: 4px 6px;
+  padding: 8px 12px;
 }
 
 /* the colour theme (local/bin/theme): its colours after these, which stay when it's missing */

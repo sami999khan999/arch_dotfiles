@@ -172,10 +172,13 @@ def motion_rate(stamps, hz):
 
 def emit(rate, drawn):
     hz = outputs[output].get("hz", 0)
+    w = len(str(max(hz, drawn)))
     shown = f"{rate:>{len(str(hz))}}"   # fixed width: the bar doesn't shift as the number changes
     print(json.dumps({"text": f"{ICON} {shown}/{hz}",
-                      "tooltip": f"{OUTPUT}: {rate} frames a second while something moved (refresh rate {hz} Hz)\n"
-                                 f"{drawn} frames drawn in the last second",
+                      "tooltip": f"<b>Frame rate</b> · {OUTPUT}\n"
+                                 f"{rate:>{w}} fps  <span alpha='55%'>while something moved</span>\n"
+                                 f"{drawn:>{w}}      <span alpha='55%'>frames drawn in the last second</span>\n"
+                                 f"{hz:>{w}} Hz   <span alpha='55%'>refresh rate</span>",
                       "class": "idle" if rate == 0 else "moving"}, ensure_ascii=False), flush=True)
 
 

@@ -11,7 +11,7 @@ The visualizer (waybar) fills the gap left of the right section, so it's told wh
 goes or changes width: its text in $XDG_RUNTIME_DIR/loadwatch.json, SIGUSR1 to its pids, as toggle.sh
 does for the idle indicator. So is the window title (wintitle.py), which gives up the room it takes.
 """
-import json, os, signal, sys, time
+import html, json, os, signal, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/panels"))
 import usage
@@ -65,11 +65,12 @@ def warning(rows, pct, since, lead):
     top = [r for r in rows if r["cpu"] >= 5][:3]
     name = lead["name"] if lead else "busy"
     name = name if len(name) <= MAX_NAME else name[:MAX_NAME - 1] + "…"
-    lines = [f"CPU {pct:.0f}% for {int(time.time() - since) // 60 or 1} min"]
-    for r in top:
-        what = ", ".join(f"{n} {p:.0f}%" for n, p in r["top"])
-        lines.append(f"{r['name']} ({r['kind']}) {r['cpu']:.0f}%" + (f": {what}" if what else ""))
-    lines.append("(100% is one whole core)\nClick: what's using the CPU")
+    lines = [f"<b>CPU busy</b> · {pct:.0f}% for {int(time.time() - since) // 60 or 1} min"]
+    for r in top:   # names come from processes and units: escaped, the tooltip is markup
+        what = ", ".join(f"{html.escape(n)} {p:.0f}%" for n, p in r["top"])
+        lines.append(f"{r['cpu']:>4.0f}%  {html.escape(r['name'])} <span alpha='55%'>{r['kind']}"
+                     + (f" · {what}" if what else "") + "</span>")
+    lines.append("<span alpha='55%'>100% is one whole core · Click: what's using the CPU</span>")
     return {"text": f"{GLYPH} {name}", "tooltip": "\n".join(lines), "class": "busy"}
 
 

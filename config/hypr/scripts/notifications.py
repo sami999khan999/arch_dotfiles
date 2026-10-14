@@ -88,12 +88,12 @@ def bar():
     data = load()
     n = unread(data)
     if silenced():
-        text, cls, tip = SILENCED, "silenced", "Do not disturb: notifications are silenced"
+        text, cls, tip = SILENCED, "silenced", "<b>Do not disturb</b>\nNotifications are silenced"
     elif n:
-        text, cls, tip = UNREAD, "unread", f"{n} new notification{'s' * (n != 1)}"
+        text, cls, tip = UNREAD, "unread", f"<b>Notifications</b>\n{n} new"
     else:
-        text, cls, tip = BELL, "", "No new notifications"
-    tip += "\nClick: notifications · Right-click: do not disturb"
+        text, cls, tip = BELL, "", "<b>Notifications</b>\nNothing new"
+    tip += "\n<span alpha='55%'>Click: notifications · Right-click: do not disturb</span>"
     print(json.dumps({"text": text, "class": cls, "tooltip": tip}, ensure_ascii=False))
 
 

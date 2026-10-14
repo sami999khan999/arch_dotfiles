@@ -48,7 +48,7 @@
   },
   "custom/power": {
     "format": "󰐥",
-    "tooltip-format": "System menu (Super + Escape)",
+    "tooltip-format": "<b>System menu</b>  <span alpha='55%'>Super + Escape</span>",
     "on-click": "~/.config/hypr/scripts/power-menu.sh"
   },
   // workspace buttons: hyprland/workspaces' click sends a legacy dispatch the Lua config rejects,
@@ -234,7 +234,8 @@
   "memory": {
     "interval": 5,
     "format": "󰘚{percentage:>3}%",
-    "tooltip-format": "{used:0.1f}G / {total:0.1f}G",
+    // plain text: memory and temperature show a tooltip as text (markup came out raw)
+    "tooltip-format": "Memory\n{used:0.1f} G used of {total:0.1f} G\nClick: what's using it",
     "on-click": "~/.local/lib/panels/sysgui.py"
   },
   "temperature": {
@@ -243,7 +244,7 @@
     "input-filename": "temp1_input",
     "critical-threshold": 85,
     "format": "󰔏{temperatureC:>3}°",
-    "tooltip-format": "CPU package {temperatureC}°C"
+    "tooltip-format": "CPU temperature\n{temperatureC}°C, package"
   },
   "cpu": {
     "interval": 5,
@@ -274,9 +275,9 @@
     "format-wifi": "{icon}",
     "format-ethernet": "󰀂",
     "format-disconnected": "󰤮",
-    "tooltip-format-wifi": "{essid} ({frequency} GHz)",
-    "tooltip-format-ethernet": "Connected",
-    "tooltip-format-disconnected": "Disconnected",
+    "tooltip-format-wifi": "<b>Wi-Fi</b> · {essid}\n{signalStrength}%  <span alpha='55%'>signal, {frequency} GHz</span>\n<span alpha='55%'>Click: networks</span>",
+    "tooltip-format-ethernet": "<b>Ethernet</b> · {ifname}\n{ipaddr}  <span alpha='55%'>address</span>\n<span alpha='55%'>Click: networks</span>",
+    "tooltip-format-disconnected": "<b>Network</b>\n<span alpha='55%'>Disconnected · Click: networks</span>",
     "interval": 10,   // the Wi-Fi strength; a connection change shows at once (netlink)
     "spacing": 1,
     "on-click": "~/.local/lib/panels/netgui.py"
@@ -313,8 +314,8 @@
       ]
     },
     "format-full": "󰂅",
-    "tooltip-format-discharging": "{power:>1.0f}W↓ {capacity}%",
-    "tooltip-format-charging": "{power:>1.0f}W↑ {capacity}%",
+    "tooltip-format-discharging": "<b>Battery</b> · {capacity}%\n{power:>1.0f} W  <span alpha='55%'>draining</span>\n<span alpha='55%'>Click: power menu</span>",
+    "tooltip-format-charging": "<b>Battery</b> · {capacity}%\n{power:>1.0f} W  <span alpha='55%'>charging</span>\n<span alpha='55%'>Click: power menu</span>",
     "interval": 5,
     "on-click": "~/.config/hypr/scripts/power-menu.sh",
     "states": {
@@ -328,7 +329,7 @@
     "format-disabled": "󰂲",
     "format-connected": "󰂱",
     "format-no-controller": "",
-    "tooltip-format": "Devices connected: {num_connections}",
+    "tooltip-format": "<b>Bluetooth</b>\n{num_connections}  <span alpha='55%'>devices connected</span>\n<span alpha='55%'>Click: devices</span>",
     "on-click": "~/.local/lib/panels/btgui.py"
   },
   // as wide as its number (the visualizer recounts its gap when the volume gains or loses a digit).
@@ -339,7 +340,7 @@
     "format": "{icon}{volume}%",
     "on-click": "~/.local/lib/panels/audiogui.py",
     "on-click-right": "pamixer -t",
-    "tooltip-format": "Playing at {volume}%",
+    "tooltip-format": "<b>Volume</b> · {volume}%\n<span alpha='55%'>{desc}</span>\n<span alpha='55%'>Click: sound · Right-click: mute · Scroll: ±5</span>",
     "scroll-step": 5,
     "format-muted": "\ueee8 \u200a\u200a\u200a\u200a\u200a\u200a{volume}%",
     "format-icons": {
@@ -361,17 +362,17 @@
   },
   "custom/sysagent": {
     "format": "󰙴",
-    "tooltip-format": "System agent: ask about this PC, read-only (Super + Ctrl + S)",
+    "tooltip-format": "<b>System agent</b>  <span alpha='55%'>Super + Ctrl + S</span>\n<span alpha='55%'>Ask about this PC, read-only</span>",
     "on-click": "~/.local/lib/panels/sysagentgui.py"
   },
   "custom/keys": {
     "format": "",
-    "tooltip-format": "Shortcuts (Super + K)",
+    "tooltip-format": "<b>Shortcuts</b>  <span alpha='55%'>Super + K</span>",
     "on-click": "~/.local/lib/panels/keysgui.py"
   },
   "custom/settings": {
     "format": "\uf013",
-    "tooltip-format": "Settings (Super + I)",
+    "tooltip-format": "<b>Settings</b>  <span alpha='55%'>Super + I</span>",
     "on-click": "~/.local/lib/panels/settingsgui.py"
   },
   // shows only while the CPU stays busy, with what's causing it (scripts/loadwatch.py: /proc and the
@@ -404,6 +405,6 @@
     "format": "",
     "on-click": "walker",
     "on-click-right": "~/.config/hypr/scripts/power-menu.sh",
-    "tooltip-format": "Apps: Super + Space\nSystem: Super + Escape"
+    "tooltip-format": "<b>Apps</b>         <span alpha='55%'>click · Super + Space</span>\n<b>System menu</b>  <span alpha='55%'>right-click · Super + Escape</span>"
   }
 }

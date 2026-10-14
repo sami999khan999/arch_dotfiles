@@ -140,7 +140,7 @@ right click on it) switches its style, and the choice is kept:
 It's drawn exactly as wide as the gap, which it measures on the bar, so it follows the right side as
 that changes (a longer title, the play button, the clock's long view) and never moves or resizes
 anything else (`scripts/visualizer.py`). It costs nothing while silent (it doesn't follow the bar until
-something plays), pauses cava on **off**, and draws nothing under a fullscreen window.
+something plays), ends cava on **off** (frozen, it held up all audio once the earbuds reconnected), and draws nothing under a fullscreen window.
 
 The stats start with the frame rate: `󰓅 60/60` is how smoothly *this* screen drew whatever moved
 in the last second (an animation, a scroll, a video), out of its refresh rate. Each screen's bar counts its

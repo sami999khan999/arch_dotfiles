@@ -446,18 +446,20 @@ def tick():
 
 
 cava = None
+CAVA_ON = threading.Event()   # a style other than "off": main() runs cava
 
 
 def pause_cava(off):
-    """Style "off": cava is stopped (SIGSTOP), not just ignored, so nothing reads the sound 25 times a
-    second; the next style starts it again."""
-    if cava is not None and cava.poll() is None:
-        if off:
-            time.sleep(0.2)   # the loop has seen "off" by now and hidden the module
-            if state["style"] == "off":
-                cava.send_signal(signal.SIGSTOP)
-        else:
-            cava.send_signal(signal.SIGCONT)
+    """Style "off": cava is ended, not just ignored, so nothing reads the sound 25 times a second; the
+    next style starts it again. Ended, not frozen (SIGSTOP): a frozen cava stays in PipeWire's graph
+    and can't answer it, so once its sink changed (the Bluetooth earbuds dropping their link while
+    idle) every stream waited on it and nothing played anywhere, until it was let go."""
+    if off:
+        time.sleep(0.2)   # the loop has seen "off" by now and hidden the module
+        if state["style"] == "off" and cava is not None and cava.poll() is None:
+            cava.terminate()
+    else:
+        CAVA_ON.set()
 
 
 def emit(text, cls):
@@ -486,10 +488,28 @@ def main():
     signal.signal(signal.SIGUSR1, lambda *_: WAKE.set())
     signal.signal(signal.SIGUSR2, lambda *_: WAKE.set())
     signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
-    cava = subprocess.Popen(["cava", "-p", conf], stdout=subprocess.PIPE, text=True, bufsize=1)
     for watcher in (follow_windows, follow_player, follow_volume, tick, settler):
-        threading.Thread(target=watcher, daemon=True).start()
-    last, heard = None, 0.0
+        threading.Thread(target=watcher, daemon=True).start()   # tick sets CAVA_ON unless the style is "off"
+    last = None
+    while True:
+        CAVA_ON.clear()   # before the check: a style set after it sets the event again
+        if state["style"] == "off":
+            CAVA_ON.wait()
+            continue
+        cava = subprocess.Popen(["cava", "-p", conf], stdout=subprocess.PIPE, text=True, bufsize=1)
+        last = frames(last)
+        code = cava.wait()
+        if state["style"] != "off":   # it died by itself: waybar starts the script again
+            raise SystemExit(code)
+        state["playing"] = False   # quiet, cava may have sent no frame that saw "off"
+        if last != ("", "silent"):
+            emit("", "silent")
+            last = ("", "silent")
+
+
+def frames(last):
+    """cava's frames, drawn, until it ends (style "off" ends it). Returns the last thing shown."""
+    heard = 0.0
     for line in cava.stdout:
         levels = [int(v) for v in line.strip().rstrip(";").split(";") if v.isdigit()]
         now = time.time()
@@ -511,7 +531,7 @@ def main():
         if out != last:
             emit(*out)
             last = out
-    raise SystemExit(cava.wait())
+    return last
 
 
 if __name__ == "__main__":

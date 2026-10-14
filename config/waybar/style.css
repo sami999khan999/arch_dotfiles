@@ -220,6 +220,11 @@ window#waybar {
   color: @muted;
 }
 
+/* window-switcher mode on (Super + X): Super + Q…P pick the window */
+#custom-wsgroups.switcher {
+  color: @accent;
+}
+
 /* an empty workspace: only the icon, no title beside it, so even padding */
 #custom-wsgroups.empty {
   padding: 0 10px;

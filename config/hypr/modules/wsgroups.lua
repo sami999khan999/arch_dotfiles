@@ -1,5 +1,6 @@
 -- Workspace groups: reads ~/.config/hypr/workspaces.conf, sends each group's windows to its
--- workspace (monocle layout), and binds Alt + 1…0 / Super + Ctrl + 1…0 / Super + N to the wsgroups program.
+-- workspace (monocle layout), and binds Super + Ctrl + 1…0 / Super + N to the wsgroups program and
+-- Super + X (window-switcher mode).
 -- Edit workspaces.conf, not this file.
 
 local conf     = os.getenv("HOME") .. "/.config/hypr/workspaces.conf"
@@ -58,8 +59,8 @@ for ws = 1, 10 do
     end
 end
 
--- Alt + N: window N of this workspace, oldest first (same order as `wsgroups focus N`). Done here
--- rather than in the script so a fullscreen video stays fullscreen (binds.lua).
+-- Window N of this workspace (Super + Q…P in window-switcher mode), oldest first (same order as
+-- `wsgroups focus N`). Done here rather than in the script so a fullscreen video stays fullscreen (binds.lua).
 local function focusNth(n)
     local wins = workspaceWindows()
     if not wins[n] then
@@ -71,10 +72,48 @@ end
 
 -- digits by physical keycode (AZERTY-safe, like binds.lua): 1..9 => 10..18, 0 => 19
 for n = 1, 10 do
-    local key = "code:" .. (9 + n)
-    hl.bind("ALT + " .. key,          function() focusNth(n) end)
-    hl.bind("SUPER + CTRL + " .. key, hl.dsp.exec_cmd(wsgroups .. " go " .. n))
+    hl.bind("SUPER + CTRL + code:" .. (9 + n), hl.dsp.exec_cmd(wsgroups .. " go " .. n))
 end
+
+-- Window-switcher mode (Super + X, on until pressed again): Super + Q…P = window 1…10 of this workspace,
+-- the letter row under the digits Super + 1…0 go to the workspaces with. Off, those keys do what they
+-- always do (close, Files, settings…): the mode swaps which binds are enabled. The state file keeps it
+-- across a config reload and tells the bar (wsgroups.py), which shows the mode on its window counter.
+local MODE_FILE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hypr-winmode"
+local ROW = { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" }
+local pickBinds = {}
+for n, letter in ipairs(ROW) do
+    -- by keycode (24..33: the row under the digits), so another layout keeps the place
+    local b = hl.bind("SUPER + code:" .. (23 + n), function() focusNth(n) end)
+    b:set_enabled(false)
+    pickBinds[letter] = b
+end
+
+local function setWindowMode(on)
+    for _, letter in ipairs(ROW) do
+        pickBinds[letter]:set_enabled(on)
+        for _, b in ipairs(KEYBINDS["SUPER + " .. letter] or {}) do b:set_enabled(not on) end
+    end
+    local f = io.open(MODE_FILE, "w")
+    if f then f:write(on and "on" or "off"); f:close() end
+    hl.exec_cmd(wsgroups .. " bar-refresh")   -- every screen's window counter re-reads the mode
+end
+
+local function windowModeOn()
+    local f = io.open(MODE_FILE)
+    if not f then return false end
+    local on = f:read("a"):match("^on") ~= nil
+    f:close()
+    return on
+end
+
+-- global: a right-click on the bar's window counter calls it too (hyprctl eval)
+function toggleWindowMode()
+    setWindowMode(not windowModeOn())
+end
+
+if windowModeOn() then setWindowMode(true) end
+hl.bind("SUPER + X", function() toggleWindowMode() end) -- window-switcher mode: Super + Q…P = window 1…10 (again = off)
 
 -- another window of the current workspace's app (a new Chrome window on Web, kitty on Terminal…), or the app
 -- itself when none is open there

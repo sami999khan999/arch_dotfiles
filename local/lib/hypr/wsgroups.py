@@ -1,4 +1,5 @@
-"""wsgroups — one workspace per kind of app, every window full-size (monocle), Alt + N to switch.
+"""wsgroups — one workspace per kind of app, every window full-size (monocle), Super + X then
+Super + Q…P to switch.
 
   wsgroups                    open (or close) the manager window (Super + Ctrl + G, or click it in waybar)
   wsgroups tui                the same manager in the terminal
@@ -13,16 +14,20 @@
   wsgroups tidy               move already-open windows to their group's workspace
   wsgroups list               show the groups and the numbered windows in each
   wsgroups bar                waybar module: follows Hyprland events, prints JSON lines
+  wsgroups bar-refresh        redraw it on every screen (window-switcher mode, Super + X)
 
 Groups are stored in ~/.config/hypr/workspaces.conf. This is the module (imported, so Python keeps it
-compiled: it runs on every Alt / Super + number); the command is the launcher local/bin/wsgroups.
+compiled: it runs on every Super + Ctrl + number); the command is the launcher local/bin/wsgroups.
 """
 import json, os, re, shlex, signal, subprocess, sys, time
 
 CONF = os.path.expanduser("~/.config/hypr/workspaces.conf")
 STATE = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "wsgroups")
 ORDER = os.path.join(STATE, "order.json")   # [address, …]: windows put in order by hand (move)
-BAR_PID = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "wsgroups-bar.pid")
+# one file per running bar module, named by its pid: waybar runs one per screen
+BAR_PIDS = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "wsgroups-bar")
+MODE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr-winmode")   # window-switcher mode (wsgroups.lua)
+ROW = "QWERTYUIOP"   # Super + Q…P in that mode: window 1…10
 ICON = "\U000f0570"  # nf-md-view_carousel
 
 
@@ -47,7 +52,7 @@ POPUPS = ("TUI.float", "panels.")   # popup panels (and the backdrop behind one)
 
 
 def windows(ws, clients=None):
-    """Windows on workspace ws, oldest first — that order is what Alt + N counts — except those put in
+    """Windows on workspace ws, oldest first — that order is what Super + Q…P counts — except those put in
     order by hand (move): they come first, as placed, and windows opened since follow them."""
     clients = query("clients") if clients is None else clients
     wins = [c for c in clients or [] if c["workspace"]["id"] == ws and c["mapped"]
@@ -77,7 +82,7 @@ def load_order():
 
 
 def move(address, step):
-    """Window address one place earlier (step -1) or later (+1) among its workspace's windows: Alt + N,
+    """Window address one place earlier (step -1) or later (+1) among its workspace's windows: Super + Q…P,
     the bar and the Workspaces panel follow. Kept in ORDER while the window lives (addresses end with
     the window); the windows of other workspaces keep theirs."""
     clients = query("clients") or []
@@ -95,11 +100,34 @@ def move(address, step):
     os.makedirs(STATE, exist_ok=True)
     with open(ORDER, "w") as f:   # a plain file in ~/.local/state
         json.dump(keep + order, f)
-    try:   # the bar's "2/4" follows at once
-        os.kill(int(open(BAR_PID).read()), signal.SIGUSR1)
-    except (OSError, ValueError):
-        pass
+    refresh_bars()   # the bar's "2/4" follows at once
     return True
+
+
+def bar_pids():
+    """The pids of the running bar modules; files of ones that ended are dropped (a pid can be reused)."""
+    pids = []
+    for name in os.listdir(BAR_PIDS) if os.path.isdir(BAR_PIDS) else []:
+        try:
+            if b"wsgroups" in open(f"/proc/{name}/cmdline", "rb").read():
+                pids.append(int(name))
+                continue
+        except (OSError, ValueError):
+            pass
+        try:
+            os.remove(os.path.join(BAR_PIDS, name))
+        except OSError:
+            pass
+    return pids
+
+
+def refresh_bars():
+    """Every screen's bar module redraws now (SIGUSR1): a change without a Hyprland event."""
+    for pid in bar_pids():
+        try:
+            os.kill(pid, signal.SIGUSR1)
+        except OSError:
+            pass
 
 
 def focused(clients=None):
@@ -191,7 +219,7 @@ def launch(ws, force=False):
         return False
     for i, cmd in enumerate(g["launch"]):
         if i:
-            time.sleep(0.8)  # keep the opening order = the Alt + N order
+            time.sleep(0.8)  # keep the opening order = the Super + Q…P order
         spawn(cmd)
     return True
 
@@ -272,7 +300,7 @@ def show():
         print(f"{mark}{ws:>2}  {g['name']:<10} class: {g['cls']}")
         for i, w in enumerate(windows(ws, clients), 1):
             state = " [max]" if w.get("fullscreen") else ""
-            print(f"      Alt+{i % 10}  {w['class']}: {w['title'][:50]}{state}")
+            print(f"      Super+{ROW[i - 1] if i <= 10 else ' '}  {w['class']}: {w['title'][:50]}{state}")
 
 
 def guess_launch(cls, pid=None):
@@ -336,12 +364,21 @@ def bar_status():
     wins = windows(ws, clients)
     active = focused(clients)
     pos = next((i for i, w in enumerate(wins, 1) if w["address"] == active), 0)
-    lines = [f"Alt+{i % 10}  {w['class']}: {w['title'][:40]}" for i, w in enumerate(wins, 1)]
+    try:
+        switcher = open(MODE).read().startswith("on")
+    except OSError:
+        switcher = False
+    lines = [f"Super+{ROW[i - 1]}  {w['class']}: {w['title'][:40]}" for i, w in enumerate(wins[:10], 1)]
     tip = (f"{g['name']} · workspace {ws}" if g else f"Workspace {ws} (no group)")
-    tip += "\n" + ("\n".join(lines) if lines else "no windows") + "\n\nClick: manage groups"
+    tip += "\n" + ("\n".join(lines) if lines else "no windows")
+    tip += "\n\n" + ("Window-switcher mode: on (Super + X: off)" if switcher else
+                     "Super + X: window-switcher mode (Super + Q…P pick a window)") + "\nClick: manage groups · right-click: window-switcher mode"
     text = f"{ICON} {pos}/{len(wins)}" if wins else ICON  # the group's name is in the tooltip
+    if switcher:   # the mode shows here: accent, and the focused window's letter
+        text = f"{ICON} {ROW[pos - 1]} {pos}/{len(wins)}" if 1 <= pos <= 10 else text
     # "empty": just the icon (no count, no title beside it), so the bar centres it
-    return {"text": text, "tooltip": tip, "class": ["group" if g else "none"] + ([] if wins else ["empty"])}
+    return {"text": text, "tooltip": tip, "class": ["group" if g else "none"] + ([] if wins else ["empty"])
+            + (["switcher"] if switcher else [])}
 
 
 def bar():
@@ -358,10 +395,12 @@ def bar():
         if any(e.startswith(wanted) for e in lines):
             time.sleep(0.05)  # let hyprland settle
             emit()
-    # move() changes the order without a Hyprland event: it signals the bar (SIGUSR1) instead
+    # move() and the window-switcher mode change it without a Hyprland event: they signal the bar
+    # (SIGUSR1, refresh_bars) instead
     signal.signal(signal.SIGUSR1, lambda *_: emit())
-    with open(BAR_PID, "w") as f:
-        f.write(str(os.getpid()))
+    bar_pids()   # drop the files of bars that ended
+    os.makedirs(BAR_PIDS, exist_ok=True)
+    open(os.path.join(BAR_PIDS, str(os.getpid())), "w").close()
     follow(events, emit)
 
 
@@ -417,6 +456,8 @@ def main(argv):
         show()
     elif cmd == "bar":
         bar()
+    elif cmd == "bar-refresh":
+        refresh_bars()
     else:
         print(__doc__.strip())
         sys.exit(1)

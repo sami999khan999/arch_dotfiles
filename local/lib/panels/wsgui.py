@@ -20,7 +20,7 @@ def load_wsgroups():
 
 
 class Workspaces(View):
-    title, subtitle = "Workspaces", "Alt + 1…0 switches windows"
+    title, subtitle = "Workspaces", "Super + X, then Super + Q…P switches windows"
     hints = [("1-0", "select"), ("Enter", "save"), ("l", "launch"), ("g", "go"), ("t", "tidy"), ("Esc", "close")]
     popup = "~/.local/bin/wsgroups"
     icon = "\U000f0570"   # nf-md-view_carousel, as in waybar
@@ -209,7 +209,7 @@ class Workspaces(View):
         self.paint_windows()
 
     def paint_windows(self):
-        """The workspace's open windows in their Alt + N order; ↑ ↓ on a row move it (wsgroups move)."""
+        """The workspace's open windows in their Super + Q…P order; ↑ ↓ on a row move it (wsgroups move)."""
         clear(self.win_box)
         wins = self.windows(self.sel)
         self.win_box.append(rule_heading("Open windows", str(len(wins)), spaced=True))
@@ -219,12 +219,12 @@ class Workspaces(View):
         win_list.set_activate_on_single_click(True)
         win_list.connect("row-activated", lambda _l, row: self.focus(row.address))
         for i, w in enumerate(wins, 1):
-            up = button("\u2191", lambda a=w["address"]: self.move(a, "up"), "flat", tooltip="Move up: one Alt number lower")
+            up = button("\u2191", lambda a=w["address"]: self.move(a, "up"), "flat", tooltip="Move up: one letter earlier (Super + Q…P)")
             down = button("\u2193", lambda a=w["address"]: self.move(a, "down"), "flat", tooltip="Move down: one Alt number higher")
             for btn, can in ((up, i > 1), (down, i < len(wins))):   # the first can't go up, the last down:
                 btn.set_sensitive(can)                               # hidden, their place kept (arrows line up)
                 btn.set_opacity(1 if can else 0)
-            line = box(False, 12, label(f"Alt+{i % 10}", "dim"), label(w["title"] or w["class"], ellipsize=True),
+            line = box(False, 12, label(f"Super+{'QWERTYUIOP'[i - 1]}" if i <= 10 else "", "dim"), label(w["title"] or w["class"], ellipsize=True),
                        box(False, 0, up, down))
             row = Gtk.ListBoxRow(child=line, tooltip_text="Click to focus this window")
             row.address = w["address"]
@@ -232,7 +232,7 @@ class Workspaces(View):
         self.win_box.append(win_list)
 
     def move(self, address, way):
-        """↑ / ↓ on a window: its place in the Alt + N order (only the list is drawn again: the form
+        """↑ / ↓ on a window: its place in the Super + Q…P order (only the list is drawn again: the form
         above keeps what's being typed)."""
         self.ws.move(address, -1 if way == "up" else 1)
         self.clients = self.ws.query("clients") or []

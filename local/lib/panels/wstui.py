@@ -41,7 +41,7 @@ class UI(Panel):
     def paint(self, body, footer):
         """Card header, body, then the last action's result or the key hints on the bottom row."""
         cols, rows, w, pad = frame(92)
-        head = header(ICON, "Workspaces", "Alt + 1…0 switches windows", w)
+        head = header(ICON, "Workspaces", "Super + X, Super + Q…P switch windows", w)
         if self.ask and self.ask["yesno"]:
             foot = f"{BAD}{self.ask['label']}{RESET}  " + hints([("y", "yes"), ("n", "no")], w)
         elif self.ask:
@@ -85,7 +85,7 @@ class UI(Panel):
         lines.append("")
         for i, win in enumerate(wins, 1):
             cls = fit(win["class"], 16)
-            lines.append(f"{KEY}{'Alt+' + str(i % 10):<8}{RESET}{FG}{cls}{RESET}  "
+            lines.append(f"{KEY}{('Super+' + 'QWERTYUIOP'[i - 1] if i <= 10 else ''):<8}{RESET}{FG}{cls}{RESET}  "
                          f"{DIM}{fit(win['title'], max(w - 10 - len(cls), 4))}{RESET}")
         if not wins:
             lines.append(f"{DIM}{'':<8}no windows open{RESET}")

@@ -150,7 +150,7 @@ setup/install.sh --packages   # packages, toolchains, coding agents, config link
   </tr>
   <tr>
     <td align="center"><code>Super + Ctrl + T</code></td><td>System</td>
-    <td align="center"><code>Alt + 1…0</code></td><td>the Nth window of the workspace</td>
+    <td align="center"><code>Super + X</code>, <code>Super + Q…P</code></td><td>window-switcher mode, the Nth window of the workspace</td>
   </tr>
 </table>
 

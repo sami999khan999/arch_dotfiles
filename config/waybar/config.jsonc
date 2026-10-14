@@ -349,7 +349,8 @@
     "exec": "~/.local/bin/wsgroups bar",
     "return-type": "json",
     "escape": true,
-    "on-click": "~/.local/bin/wsgroups"
+    "on-click": "~/.local/bin/wsgroups",
+    "on-click-right": "hyprctl eval 'toggleWindowMode()'"
   },
   "custom/sysagent": {
     "format": "󰙴",

@@ -174,7 +174,8 @@ def read_apps():
     return rows
 
 def read_wsgroups():
-    rows = [("Alt + 1…0", "Switch to window N in this workspace"),
+    rows = [("Super + X", "Window-switcher mode on / off (the bar's window counter lights up)"),
+            ("Super + Q…P", "In that mode: window 1…10 of this workspace"),
             ("Super + Ctrl + 1…0", "Go to workspace, launch its apps if needed"),
             ("Super + N", "New window of this workspace's app")]
     try:

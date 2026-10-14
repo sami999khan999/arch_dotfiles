@@ -5,11 +5,15 @@ local launch  = "uwsm app -- " -- if you are not using UWSM, make this empty (e.
 local scripts = "~/.config/hypr/scripts/"
 local panels  = "~/.local/lib/panels/"
 
+-- every bind by its keys, so the window-switcher mode (wsgroups.lua) can turn Super + Q…P off and on
+KEYBINDS = {}
+
 local function bind(keys, action, opts)
     if type(action) == "string" then
         action = hl.dsp.exec_cmd(action)
     end
-    hl.bind(keys, action, opts)
+    KEYBINDS[keys] = KEYBINDS[keys] or {}
+    table.insert(KEYBINDS[keys], hl.bind(keys, action, opts))
 end
 
 -- Toggle a TUI in a floating terminal window (second press closes it)
@@ -145,7 +149,7 @@ end)
 
 -- A tiled window that gets the focus covers its workspace's desktop floats, as on a desktop. Hyprland
 -- always draws floating windows above tiled ones, except above a maximized window: there a float shows
--- only once it's focused (Alt + N, Alt + Tab, a click while it's in view). So the focused tile takes the
+-- only once it's focused (Super + Q…P, Alt + Tab, a click while it's in view). So the focused tile takes the
 -- maximized state (the same size in monocle, nothing moves), and takes it again when it already had it:
 -- that's what sends a float that came to the front back behind. Not on the VS Code + kitty pairs'
 -- workspace (scrolling: a maximized VS Code would cover its kitty), nor over a real fullscreen (video).
@@ -213,13 +217,13 @@ bind("SUPER + ALT + S",              hl.dsp.window.move({ workspace = "special:s
 -- Hyprland's fullscreen but Chrome is still told it's fullscreen (internal 0, client 2), so the
 -- video stays full inside its tile; focusing it again makes it real fullscreen (window.active below).
 -- Without this, misc.on_focus_under_fullscreen = 2 exits the video's fullscreen.
--- Globals: wsgroups.lua (Alt + N) uses workspaceWindows and focusKeepingFullscreen.
+-- Globals: wsgroups.lua (Super + Q…P) uses workspaceWindows and focusKeepingFullscreen.
 
 local function setFullscreen(w, internal)
     hl.dispatch(hl.dsp.window.fullscreen_state({ internal = internal, client = 2, window = "address:" .. w.address }))
 end
 
--- Windows of the active workspace, oldest first: the order Alt + N counts and Alt + Tab cycles.
+-- Windows of the active workspace, oldest first: the order Super + Q…P counts and Alt + Tab cycles.
 -- The order set by hand (`wsgroups move`: ↑ ↓ in the Workspaces panel): window address -> place.
 local HAND_ORDER = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/wsgroups/order.json"
 local function handOrder()
@@ -235,7 +239,7 @@ local function handOrder()
     return placed
 end
 
--- The current workspace's windows in Alt + N order, as `wsgroups` (its windows()) counts them: oldest
+-- The current workspace's windows in Super + Q…P order, as `wsgroups` (its windows()) counts them: oldest
 -- first, except the ones put in order by hand, which come first as placed. Popups don't count.
 function workspaceWindows()
     local ws = hl.get_active_workspace()

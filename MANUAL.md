@@ -587,13 +587,13 @@ shortcut, not when the cursor crosses over: point at one screen and `Super + 1�
 other.
 
 Windows of that class always open on that workspace, maximized (waybar and gaps stay).
-A fullscreen video stays fullscreen when you switch away with `Alt + 1…0` or `Alt + Tab`,
+A fullscreen video stays fullscreen when you switch away with `Super + Q…P` (window-switcher mode) or `Alt + Tab`,
 and is fullscreen again when you come back (a mouse click on another window exits it).
 **Floating windows:** `Super + T` turns the focused window into a desktop-style window: out of
 maximize, 60 % × 70 % of the screen, centred (the first time). Drag it with `Super` + left mouse,
 resize it by grabbing any edge (the cursor shows the arrows; tiled windows' edges resize the split)
 or with `Super` + right mouse. It stacks like a desktop window: focus another window of the workspace
-and that one covers it; it's in front again once you focus it (`Alt + N`, `Alt + Tab`). (The focused
+and that one covers it; it's in front again once you focus it (`Super + Q…P`, `Alt + Tab`). (The focused
 tiled window takes the maximized state for that, the same size in monocle; not on the VS Code + kitty
 workspace, where floats stay on top.) `Super + T` again puts it back in the tiles; floated again later,
 it comes back where you left it, at the same size. `Super + O` does the same and pins it (it follows
@@ -607,7 +607,7 @@ Window…) opens with its own kitty beside it: kitty 45 % on the left, VS Code 5
 whole screen. kitty starts in that window's project folder (found from the window title under
 `~/code`; an empty window gets `~/code`) and runs as its own app, so a dev server that runs out of
 memory takes down that kitty, not VS Code. The workspace uses Hyprland's scrolling layout: pairs
-sit side by side and `Alt + N` / `Alt + Tab` slide to VS Code window N with its kitty (kittys
+sit side by side and `Super + Q…P` / `Alt + Tab` slide to VS Code window N with its kitty (kittys
 aren't counted). Opening another project in a VS Code window takes its kitty along: it `cd`s
 there if it's idle, or opens a new tab there if something is running. Closing a VS Code window
 closes its kitty. `Super + F` (fullscreen) or `Super + Alt + F` (maximized, bar stays) makes
@@ -625,7 +625,8 @@ change it; keys: `← →` width,
 | Key / command | Does |
 |---|---|
 | `Super + Ctrl + G`, or click it in waybar | open (or close) the manager window: map open apps to workspaces, edit, launch, tidy |
-| `Alt + 1…0` | switch to window N of the current workspace (in the order they were opened; reorder them with ↑ ↓ in the Workspaces panel's Open windows list — the bar's `2/4` and Alt + N follow, for as long as the windows stay open) |
+| `Super + X` | window-switcher mode on / off. While it's on, the bar's window counter takes the accent colour and shows the focused window's letter (`W 2/4`), and `Super + Q W E R T Y U I O P` don't do their usual things (close, Files, Settings…): they pick window 1…10. It stays on until `Super + X` again (also across `hyprctl reload`) |
+| `Super + Q…P` (in that mode) | switch to window N of the current workspace: the letter row under the digits, Q = 1 … P = 10 (in the order they were opened; reorder them with ↑ ↓ in the Workspaces panel's Open windows list — the bar's `2/4` and the letters follow, for as long as the windows stay open) |
 | `Alt + Tab` / `Alt + Shift + Tab` | next / previous window of the current workspace, same order |
 | `Super + Ctrl + 1…0` | go to workspace N; launch its programs if none are open |
 | `Super + N` | open another window of the current workspace's app (a new Chrome window on Web…), or the app itself when none is open there (the Control Center after it was closed) |
@@ -640,8 +641,7 @@ the selected one's settings, actions and open windows on the right. Edit a field
 click an open window to jump to it. Keys when no field is focused: `1`–`0` select, `l` launch,
 `g` go, `t` tidy, `Delete` remove, `Esc` close. `wsgroups tui` is the old terminal version.
 
-Several launch commands are separated with `;` and open in that order. Alt + 1…0 is
-taken over everywhere, so Chrome tabs switch with `Ctrl + 1…8` instead.
+Several launch commands are separated with `;` and open in that order.
 Loaded by `config/hypr/modules/wsgroups.lua`; the program is `local/lib/hypr/wsgroups.py` (the command `local/bin/wsgroups` launches it).
 
 ### Panels

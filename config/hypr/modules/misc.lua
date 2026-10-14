@@ -28,7 +28,7 @@ hl.config({
         -- the cursor crossing to the other screen doesn't make it the focused one: the keys (Super + N,
         -- the bar's active workspace) stay on the screen they were on; a click or a shortcut moves it
         mouse_move_focuses_monitor = false,
-        on_focus_under_fullscreen = 2, -- other focus changes drop fullscreen; Alt+N / Alt+Tab keep a video fullscreen (binds.lua)
+        on_focus_under_fullscreen = 2, -- other focus changes drop fullscreen; Super+Q…P / Alt+Tab keep a video fullscreen (binds.lua)
     },
     render = {
         direct_scanout = 2,

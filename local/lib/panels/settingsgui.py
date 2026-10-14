@@ -848,8 +848,8 @@ class Settings(View):
         ws = wsgui.load_wsgroups()
         mons = [m["name"] for m in S.monitors() if not m.get("disabled")]
         self.heading(p, "The ten workspaces")
-        p.append(label("Super + Ctrl + 1…0 goes to one and opens its app; Alt + 1…0 picks among its "
-                       "windows. ↑ ↓ reorder them: open windows, the bar icon and the screen go along.",
+        p.append(label("Super + Ctrl + 1…0 goes to one and opens its app; Super + X, then Super + Q…P "
+                       "picks among its windows. ↑ ↓ reorder them: open windows, the bar icon and the screen go along.",
                        "setting-sub", wrap=True))
         holder = box(True, 0)
         p.append(holder)

@@ -1,6 +1,6 @@
 -- Code + terminal pairs on the Code workspace: every VS Code window gets its own kitty beside it,
 -- kitty 45 % on the left and VS Code 55 %, so one pair fills the screen. The workspace uses the
--- scrolling layout: pairs sit side by side as columns, and Alt + N (VS Code windows only) slides
+-- scrolling layout: pairs sit side by side as columns, and Super + Q…P (VS Code windows only) slides
 -- the view to pair N. kitty-pair (local/bin) opens each kitty in its window's project folder, as
 -- its own app, with the class code-term-<VS Code address>: that's how a pair is found again.
 -- Opening another project in a VS Code window takes its kitty there too; closing the window closes it.
@@ -8,7 +8,7 @@
 -- window or its kitty opens local/lib/panels/pairgui.py, which calls applyPairLayout. Its defaults
 -- for new pairs are in ~/.config/hypr/codepair.conf (the popup writes it).
 -- Globals: PAIR_WS (wsgroups.lua gives it this layout), isPairTerm and pairMain (binds.lua:
--- Alt + N / Alt + Tab count VS Code windows, not their kittys), focusPair (Alt + N, Alt + Tab),
+-- Super + Q…P / Alt + Tab count VS Code windows, not their kittys), focusPair (Super + Q…P, Alt + Tab),
 -- toggleFullscreen and widenPairHalf (binds.lua: Super + F, Super + Alt + F / C / T),
 -- openPairPanel (binds.lua: Super + Alt + P), applyPairLayout (pairgui.py, through hyprctl eval).
 
@@ -103,12 +103,12 @@ local function pairLeft(code, term)
     return term.at.x < code.at.x and term or code
 end
 
--- the window that stands for w in Alt + N / Alt + Tab: a pair's kitty counts as its VS Code
+-- the window that stands for w in Super + Q…P / Alt + Tab: a pair's kitty counts as its VS Code
 function pairMain(w)
     return isPairTerm(w) and codeOf(w) or w
 end
 
--- Alt + N / Alt + Tab: show the whole pair. Focusing its left column first scrolls the view to the
+-- Super + Q…P / Alt + Tab: show the whole pair. Focusing its left column first scrolls the view to the
 -- pair's left edge; the two columns together are exactly the screen, so VS Code then fits
 -- without scrolling again. Any other window: focused as usual.
 function focusPair(w)

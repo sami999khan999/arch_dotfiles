@@ -15,7 +15,8 @@ for raw in file:lines() do
         local keys, class, cmd = line:match("^(.-)|(.-)|(.+)$")
         if keys then
             keys, class, cmd = trim(keys), trim(class), trim(cmd)
-            hl.bind(keys, hl.dsp.exec_cmd(script .. " '" .. class .. "' " .. cmd))
+            KEYBINDS[keys] = KEYBINDS[keys] or {}   -- binds.lua: Super + E steps aside in window-switcher mode
+            table.insert(KEYBINDS[keys], hl.bind(keys, hl.dsp.exec_cmd(script .. " '" .. class .. "' " .. cmd)))
         end
     end
 end

@@ -1016,12 +1016,17 @@ Containers, Images, Volumes and Networks (`1`–`4`, `Tab`, `←→` or a click)
 the selected item's details, actions and logs on the right.
 
 - Containers are grouped by compose project. A project is a row too: Stop all / Start all,
-  Restart all, Logs (all its containers in one stream), and Fold (`Enter`) to hide its containers.
-- Container: `s` start/stop · `r` restart · `l` logs · `e` exec · `o` open the first port.
-  Logs are formatted by `panels/dockerlogs.py` (local time, level, message, details dimmed);
-  `l` follows them in `less` in a floating terminal. Exec offers the container's shell, presets
-  and "as root".
-- Images: `u` pull. Images, volumes, networks: `d` twice removes it (docker refuses if in use).
+  Restart all, Logs (all its containers in one stream), Fold (`Enter`) to hide its containers, and
+  **Delete all** (`d` twice: `docker compose -p NAME down`, its containers and network; volumes stay).
+- Container: `s` start/stop · `r` restart · `l` logs · `e` shell · `x` run a command · `o` open the
+  first port · `d` twice deletes it (stopped first if it runs). Logs are formatted by
+  `panels/dockerlogs.py` (local time, level, message, details dimmed); `l` follows them in `less` in a
+  floating terminal. **Shell** (`e`) opens the container's own shell straight away in a floating
+  terminal (bash, else ash, else sh); **Run…** (`x`) runs a command (presets, the last ones, "as root").
+- **Delete stopped (N)** in the header (`D`, twice) deletes every stopped container at once; their
+  volumes and images stay.
+- Images: `u` pull. Images, volumes, networks: `d` twice deletes it (docker refuses if in use). A
+  first press turns the button red ("Click again to delete") for 3 s.
 - `L` (or the lazydocker button) opens lazydocker in a floating terminal.
 - Light on Docker: it follows `docker events` instead of asking every second, waits while workspace 9
   isn't on screen, reads CPU / memory (`docker stats`) only on Containers and the volumes' sizes

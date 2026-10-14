@@ -42,8 +42,9 @@ class Docker(View):
     icon = "\uf308"   # nf-linux-docker, as the terminal panel
     interval = 1.0
     css = CSS
-    hints = [("1-4", "tabs"), ("s", "start/stop"), ("r", "restart"), ("l", "logs"), ("e", "exec"),
-             ("o", "open port"), ("u", "pull"), ("d", "remove"), ("Enter", "collapse"), ("L", "lazydocker")]
+    hints = [("1-4", "tabs"), ("s", "start/stop"), ("r", "restart"), ("l", "logs"), ("e", "shell"), ("x", "run…"),
+             ("o", "open port"), ("u", "pull"), ("d", "delete"), ("D", "delete stopped"), ("Enter", "collapse"),
+             ("L", "lazydocker")]
 
     def __init__(self):
         super().__init__()
@@ -69,7 +70,10 @@ class Docker(View):
                          start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def header_extra(self):
-        return [button("lazydocker", lambda: self.terminal(["lazydocker"], "lazydocker"), "flat",
+        self.prune_btn = button("", self.prune, "flat", "danger",
+                                tooltip="Delete every stopped container, twice to confirm (D); their volumes and images stay")
+        self.prune_btn.set_visible(False)
+        return [self.prune_btn, button("lazydocker", lambda: self.terminal(["lazydocker"], "lazydocker"), "flat",
                        tooltip="Everything else (L)")]
 
     # ---- layout ----------------------------------------------------------------------------------
@@ -154,6 +158,10 @@ class Docker(View):
         for t, b in self.tabs.items():
             b.set_label(f"{TAB_NAMES[t]} {len(m.entries(t))}")
             (b.add_css_class if t == m.tab else b.remove_css_class)("on")
+        stopped = self.stopped()
+        sure = self.armed and self.armed[0] == "prune" and time.time() - self.armed[1] < 3
+        self.prune_btn.set_label(f"Click again: delete {len(stopped)}" if sure else f"Delete stopped ({len(stopped)})")
+        self.prune_btn.set_visible(m.tab == "containers" and bool(stopped))
         self.paint_list()
         self.paint_detail()
 
@@ -415,11 +423,13 @@ class Docker(View):
                        self.act_button("Restart", lambda: self.container_action("r", c), tooltip="r", busy=busy),
                        button("Logs", lambda: self.full_logs(c), tooltip="Full screen, following (l)")]
             if running:
-                buttons.append(self.exec_button(c))
+                buttons += [button("Shell", lambda: self.model.run_shell(c), tooltip="Its shell, in a terminal (e)"),
+                            self.exec_button(c)]
             if pp:
                 buttons.append(button("Open port", lambda: self.container_action("o", c), tooltip="o"))
+            buttons.append(self.remove_button(c, busy))
             return buttons
-        self.set_actions((c["ID"], running, busy, bool(pp)), make)
+        self.set_actions((c["ID"], running, busy, bool(pp), self.armed_on(c)), make)
 
         self.lower_title.set_text("Logs")
         if m.logs_for != c["ID"]:
@@ -463,12 +473,14 @@ class Docker(View):
             pairs.append(("Ports", "  ".join(pp)))
         self.kv_rows(pairs)
         folded = p["project"] in self.folded
-        self.set_actions((p["ID"], bool(up), busy, folded), lambda: [
+        self.set_actions((p["ID"], bool(up), busy, folded, self.armed_on(p)), lambda: [
             self.act_button("Stop all" if up else "Start all", lambda: self.project_action("s", p), "primary",
                             tooltip="s", busy=busy),
             self.act_button("Restart all", lambda: self.project_action("r", p), tooltip="r", busy=busy),
             button("Logs", lambda: self.project_logs(p["project"]), tooltip="Every container's logs, following (l)"),
-            button("Expand" if folded else "Collapse", lambda: self.fold(p["ID"]), tooltip="Enter")])
+            button("Expand" if folded else "Collapse", lambda: self.fold(p["ID"]), tooltip="Enter"),
+            self.remove_button(p, busy, "Delete all", "Stop and delete its containers and network, twice to "
+                               "confirm (d); volumes stay (start it again from the project: docker compose up)")])
         self.lower_title.set_text("Containers")
         seg = []
         for c in group:
@@ -488,7 +500,7 @@ class Docker(View):
                             "dangling" if i["dangling"] else "unused")
         self.kv_rows([("ID", i["ID"]), ("Size", i["size"]), ("Created", i["created"]),
                       ("Used by", ", ".join(i["used"]) or "no containers")])
-        self.set_actions((i["ID"], busy), lambda: [
+        self.set_actions((i["ID"], busy, self.armed_on(i)), lambda: [
             self.act_button("Pull", lambda: self.key_action("u"), "primary", tooltip="Pull a newer version (u)",
                             busy=busy or i["dangling"]),
             self.remove_button(i, busy)])
@@ -510,7 +522,7 @@ class Docker(View):
         self.state.set_text(m.busy[v["ID"]] if busy else "in use" if v["used"] else "unused")
         self.kv_rows([("Name", v["ID"]), ("Size", v["size"]), ("Driver", v["driver"]),
                       ("Project", v["project"] or "—"), ("Mountpoint", v["mount"])])
-        self.set_actions((v["ID"], busy), lambda: [self.remove_button(v, busy)])
+        self.set_actions((v["ID"], busy, self.armed_on(v)), lambda: [self.remove_button(v, busy)])
         self.lower_title.set_text(f"Used by ({len(v['used'])})")
         self.set_text([(n + "\n", None) for n in v["used"]] or [("no containers", "dim")])
 
@@ -523,16 +535,38 @@ class Docker(View):
                       ("Internal", "yes" if n["internal"] else "no"), ("Project", n["project"] or "—"),
                       ("Created", n["created"])])
         builtin = n["name"] in dp.BUILTIN_NETWORKS
-        self.set_actions((n["ID"], busy), lambda: [] if builtin else [self.remove_button(n, busy)])
+        self.set_actions((n["ID"], busy, self.armed_on(n)), lambda: [] if builtin else [self.remove_button(n, busy)])
         self.lower_title.set_text(f"Containers ({len(n['members'])})")
         seg = []
         for name, ip in n["members"]:
             seg += [(f"{name:<36}", None), (ip + "\n", "dim")]
         self.set_text(seg or [("none attached", "dim")])
 
-    def remove_button(self, e, busy):
-        return self.act_button("Remove", lambda: self.remove(e), tooltip="Press twice to remove (d)",
-                               busy=busy)
+    def remove_button(self, e, busy, text="Delete", tooltip="Press twice to delete (d)"):
+        """Delete (an image, volume, network, container; a project's Delete all): the first press arms
+        it, red, for 3 s; the second deletes."""
+        sure = self.armed_on(e)
+        return self.act_button("Click again to delete" if sure else text, lambda: self.remove(e),
+                               "danger" if sure else "flat", tooltip=tooltip, busy=busy)
+
+    def armed_on(self, e):
+        return bool(self.armed and self.armed[0] == e["ID"] and time.time() - self.armed[1] < 3)
+
+    def disarm(self, key):
+        """The armed Delete goes back to normal after its 3 s."""
+        if self.armed and self.armed[0] == key:
+            self.armed = None
+            self.update()
+        return False
+
+    def arm(self, key, msg):
+        self.armed = (key, time.time())
+        self.say(msg)
+        GLib.timeout_add(3100, self.disarm, key)
+        self.update()
+
+    def stopped(self):
+        return [c for c in self.model.items if c["State"] in ("exited", "created", "dead")]
 
     # ---- actions ---------------------------------------------------------------------------------
     def container_action(self, k, c):
@@ -570,37 +604,57 @@ class Docker(View):
         self.update()
 
     def remove(self, e):
-        """Twice (the button or d) within 3 s: remove the image, volume or network."""
+        """Twice (the button or d) within 3 s: delete the container (stopped first if it runs), the
+        project's containers (compose down: volumes stay), the image, volume or network."""
         m = self.model
-        name = {"images": e.get("ref"), "volumes": e.get("short"), "networks": e.get("name")}.get(m.tab)
+        project = dp.is_project(e)
+        name = e["project"] if project else {"containers": e.get("short"), "images": e.get("ref"),
+                                             "volumes": e.get("short"), "networks": e.get("name")}.get(m.tab)
         if not name:
             return
         if m.tab == "networks" and e["name"] in dp.BUILTIN_NETWORKS:
             self.say(f"{name} is built into docker and can't be removed")
             return
-        if self.armed and self.armed[0] == e["ID"] and time.time() - self.armed[1] < 3:
-            self.armed = None
-            cmd = {"images": ["rmi", e["ID"]], "volumes": ["volume", "rm", e["ID"]],
-                   "networks": ["network", "rm", e["ID"]]}[m.tab]
-            m.act([e["ID"]], "removing…", cmd, f"removed {name}")
-            self.update()
+        if not self.armed_on(e):
+            what = f"all of {name}'s containers (volumes stay)" if project else name
+            return self.arm(e["ID"], f"press again (or d) to delete {what}")
+        self.armed = None
+        if project:
+            labels = {c["ID"]: "deleting…" for c in e["containers"]} | {e["ID"]: "deleting…"}
+            m.act(labels, "deleting…", ["compose", "-p", name, "down", "--remove-orphans"], f"{name}: deleted")
         else:
-            self.armed = (e["ID"], time.time())
-            self.say(f"press Remove (or d) again to remove {name}")
+            cmd = {"containers": ["rm", "-f", e["ID"]], "images": ["rmi", e["ID"]],
+                   "volumes": ["volume", "rm", e["ID"]], "networks": ["network", "rm", e["ID"]]}[m.tab]
+            m.act([e["ID"]], "deleting…", cmd, f"deleted {name}")
+        self.update()
+
+    def prune(self):
+        """Delete stopped (D), twice: every stopped container at once, each named (not docker container
+        prune: one that stops meanwhile isn't swept up unseen)."""
+        stopped = self.stopped()
+        if not stopped:
+            return
+        if not (self.armed and self.armed[0] == "prune" and time.time() - self.armed[1] < 3):
+            return self.arm("prune", f"press again (or D) to delete {len(stopped)} stopped containers (volumes stay)")
+        self.armed = None
+        ids = [c["ID"] for c in stopped]
+        self.model.act(dict.fromkeys(ids, "deleting…"), "deleting…", ["rm", *ids],
+                       f"deleted {len(ids)} stopped container{'s' * (len(ids) != 1)}")
+        self.update()
 
     # ---- exec ------------------------------------------------------------------------------------
     def exec_button(self, c):
-        """Exec: a small form in a popover, pre-filled with the container's best shell."""
+        """Run…: a command in it, a small form in a popover (Shell is the button next to it)."""
         m = self.model
-        entry = Gtk.Entry(text="sh", hexpand=True)
-        entry.touched = False
-        entry.connect("changed", lambda *_: setattr(entry, "touched", entry.has_focus()))
+        entry = Gtk.Entry(placeholder_text="a command, e.g. env", hexpand=True)
         root = Gtk.CheckButton(label="as root")
         pop = Gtk.Popover()
 
         def go(*_):
+            if not entry.get_text().strip():
+                return
             pop.popdown()
-            m.run_exec(c, entry.get_text().strip() or "sh", root.get_active())
+            m.run_exec(c, entry.get_text().strip(), root.get_active())
 
         entry.connect("activate", go)
         presets = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=6)
@@ -610,19 +664,9 @@ class Docker(View):
                    box(False, 8, root, label(""), button("Run", go, "primary")))
         form.set_size_request(420, -1)
         pop.set_child(form)
+        pop.connect("show", lambda *_: entry.grab_focus())
 
-        def detect():
-            try:
-                r = dp.docker("exec", c["ID"], "sh", "-c", "command -v bash || command -v ash || command -v sh",
-                              timeout=5)
-                shell = os.path.basename(r.stdout.split()[0]) if r.returncode == 0 and r.stdout.split() else ""
-            except (OSError, subprocess.TimeoutExpired):
-                shell = ""
-            if shell:
-                GLib.idle_add(lambda: (not entry.touched and entry.set_text(shell)) and False)
-        pop.connect("show", lambda *_: threading.Thread(target=detect, daemon=True).start())
-
-        mb = Gtk.MenuButton(label="Exec", tooltip_text="Run a command or a shell in it (e)")
+        mb = Gtk.MenuButton(label="Run\u2026", tooltip_text="Run a command in it (x)")
         mb.set_popover(pop)
         self.exec_menu = mb
         return mb
@@ -654,6 +698,8 @@ class Docker(View):
                 self.project_action(k, e)
             elif k == "l":
                 self.project_logs(e["project"])
+            elif k == "d":
+                self.remove(e)
         elif k == "d":
             self.remove(e)
         elif m.tab == "containers":
@@ -664,6 +710,8 @@ class Docker(View):
             elif k in ("e", "x"):
                 if e["State"] != "running":
                     self.say("start the container first (s)")
+                elif k == "e":
+                    m.run_shell(e)
                 elif getattr(self, "exec_menu", None):
                     self.exec_menu.popup()
         elif m.tab == "images" and k == "u":
@@ -692,6 +740,8 @@ class Docker(View):
             self.terminal(["lazydocker"], "lazydocker")
         elif name in ("s", "r", "l", "e", "x", "o", "u", "d"):
             self.key_action(name)
+        elif name == "D" and m.tab == "containers":
+            self.prune()
         else:
             return False
         return True

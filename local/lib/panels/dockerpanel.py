@@ -789,6 +789,17 @@ class DockerPanel(Panel):
             p["text"] = (p["text"] if p["touched"] else "") + k  # typing replaces the suggestion
             p["touched"] = True
 
+    def run_shell(self, c, root=False):
+        """The container's own shell, straight in: the best it has (bash, else ash, else sh), picked
+        inside the container by the same exec (no docker call first to look)."""
+        pick = "for s in bash ash sh; do command -v $s >/dev/null 2>&1 && exec $s; done; echo no shell in this image; exit 127"
+        argv = ["docker", "exec", "-it", "-e", "TERM=xterm-256color"] + (["-u", "0"] if root else []) + [c["ID"], "sh", "-c", pick]
+        script = (f'printf "\\033[2J\\033[H\\033[38;2;107;143;224mshell\\033[0m %s \\033[2m%s\\033[0m\\n\\n" '
+                  f'{shlex.quote(c["Names"])} {shlex.quote("as root · exit or Ctrl+D closes" if root else "exit or Ctrl+D closes")}; '
+                  f'{shlex.join(argv)}; s=$?; '
+                  f'if [ $s -ne 0 ] && [ $s -ne 130 ]; then printf "\\n\\033[2m── exit %s · Enter to close ──\\033[0m" $s; read _; fi')
+        self.external(["sh", "-c", script])
+
     def run_exec(self, c, command, root):
         try:
             words = shlex.split(command)

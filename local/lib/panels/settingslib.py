@@ -723,7 +723,7 @@ def mako_test():
 
 # ---- top bar (waybar) --------------------------------------------------------------------------
 WAYBAR = f"{CFG}/waybar/config.jsonc"
-STATS = ["cpu", "memory", "temperature", "battery"]
+STATS = ["custom/fps", "cpu", "memory", "temperature", "battery"]   # the group's modules, in bar order
 
 
 def bar_get():

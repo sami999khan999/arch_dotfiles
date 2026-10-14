@@ -142,6 +142,14 @@ that changes (a longer title, the play button, the clock's long view) and never 
 anything else (`scripts/visualizer.py`). It costs nothing while silent (it doesn't follow the bar until
 something plays), pauses cava on **off**, and draws nothing under a fullscreen window.
 
+The stats start with the frames drawn: `󰓅 27/60` is how many frames *this* screen drew in the last
+second, out of its refresh rate. Each screen's bar counts its own. Hyprland only draws when something
+changes, so a still screen shows `0` (dimmed) and a playing video or a scroll goes up to the refresh
+rate. Hyprland has no counter to ask, so `scripts/fps.py` gets a one-pixel screen copy of each frame
+Hyprland draws (wlr-screencopy). That costs next to nothing, but while it runs Hyprland counts a
+screencast, and a fullscreen game isn't scanned out directly. Hide it in Settings → Power & bar →
+Top bar.
+
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. awww draws them (`scripts/wallpaper.sh`): a screen whose workspace has windows shows a
 blurred, darker copy of the picture (made once, kept in `~/.cache/wallpaper`), so the gaps around the
@@ -734,7 +742,7 @@ control applies at once; the bottom line says where it was saved.
 |---|---|
 | Look & feel | Appearance (gaps, borders, corners, opacity, blur, shadow, what's behind an open panel: on / off, how blurry, how dark) · Animations (on/off, speed, workspace slide) · Wallpaper (thumbnails, fill / fit) · Theme & fonts (dark mode, icons, cursor, fonts; nwg-look / qt6ct for more) |
 | Input & display | Keyboard (layouts, switch key, repeat, Num Lock) · Mouse (speed, acceleration, natural scroll, focus follows mouse, zoom) · Key mapping (any key or mouse button, side buttons included, to Copy / Paste / media / a shortcut / a command) · Display (mode and scale, with a 15 s "keep?" that reverts; VRR) · Night light (warmth, schedule) |
-| Power & bar | Idle & lock (lock / screen-off timeouts, lock before sleep, stay awake) · Power profile · Notifications (corner, timeout, Do not disturb, hidden apps) · Top bar (position, height, stats) |
+| Power & bar | Idle & lock (lock / screen-off timeouts, lock before sleep, stay awake) · Power profile · Notifications (corner, timeout, Do not disturb, hidden apps) · Top bar (position, height, stats: frames drawn, processor, memory…) |
 | System | Default apps (terminal, browser…, and what opens links / files) · Date & time (time zone, NTP, 24-hour clock) · More settings (opens the other panels) · About this PC |
 
 Where values go (`local/lib/panels/settingslib.py` does the reading and writing; `settingsgui.py`

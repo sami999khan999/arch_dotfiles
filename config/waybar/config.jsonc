@@ -39,6 +39,7 @@
   "group/stats": {
     "orientation": "inherit",
     "modules": [
+      "custom/fps",
       "cpu",
       "memory",
       "temperature",
@@ -224,6 +225,12 @@
   // the stats keep one width (the number takes 3 places, the space after the icon included): at
   // 100 % a "{usage:>2}" grew the right side by a character, and the gap's contents, sized to the
   // pixel, got cut off ("…")
+  // frames this bar's screen drew in the last second / its refresh rate (a copy per bar, each its screen)
+  "custom/fps": {
+    "exec": "~/.config/hypr/scripts/fps.py",
+    "return-type": "json",
+    "restart-interval": 5
+  },
   "memory": {
     "interval": 5,
     "format": "󰘚{percentage:>3}%",

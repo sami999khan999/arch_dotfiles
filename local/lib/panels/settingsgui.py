@@ -774,7 +774,7 @@ class Settings(View):
         shown = list(b["stats"])
         has_battery = any(os.path.exists(f"/sys/class/power_supply/{d}/capacity")
                           for d in os.listdir("/sys/class/power_supply")) if os.path.isdir("/sys/class/power_supply") else False
-        names = {"cpu": "Processor", "memory": "Memory", "temperature": "Temperature", "battery": "Battery"}
+        names = {"custom/fps": "Frames drawn", "cpu": "Processor", "memory": "Memory", "temperature": "Temperature", "battery": "Battery"}
 
         def flip(mod, on):
             if on and mod not in shown:

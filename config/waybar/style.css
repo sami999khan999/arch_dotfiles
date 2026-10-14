@@ -38,7 +38,7 @@ window#waybar {
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
 #custom-clock, #custom-wsgroups, #custom-sysagent, #custom-keys, #custom-settings,
-#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature,
+#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps,
 #custom-idle-indicator, #custom-notifications, #custom-load,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
   padding: 0 10px;
@@ -49,7 +49,7 @@ window#waybar {
 
 #custom-clock:hover, #custom-wsgroups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
-#memory:hover, #temperature:hover, #mpris:hover, #custom-codesync:hover,
+#memory:hover, #temperature:hover, #custom-fps:hover, #mpris:hover, #custom-codesync:hover,
 #custom-visualizer:hover, #custom-load:hover {
   background: @overlay;
   color: @text;
@@ -247,8 +247,13 @@ window#waybar {
   padding: 0;
 }
 
-#cpu, #memory, #temperature, #battery {
+#cpu, #memory, #temperature, #battery, #custom-fps {
   color: @text;
+}
+
+/* a still screen: nothing drawn */
+#custom-fps.idle {
+  color: @muted;
 }
 
 /* room for "100%": reaching three digits doesn't widen the right section */

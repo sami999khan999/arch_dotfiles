@@ -42,7 +42,9 @@ import importlib.machinery, importlib.util, json, math, os, shutil, signal, subp
 # group count "⊞ 1/1", the play button showing, no indicator, the short clock and a 3-digit volume. Every difference
 # from that is added or taken off below. A wider screen adds its width. (The bar has no tray: apps
 # with a tray icon have their own workspace.)
-GAP_REF, TITLE_REF = 196, 30   # measured with the Settings button on the right (the agentmux one left again)
+# measured with the Settings button on the right (the agentmux one left again), less the frame
+# counter that came after (custom/fps "󰓅 60/60": 20 px padding + 7 characters = 69 px)
+GAP_REF, TITLE_REF = 127, 30
 COUNT_REF = "\U000f0570 1/1"   # the group count's text in the reference
 CLOCK_REF_LEN = 17             # "Thu 01 Oct  22:43": the short clock
 VOLUME_REF_LEN = 3             # "100%": the volume's digits (the model leaves out its icon's few px)

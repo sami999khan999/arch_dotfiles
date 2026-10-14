@@ -1017,13 +1017,17 @@ def set_account(name, account):
 
 
 def restart_agent(t, account):
-    """Thread t's agent again, on account, on its conversation (--resume; --continue, its id unknown)."""
+    """Thread t's agent again, on account, on its conversation (--resume; --continue, its id unknown;
+    a fresh one if it hasn't said anything yet)."""
     name, harness = t["name"], t["harness"]
     rec = load_state().get("sessions", {}).get(name)
     sid = rec.get("id") if rec else None
+    fresh = False
     if sid and not session_exists(t["project"], harness, sid):
-        sid = None
-    script = agent_script(harness, account, resume=not sid, session=sid)
+        # its id came at start (SessionStart) but nothing is on disk until the first message: --continue
+        # would take the project's latest conversation, another thread's
+        sid, fresh = None, True
+    script = agent_script(harness, account, resume=not sid and not fresh, session=sid)
     agents("respawn-pane", "-k", "-t", f"={name}:", "sh", "-c", script, "agentmux", "")
     agents("set-option", "-t", f"={name}:", "@account", account)
     agents("set-option", "-t", f"={name}:", "@agent_state", "")   # its usage-limit error is the old account's

@@ -274,6 +274,25 @@ def dropdown(options, current, on_change, search=False):
     return dd
 
 
+def wheel_scrolls_page(widget):
+    """The mouse wheel over a slider or number box scrolls the page it's on instead of changing the
+    value: scrolling down a settings page kept changing whatever passed under the pointer. The +/−
+    buttons, dragging, typing and the arrow keys still change it."""
+    def scroll(ctl, dx, dy):
+        view = widget.get_ancestor(Gtk.ScrolledWindow)
+        if view is not None:
+            adj = view.get_vadjustment()
+            # a wheel notch moves like GTK's own (page ^ 2/3); a touchpad's deltas are pixels
+            step = adj.get_page_size() ** (2 / 3) if ctl.get_unit() == Gdk.ScrollUnit.WHEEL else 1
+            adj.set_value(adj.get_value() + dy * step)
+        return True
+    ctl = Gtk.EventControllerScroll.new(Gtk.EventControllerScrollFlags.BOTH_AXES)
+    ctl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)   # before the widget's own handler
+    ctl.connect("scroll", scroll)
+    widget.add_controller(ctl)
+    return widget
+
+
 def spin(lo, hi, step, value, on_change, digits=0):
     """A number box; on_change(number) shortly after the user stops changing it."""
     sp = Gtk.SpinButton.new_with_range(lo, hi, step)
@@ -281,7 +300,7 @@ def spin(lo, hi, step, value, on_change, digits=0):
     sp.set_value(value if value is not None else lo)
     later = debounced(on_change, 400)
     sp.connect("value-changed", lambda w: later(round(w.get_value(), digits) if digits else int(w.get_value())))
-    return sp
+    return wheel_scrolls_page(sp)
 
 
 def slider(lo, hi, step, value, on_change, fmt="{:.2f}", width=200):
@@ -290,6 +309,7 @@ def slider(lo, hi, step, value, on_change, fmt="{:.2f}", width=200):
     sc.set_draw_value(False)
     sc.set_size_request(width, -1)
     sc.set_value(value if value is not None else lo)
+    wheel_scrolls_page(sc)
     shown = label(fmt.format(sc.get_value()), "sub", xalign=1.0)
     shown.set_width_chars(len(fmt.format(hi)) + 1)
     later = debounced(on_change)

@@ -273,20 +273,14 @@ def until(ts):
 
 
 def budget(pct, reset, start):
-    """Today's even share of a long window (weekly, monthly): what was left of it when today began,
-    spread over the days from then to its reset (the last one partly). start: [percent, reset] at the
-    start of today (lib.day_start), None before today's first reading. Returns (share, used today,
-    left of the window at the start of today, days)."""
-    now = time.localtime()
-    midnight = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, 0, 0, 0, 0, 0, -1))
-    if not start:
-        begun = pct   # the first reading today: nothing counted as used yet
-    else:
-        # the same window (its reset time wobbles by moments between answers), else it reset during
-        # today: a fresh window
-        begun = start[0] if abs(start[1] - reset) < 3600 else 0.0
-    days = max((reset - midnight) / 86400, 1.0)   # a last part-day gets all that's left
-    return (100 - begun) / days, max(pct - begun, 0.0), 100 - begun, (reset - midnight) / 86400
+    """A long window's (weekly, monthly) even share, to make it last: what's left now over the time to
+    its reset (the same two numbers its bar shows), all of it on the last day. start: [percent, reset]
+    when today began (lib.day_start), {} / None before today's first reading. Returns (a day's share,
+    used today)."""
+    share = (100 - pct) / max((reset - time.time()) / 86400, 1.0)
+    # the same window (its reset time wobbles by moments between answers), else it reset today
+    begun = (start[0] if abs(start[1] - reset) < 3600 else 0.0) if start else pct
+    return share, max(pct - begun, 0.0)
 
 
 def ago(ts):
@@ -400,29 +394,16 @@ class Account(Picker):
         return col
 
     def today(self, name, pct, reset, start):
-        """Today's share of a long window, to make it last to the reset: how much of it is used."""
-        share, used, left, days = budget(pct, reset, start)
-        ratio = used / share * 100 if share else 100
-        colour = level(ratio)
-        head = box(False, 8, label(f"today · {name} budget", "sub"),
-                   label(f"{used:.1f}% of {share:.1f}%", colour, "bold"))
-        head.get_first_child().set_hexpand(True)
+        """A day's share of a long window, to make it last to the reset, and how much today has used."""
+        share, used = budget(pct, reset, start)
         rest = share - used
-        if days <= 1:
-            plan = f"the last day: all {left:.0f}% left at 00:00 is today's"
-        else:   # counted from the start of today, so the share stays put through the day
-            d, h = int(days), round(days % 1 * 24)
-            d, h = (d + 1, 0) if h == 24 else (d, h)
-            plan = f"at 00:00 {left:.0f}% left, {d}d {h}h to the reset: {left:.0f} ÷ {days:.2f} days = {share:.1f}% a day"
-        state = f"{rest:.1f}% left today" if rest >= 0.05 else \
-            f"{-rest:.1f}% over today's share" if rest < -0.05 else "today's share used up"
-        foot = box(False, 8, label(plan, "setting-sub", ellipsize=True), label(state, colour if rest < 0.05 else "setting-sub"))
+        colour = level(used / share * 100 if share else 100)
+        head = box(False, 8, label("daily budget", "sub"), label(f"{share:.1f}% a day", "bold"))
+        head.get_first_child().set_hexpand(True)
+        state = f"{rest:.1f}% left today" if rest >= 0.05 else f"{-rest:.1f}% over today" if rest < -0.05 else "used up today"
+        foot = box(False, 8, label(f"{used:.1f}% used today", colour), label(state, colour if rest < 0.05 else "setting-sub"))
         foot.get_first_child().set_hexpand(True)
-        row = box(True, 6, head, self.bar(used, share, colour), foot, classes=("usage", "today"))
-        now_days = max((reset - time.time()) / 86400, 1 / 24)
-        row.set_tooltip_text(f"Today's share is fixed at the start of the day.\nFrom right now: {100 - pct:.0f}% left "
-                             f"for {until(reset).split(' · in ')[-1]} = {(100 - pct) / max(now_days, 1):.1f}% a day")
-        return row
+        return box(True, 6, head, self.bar(used, share, colour), foot, classes=("usage", "today"))
 
     def card(self, h, a, default, q):
         """An account's card, or None if the search leaves it out."""

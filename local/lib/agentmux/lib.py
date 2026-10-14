@@ -862,7 +862,7 @@ def account_usage(harness, account, live=False):
 def day_start(old, windows):
     """Where each window stood when today began: {"date", "start": {name: [percent, reset]}}. The last
     reading before today (usage is read after every turn, so close to midnight's) or, the first time,
-    this one. A window that has reset since starts at 0. What the daily budget is counted from."""
+    this one. A window that has reset since starts at 0. The Accounts panel's "used today" counts from it."""
     today = time.strftime("%Y-%m-%d")
     if (old.get("day") or {}).get("date") == today:
         return old["day"]

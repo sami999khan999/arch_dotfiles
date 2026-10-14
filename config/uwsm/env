@@ -2,7 +2,7 @@
 # at login runs from there too (agentmux's tmux servers: claude / agy; a push from the Projects panel:
 # a repo's git hooks, e.g. husky running pnpm)
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
-export BROWSER=firefox
+export BROWSER=google-chrome-stable
 export TERM=xterm-kitty
 export QT_QPA_PLATFORM="wayland;xcb"
 export QT_QPA_PLATFORMTHEME="qt6ct"

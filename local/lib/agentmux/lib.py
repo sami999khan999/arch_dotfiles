@@ -768,7 +768,8 @@ def account_usage(harness, account, live=False):
     now with the account's own login, unless its token has expired: the agent renews it when it next
     runs, and renewing it here could race a running one and log it out. Otherwise what was read last:
     Claude Code keeps its own in .claude.json, agentmux keeps every live answer (USAGE_CACHE). A window
-    whose reset time has passed is back at 0."""
+    whose reset time has passed is back at 0. "today": {window: [percent, reset]} where each stood when
+    today began (day_start), {} before the first reading of the day."""
     from datetime import datetime
     key = f"{harness}/{account}"
     try:
@@ -843,7 +844,9 @@ def account_usage(harness, account, live=False):
                     windows.append((window_name(w.get("limit_window_seconds", 0)), float(w["used_percent"]),
                                     w.get("reset_at", 0), ""))
         if windows:
-            cache[key] = {"windows": windows, "at": at, **({"project": project} if harness == "agy" else {})}
+            old = cache.get(key, {})
+            cache[key] = {"windows": windows, "at": at, "day": day_start(old, windows),
+                          **({"project": project} if harness == "agy" else {})}
             os.makedirs(os.path.dirname(USAGE_CACHE), exist_ok=True)
             with open(USAGE_CACHE, "w") as f:
                 json.dump(cache, f)
@@ -851,7 +854,24 @@ def account_usage(harness, account, live=False):
         return {}
     now = time.time()
     windows = [(list(w) + [""])[:4] for w in windows]   # a cache from before "what it covers"
-    return {"windows": [(n, 0.0, 0, c) if r and r < now else (n, p, r, c) for n, p, r, c in windows], "at": at}
+    day = cache.get(key, {}).get("day") or {}
+    return {"windows": [(n, 0.0, 0, c) if r and r < now else (n, p, r, c) for n, p, r, c in windows], "at": at,
+            "today": day.get("start", {}) if day.get("date") == time.strftime("%Y-%m-%d") else {}}
+
+
+def day_start(old, windows):
+    """Where each window stood when today began: {"date", "start": {name: [percent, reset]}}. The last
+    reading before today (usage is read after every turn, so close to midnight's) or, the first time,
+    this one. A window that has reset since starts at 0. What the daily budget is counted from."""
+    today = time.strftime("%Y-%m-%d")
+    if (old.get("day") or {}).get("date") == today:
+        return old["day"]
+    now, before = time.time(), {w[0]: w for w in old.get("windows", [])}
+    start = {}
+    for name, pct, reset, *_ in windows:
+        prev = before.get(name)
+        start[name] = [0.0, reset] if prev and prev[2] and prev[2] < now else [prev[1], prev[2]] if prev else [pct, reset]
+    return {"date": today, "start": start}
 
 
 # ---- what a thread runs on: its model, how far its account is into its limit --------------------

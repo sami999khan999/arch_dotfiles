@@ -848,11 +848,17 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   it. **`Ctrl+Alt+K`** opens the **Accounts** panel: the agents down the left (each with its number of
   accounts and its default; a click or `Tab` picks one, the shown thread's agent first), the picked
   agent's accounts at the right, a card each: who's logged in (or *not logged in*), the plan, and each
-  usage window as a bar (green, amber from 60 %, red from 85 %) with when it resets (`resets Mon 01:49
-  · in 2h 54m`): Claude Code's **5-hour** and **weekly**, Codex's (a Free plan has one **monthly**),
+  usage window as a bar (green, amber from 60 %, red from 85 %) with what's left and when it resets (`38% left ·
+  resets Mon 01:49 · in 2h 54m`): Claude Code's **5-hour** and **weekly**, Codex's (a Free plan has one **monthly**),
   Antigravity's per group of models, as agy itself shows them (*Gemini Models*: Flash, Pro; *Claude and
   GPT models*: Opus, Sonnet, GPT-OSS; each a weekly limit). Percentages are *used* (agy's own screen
-  says what's *left*). *this thread* marks the shown thread's account, the green dot and *default* the
+  says what's *left*). Under them, **today · weekly budget** (or monthly) shows how to make that limit
+  last until it resets. Take what was left when today began and spread it evenly over the days until
+  the reset (`38% left over 5.5 days: 6.9% a day`). That's today's share, and it stays fixed through the
+  day. Its bar and `2.4% of 6.9%` show how much of the share today has used, and the colour turns amber
+  and then red as it fills. The right end shows what's left today, or how far over you are. Where the
+  limit stood at the start of the day is kept with the usage readings (`~/.cache/agentmux/usage.json`,
+  read after every turn), so the first day only counts from its first reading. *this thread* marks the shown thread's account, the green dot and *default* the
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).

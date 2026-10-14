@@ -63,6 +63,7 @@ CSS = """
 .acct-note { margin-left: 28px; margin-top: 8px; }
 .acct-add { padding: 6px 18px; }
 .usage { margin-left: 28px; margin-top: 6px; }
+.usage.today { margin-top: 12px; padding-top: 10px; border-top: 1px solid alpha(#3b4261, .7); }
 .usage levelbar trough { background: #292e42; border: none; padding: 0; min-height: 8px; }
 .usage levelbar block { min-height: 8px; border: none; }
 .usage levelbar block.empty { background: transparent; }
@@ -257,13 +258,35 @@ class Harness(Picker):
 
 
 # ---- Accounts: usage, the default, which login a thread runs on ----------------------------------
+DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")   # not strftime's: it follows the locale (সোম)
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
 def until(ts):
     """When a usage window resets: "22:50 · in 12m" today, "Mon 09:00 · in 2d 3h" later."""
-    left = ts - time.time()
-    when = time.strftime("%H:%M" if left < 86400 and time.localtime(ts).tm_mday == time.localtime().tm_mday
-                         else "%a %H:%M" if left < 6 * 86400 else "%b %d", time.localtime(ts))
+    left, at = ts - time.time(), time.localtime(ts)
+    when = f"{at.tm_hour:02}:{at.tm_min:02}"
+    if not (left < 86400 and at.tm_mday == time.localtime().tm_mday):
+        when = f"{DAYS[at.tm_wday]} {when}" if left < 6 * 86400 else f"{MONTHS[at.tm_mon - 1]} {at.tm_mday:02}"
     d, h, m = int(left // 86400), int(left % 86400 // 3600), int(left % 3600 // 60)
     return f"{when} · in " + (f"{d}d {h}h" if d else f"{h}h {m}m" if h else f"{max(m, 1)}m")
+
+
+def budget(pct, reset, start):
+    """Today's even share of a long window (weekly, monthly): what was left of it when today began,
+    spread over the days from then to its reset (the last one partly). start: [percent, reset] at the
+    start of today (lib.day_start), None before today's first reading. Returns (share, used today,
+    left of the window at the start of today, days)."""
+    now = time.localtime()
+    midnight = time.mktime((now.tm_year, now.tm_mon, now.tm_mday, 0, 0, 0, 0, 0, -1))
+    if not start:
+        begun = pct   # the first reading today: nothing counted as used yet
+    else:
+        # the same window (its reset time wobbles by moments between answers), else it reset during
+        # today: a fresh window
+        begun = start[0] if abs(start[1] - reset) < 3600 else 0.0
+    days = max((reset - midnight) / 86400, 1.0)   # a last part-day gets all that's left
+    return (100 - begun) / days, max(pct - begun, 0.0), 100 - begun, (reset - midnight) / 86400
 
 
 def ago(ts):
@@ -356,19 +379,44 @@ class Account(Picker):
         self.usage = usage
         self.paint(self.selected())
 
-    def window(self, name, pct, reset, covers=""):
-        """One usage window: its name and percent, what it covers (agy's groups), a bar, when it resets."""
-        bar = Gtk.LevelBar(min_value=0, max_value=100, hexpand=True)
+    @staticmethod
+    def bar(value, top, colour):
+        bar = Gtk.LevelBar(min_value=0, max_value=max(top, 0.01), hexpand=True)
         for offset in (Gtk.LEVEL_BAR_OFFSET_LOW, Gtk.LEVEL_BAR_OFFSET_HIGH, Gtk.LEVEL_BAR_OFFSET_FULL):
             bar.remove_offset_value(offset)   # one colour, from level()
-        bar.set_value(min(pct, 100))
-        bar.add_css_class(level(pct))
+        bar.set_value(min(value, top))
+        bar.add_css_class(colour)
+        return bar
+
+    def window(self, name, pct, reset, covers=""):
+        """One usage window: its name and percent, what it covers (agy's groups), a bar, what's left and
+        when it resets."""
         top = box(False, 8, label(name, "sub", ellipsize=True), label(f"{pct:.0f}% used", level(pct), "bold"))
         top.get_first_child().set_hexpand(True)
-        col = box(True, 6, top, *([label(covers, "setting-sub", ellipsize=True)] if covers else []), bar,
-                  label(f"resets {until(reset)}" if reset else "full · starts counting with the next use", "setting-sub"))
+        when = f"{100 - pct:.0f}% left · resets {until(reset)}" if reset else "full · starts counting with the next use"
+        col = box(True, 6, top, *([label(covers, "setting-sub", ellipsize=True)] if covers else []),
+                  self.bar(pct, 100, level(pct)), label(when, "setting-sub", ellipsize=True))
         col.set_hexpand(True)
         return col
+
+    def today(self, name, pct, reset, start):
+        """Today's share of a long window, to make it last to the reset: how much of it is used."""
+        share, used, left, days = budget(pct, reset, start)
+        ratio = used / share * 100 if share else 100
+        colour = level(ratio)
+        head = box(False, 8, label(f"today · {name} budget", "sub"),
+                   label(f"{used:.1f}% of {share:.1f}%", colour, "bold"))
+        head.get_first_child().set_hexpand(True)
+        rest = share - used
+        if days <= 1:
+            plan = f"the last day: all {left:.0f}% left is today's"
+        else:
+            plan = f"{left:.0f}% left over {days:.1f} days: {share:.1f}% a day"
+        state = f"{rest:.1f}% left today" if rest >= 0.05 else \
+            f"{-rest:.1f}% over today's share" if rest < -0.05 else "today's share used up"
+        foot = box(False, 8, label(plan, "setting-sub", ellipsize=True), label(state, colour if rest < 0.05 else "setting-sub"))
+        foot.get_first_child().set_hexpand(True)
+        return box(True, 6, head, self.bar(used, share, colour), foot, classes=("usage", "today"))
 
     def card(self, h, a, default, q):
         """An account's card, or None if the search leaves it out."""
@@ -419,6 +467,10 @@ class Account(Picker):
                 row = box(False, 28, *cols, *([Gtk.Box()] if len(cols) == 1 else []), classes=("usage",))
                 row.set_homogeneous(True)
                 card.append(row)
+            for name, pct, reset, _ in ws:   # the weekly (or monthly) limit, spread to its reset
+                if name in ("weekly", "monthly") and reset:
+                    card.append(self.today(name, pct, reset, use.get("today", {}).get(name)))
+                    break
             if time.time() - use["at"] > 600:   # what was read last; its token too old to ask now
                 card.append(label(f"as of {ago(use['at'])} · updates once a thread runs on it", "dim", "acct-note"))
         elif email:

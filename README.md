@@ -12,8 +12,8 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
 
 <br>
 
-<img src="docs/screenshots/agentmux.png" alt="agentmux: projects, threads, an agent and its terminals side by side" width="100%">
-<img src="docs/screenshots/bar.png" alt="The top bar" width="100%">
+<img src="docs/screenshots/tokyo-night/agentmux.png" alt="agentmux: projects, threads, an agent and its terminals side by side" width="100%">
+<img src="docs/screenshots/tokyo-night/bar.png" alt="The top bar" width="100%">
 
 </div>
 
@@ -36,6 +36,27 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
   </tr>
 </table>
 
+<br>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/newthread.png" alt="New thread"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/openproject.png" alt="Open project"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>New thread</b> &nbsp;<sub><code>Ctrl+Alt+N</code></sub><br><sub>Claude Code, opencode, agy or Codex; the last used first.</sub></td>
+    <td align="center"><b>Open project</b> &nbsp;<sub><code>Ctrl+Alt+O</code></sub><br><sub>Any folder under the code folder, its branch beside it.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/accounts.png" alt="Accounts"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/agentmux-settings.png" alt="agentmux settings"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Accounts</b> &nbsp;<sub><code>Ctrl+Alt+K</code></sub><br><sub>Several accounts per agent: each one's limits, and a daily budget to the weekly reset.</sub></td>
+    <td align="center"><b>agentmux settings</b> &nbsp;<sub><code>Ctrl+Alt+S</code></sub><br><sub>Every key, notifications and projects, searchable.</sub></td>
+  </tr>
+</table>
+
 <p align="center"><a href="MANUAL.md#agents-agentmux">Everything about agentmux →</a></p>
 
 <br>
@@ -46,36 +67,60 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/controlcenter.png" alt="Control Center"></td>
-    <td width="50%"><img src="docs/screenshots/docker.png" alt="Docker panel"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/controlcenter.png" alt="Control Center"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/docker.png" alt="Docker"></td>
   </tr>
   <tr>
     <td align="center"><b>Control Center</b> &nbsp;<sub>workspace 10</sub><br><sub>Workspaces, system, shortcuts, audio and network.</sub></td>
     <td align="center"><b>Docker</b> &nbsp;<sub>workspace 9</sub><br><sub>Compose projects, images, volumes and networks.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/system.png" alt="System panel"></td>
-    <td><img src="docs/screenshots/settings.png" alt="Settings panel"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/system.png" alt="System"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/settings.png" alt="Settings"></td>
   </tr>
   <tr>
-    <td align="center"><b>System</b> &nbsp;<sub><code>Super + Ctrl + T</code></sub><br><sub>CPU, memory and GPU history, what is using the CPU (apps, containers, agents), processes, storage.</sub></td>
+    <td align="center"><b>System</b> &nbsp;<sub><code>Super + Ctrl + T</code></sub><br><sub>CPU, memory and GPU history, what is using the CPU (apps, containers, agents), processes, storage, ports.</sub></td>
     <td align="center"><b>Settings</b> &nbsp;<sub><code>Super + I</code></sub><br><sub>Every setting of the desktop in one place, searchable.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/audio.png" alt="Audio panel"></td>
-    <td><img src="docs/screenshots/network.png" alt="Network panel"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/projects.png" alt="Projects"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/codesync.png" alt="Code Sync"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Projects</b> &nbsp;<sub><code>Super + Ctrl + P</code></sub><br><sub>Every repo in the code folder: status, branches, changes, history.</sub></td>
+    <td align="center"><b>Code Sync</b> &nbsp;<sub>the bar's sync icon</sub><br><sub>The live backup of the code folder: what it holds, recent changes, its timing.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/databases.png" alt="Databases"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/sysagent.png" alt="System agent"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Databases</b> &nbsp;<sub>workspace 6</sub><br><sub>Postgres, Redis, MongoDB, S3 and SQLite in one client, with an AI to ask.</sub></td>
+    <td align="center"><b>System agent</b> &nbsp;<sub><code>Super + Ctrl + S</code></sub><br><sub>Ask an AI about this PC, strictly read-only.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/audio.png" alt="Audio"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/network.png" alt="Network"></td>
   </tr>
   <tr>
     <td align="center"><b>Audio</b> &nbsp;<sub><code>Super + Ctrl + A</code></sub><br><sub>Outputs and inputs, volume, mute, default device.</sub></td>
     <td align="center"><b>Network</b> &nbsp;<sub><code>Super + Ctrl + W</code></sub><br><sub>The connection, live traffic and addresses.</sub></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/workspaces.png" alt="Workspaces panel"></td>
-    <td><img src="docs/screenshots/notifications.png" alt="Notifications panel"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/workspaces.png" alt="Workspaces"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/notifications.png" alt="Notifications"></td>
   </tr>
   <tr>
     <td align="center"><b>Workspaces</b> &nbsp;<sub><code>Super + Ctrl + G</code></sub><br><sub>Which app each workspace is for; launch or go.</sub></td>
     <td align="center"><b>Notifications</b> &nbsp;<sub><code>Super + .</code></sub><br><sub>History by day, do not disturb, what notifies.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/keys.png" alt="Shortcuts"></td>
+    <td width="50%"><img src="docs/screenshots/tokyo-night/power.png" alt="Power"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Shortcuts</b> &nbsp;<sub><code>Super + K</code></sub><br><sub>Every shortcut, live from the config, fuzzy-searched.</sub></td>
+    <td align="center"><b>Power</b> &nbsp;<sub><code>Super + Escape</code></sub><br><sub>Lock, suspend, log out, restart, shut down: one letter each.</sub></td>
   </tr>
 </table>
 
@@ -97,6 +142,56 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
     <td align="center"><b>Crimson</b><br><sub>Oxblood almost black, a silver accent; red only for alerts.</sub></td>
   </tr>
 </table>
+
+<details>
+<summary align="center"><b>Every screenshot above, in Crimson</b></summary>
+<br>
+
+<img src="docs/screenshots/crimson/bar.png" alt="The top bar in Crimson" width="100%">
+
+<table>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/agentmux.png" alt="agentmux in Crimson"><br><sub>agentmux</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/controlcenter.png" alt="Control Center in Crimson"><br><sub>Control Center</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/docker.png" alt="Docker in Crimson"><br><sub>Docker</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/system.png" alt="System in Crimson"><br><sub>System</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/settings.png" alt="Settings in Crimson"><br><sub>Settings</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/projects.png" alt="Projects in Crimson"><br><sub>Projects</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/codesync.png" alt="Code Sync in Crimson"><br><sub>Code Sync</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/databases.png" alt="Databases in Crimson"><br><sub>Databases</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/sysagent.png" alt="System agent in Crimson"><br><sub>System agent</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/audio.png" alt="Audio in Crimson"><br><sub>Audio</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/network.png" alt="Network in Crimson"><br><sub>Network</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/workspaces.png" alt="Workspaces in Crimson"><br><sub>Workspaces</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/notifications.png" alt="Notifications in Crimson"><br><sub>Notifications</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/keys.png" alt="Shortcuts in Crimson"><br><sub>Shortcuts</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/power.png" alt="Power in Crimson"><br><sub>Power</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/newthread.png" alt="New thread in Crimson"><br><sub>New thread</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/openproject.png" alt="Open project in Crimson"><br><sub>Open project</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/accounts.png" alt="Accounts in Crimson"><br><sub>Accounts</sub></td>
+    <td width="50%" align="center"><img src="docs/screenshots/crimson/agentmux-settings.png" alt="agentmux settings in Crimson"><br><sub>agentmux settings</sub></td>
+  </tr>
+</table>
+
+</details>
 
 <p align="center"><a href="MANUAL.md#colour-themes-tokyo-night-crimson">How themes work, and making one →</a></p>
 

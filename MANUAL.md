@@ -54,7 +54,7 @@ packages out on a PC without an NVIDIA card. The XDG Projects folder (file manag
 | `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
-| `docs/screenshots/` | — | the screenshots in the README |
+| `docs/screenshots/` | — | the screenshots in the README: `tokyo-night/` and `crimson/`, private text blurred |
 
 `setup/install.sh` is idempotent and never deletes: anything real it finds in the way
 is moved to `~/.config-backup-<timestamp>/` first.

@@ -109,7 +109,10 @@ hl.window_rule({ match = { title = "^(Open.*Files?|Open [Ff]older.*|Save.*Files?
 hl.window_rule({ match = { tag = "floating-window" }, float = true, center = true, size = { 875, 600 } })
 -- the code sync panel (waybar sync icon): two columns of details
 hl.window_rule({ match = { tag = "floating-window", title = "^(syncpanel\\.py)$" }, size = { 1180, 640 } })
--- GUI panels (local/lib/panels, GTK): sized here, not by the app, so they open the same every time
+-- GUI panels (local/lib/panels, GTK): sized here, not by the app, so they open the same every time.
+-- No pop-in: windowsIn's 410 ms zoom came on top of the panel's own start and made a click feel ~1 s
+-- slow; a panel is there, whole, on its first frame (its backdrop still fades in behind it)
+hl.window_rule({ match = { class = "^(panels\\..*)$", title = "negative:^(panels-backdrop)$" }, no_anim = true })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.workspaces)$" }, size = { 900, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$" }, size = { 980, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""fps.py — waybar module: the frames this bar's screen drew in the last second, out of its refresh rate.
+"""fps.py — waybar module: this bar's screen's frame rate while something moved, out of its refresh rate.
 
-Hyprland has no frame counter to ask, so this counts frames itself through wlr-screencopy: a 1x1-pixel
-copy with damage, which Hyprland answers once per frame it actually draws on that output (nothing on a
-still screen, up to the refresh rate while something moves). A pixel per frame costs next to nothing,
+Hyprland has no frame counter to ask, so this sees each frame itself through wlr-screencopy: a 1x1-pixel
+copy with damage, which Hyprland answers once per frame it actually draws on that output, with the
+frame's time. Hyprland only draws when something changes, so a count per second says little: a
+workspace switch animates for a quarter of a second, a still screen draws once now and then (the clock).
+What it shows is the rate of the frames that came back to back (a run: an animation, a scroll, a video)
+in the last second: a smooth animation reads 60/60, one that stutters less, a still screen 0.
+A pixel per frame costs next to nothing,
 but while it runs Hyprland counts a screencast and won't scan a fullscreen game out directly.
 The refresh rate comes from the same connection (wl_output's current mode), so a mode change follows.
 
@@ -148,21 +152,39 @@ def capture():
     send(copier, 1, u32(frame) + i32(0) + u32(output) + i32(0, 0, 1, 1))   # capture_output_region
 
 
-# ---- the loop: count the frames, print once a second while it changes
-def emit(fps):
+# ---- the loop: collect the frames' times, print once a second while the rate changes
+RUN_GAP = 3   # refresh intervals: a longer pause between two frames ends a run (one dropped frame doesn't)
+RUN_MIN = 3   # frames: fewer is a lone redraw (the clock), not motion
+
+
+def motion_rate(stamps, hz):
+    """The best frame rate of a run of back-to-back frames among stamps (seconds), 0 if none."""
+    best, first, prev, n = 0, None, None, 0
+    for t in stamps + [None]:
+        if t is not None and prev is not None and t - prev <= RUN_GAP / hz:
+            n, prev = n + 1, t
+            continue
+        if n >= RUN_MIN and prev > first:
+            best = max(best, (n - 1) / (prev - first))
+        first, prev, n = t, t, 1
+    return min(round(best), hz)
+
+
+def emit(rate, drawn):
     hz = outputs[output].get("hz", 0)
-    shown = f"{fps:>{len(str(hz))}}"   # fixed width: the bar doesn't shift as the count changes
+    shown = f"{rate:>{len(str(hz))}}"   # fixed width: the bar doesn't shift as the number changes
     print(json.dumps({"text": f"{ICON} {shown}/{hz}",
-                      "tooltip": f"{OUTPUT}: {fps} frames drawn in the last second\nRefresh rate {hz} Hz",
-                      "class": "idle" if fps == 0 else "moving"}, ensure_ascii=False), flush=True)
+                      "tooltip": f"{OUTPUT}: {rate} frames a second while something moved (refresh rate {hz} Hz)\n"
+                                 f"{drawn} frames drawn in the last second",
+                      "class": "idle" if rate == 0 else "moving"}, ensure_ascii=False), flush=True)
 
 
 capture()
-frames, shown, start, fmt = 0, None, time.monotonic(), None
+stamps, shown, start, fmt = [], None, time.monotonic(), None
 while True:
     # nothing drawn and 0 shown: wait for the next frame however long it takes, and count the
     # second from when it comes
-    still = frames == 0 and shown == 0
+    still = not stamps and shown == (0, 0)
     if select.select([sock], [], [], None if still else max(0.0, start + 1 - time.monotonic()))[0]:
         if still:
             start = time.monotonic()
@@ -181,15 +203,18 @@ while True:
                     f, w, h, stride = fmt
                     send(pool, 0, u32(buffer) + i32(0, w, h, stride) + u32(f))   # create_buffer
                 send(frame, 2, u32(buffer))   # copy_with_damage
-            elif opcode in (2, 3):   # ready / failed
-                frames += opcode == 2
+            elif opcode in (2, 3):   # ready (the frame's time: seconds high, low, ns) / failed
+                if opcode == 2:
+                    hi, lo, ns = struct.unpack_from("<III", args)
+                    stamps.append((hi << 32 | lo) + ns / 1e9)
                 send(frame, 1)   # destroy
                 if opcode == 3:
                     time.sleep(1)   # the output is off or changing mode: try again shortly
                 capture()
     now = time.monotonic()
     if now - start >= 1:
-        if frames != shown:
-            emit(frames)
-            shown = frames
-        frames, start = 0, now
+        current = (motion_rate(stamps, outputs[output].get("hz", 60) or 60), len(stamps))
+        if current != shown:
+            emit(*current)
+            shown = current
+        stamps, start = [], now

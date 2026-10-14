@@ -13,7 +13,7 @@ left:   logo │ workspace buttons (custom/ws1…10) │ audio visualizer (custo
         to the right section; it may shrink (max-length), so it can never push it
 right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
         (custom/window, max 30 chars in wintitle.py, hidden on an empty workspace) │
-        codesync, keys, tray, bt, net, volume │ stats (frames drawn / Hz per screen, cpu mem temp battery) │
+        codesync, keys, tray, bt, net, volume │ stats (frame rate / Hz per screen, cpu mem temp battery) │
         clock (custom/clock: scripts/clock.py) + notification bell (custom/notifications:
         scripts/notifications.py; always shown) + idle indicator │ power (far right)
 ```

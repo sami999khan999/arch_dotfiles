@@ -142,13 +142,16 @@ that changes (a longer title, the play button, the clock's long view) and never 
 anything else (`scripts/visualizer.py`). It costs nothing while silent (it doesn't follow the bar until
 something plays), pauses cava on **off**, and draws nothing under a fullscreen window.
 
-The stats start with the frames drawn: `󰓅 27/60` is how many frames *this* screen drew in the last
-second, out of its refresh rate. Each screen's bar counts its own. Hyprland only draws when something
-changes, so a still screen shows `0` (dimmed) and a playing video or a scroll goes up to the refresh
-rate. Hyprland has no counter to ask, so `scripts/fps.py` gets a one-pixel screen copy of each frame
-Hyprland draws (wlr-screencopy). That costs next to nothing, but while it runs Hyprland counts a
-screencast, and a fullscreen game isn't scanned out directly. Hide it in Settings → Power & bar →
-Top bar.
+The stats start with the frame rate: `󰓅 60/60` is how smoothly *this* screen drew whatever moved
+in the last second (an animation, a scroll, a video), out of its refresh rate. Each screen's bar counts its
+own. Hyprland only draws when something changes, so the frames that came back to back are what's
+measured: a smooth panel animation reads `60/60`, a stuttering one less. A still screen, or a lone
+redraw like the clock ticking, reads `0`, dimmed. The tooltip has the plain count of frames drawn.
+Workspace switches and window switches within a workspace aren't animated (one frame, instant), so they
+don't move it. Hyprland has no counter to ask, so `scripts/fps.py` gets a one-pixel screen copy of each
+frame Hyprland draws (wlr-screencopy), with the frame's time. That costs next to nothing, but while it runs
+Hyprland counts a screencast, and a fullscreen game isn't scanned out directly. Hide it in Settings →
+Power & bar → Top bar.
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. awww draws them (`scripts/wallpaper.sh`): a screen whose workspace has windows shows a

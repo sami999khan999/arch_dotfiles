@@ -2,6 +2,7 @@
 # The login screen (noctalia-greeter under greetd): greetd's config (greetd.toml -> /etc/greetd) and
 # greetd as the display manager (instead of whatever a fresh install came with), then greeter.toml and
 # the desktop's current wallpaper into /var/lib/noctalia-greeter, owned by the greeter user.
+# greetd's PAM also unlocks the keyring at login.
 # Idempotent; run it again after changing greeter.toml or the wallpaper. Takes effect at the next
 # login screen.
 # Run with: pkexec /home/sami/dotfiles/system/greeter/install.sh
@@ -25,6 +26,16 @@ fi
 if [[ "$(systemctl is-enabled greetd.service 2>/dev/null)" != enabled ]]; then
   systemctl enable --force greetd.service   # --force: takes display-manager.service over from another one
   echo "greetd:    the display manager from the next boot"
+fi
+
+# greetd's PAM unlocks the keyring with the login password (else every login asks for it again);
+# the keyring's password has to be the login password
+PAM=/etc/pam.d/greetd
+if ! grep -q pam_gnome_keyring "$PAM"; then
+  cp "$PAM" "$PAM.bak"
+  sed -i -e '/^auth[[:space:]].*system-local-login/a auth       optional     pam_gnome_keyring.so' \
+         -e '/^session[[:space:]].*system-local-login/a session    optional     pam_gnome_keyring.so auto_start' "$PAM"
+  echo "pam:       $PAM unlocks the keyring at login (old one: greetd.bak)"
 fi
 
 install -d -o greeter -g greeter -m 0750 "$DEST"

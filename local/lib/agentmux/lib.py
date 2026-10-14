@@ -843,13 +843,20 @@ def account_usage(harness, account, live=False):
                 if w.get("used_percent") is not None:
                     windows.append((window_name(w.get("limit_window_seconds", 0)), float(w["used_percent"]),
                                     w.get("reset_at", 0), ""))
-        if windows:
-            old = cache.get(key, {})
-            cache[key] = {"windows": windows, "at": at, "day": day_start(old, windows),
-                          **({"project": project} if harness == "agy" else {})}
+        if windows:   # read again under the lock: the panel asks every account at once, agentmux after turns
+            import fcntl
             os.makedirs(os.path.dirname(USAGE_CACHE), exist_ok=True)
-            with open(USAGE_CACHE, "w") as f:
-                json.dump(cache, f)
+            with open(USAGE_CACHE + ".lock", "w") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                try:
+                    cache = json.load(open(USAGE_CACHE))
+                except (OSError, ValueError):
+                    cache = {}
+                old = cache.get(key, {})
+                cache[key] = {"windows": windows, "at": at, "day": day_start(old, windows),
+                              **({"project": project} if harness == "agy" else {})}
+                with open(USAGE_CACHE, "w") as f:
+                    json.dump(cache, f)
     if not windows:
         return {}
     now = time.time()

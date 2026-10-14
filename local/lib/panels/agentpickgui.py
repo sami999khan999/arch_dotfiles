@@ -20,11 +20,12 @@
 # project anywhere), ↵ opens the selected folder, Ctrl+R makes the shown folder the root. A query
 # starting with / or ~ is a path: it lists that folder's matching subfolders.
 import os, re, shlex, subprocess, sys, threading, time
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "agentmux"))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, level, recolor, rule_heading, run, scrolled
+from gtkkit import Gdk, Gio, GLib, Gtk, View, box, button, clear, debounced, label, level, recolor, rule_heading, run, scrolled
 try:   # the Accounts panel's Log in page is a terminal (vte4, setup/packages.txt); without it, a kitty
     import gi
     gi.require_version("Vte", "3.91")
@@ -151,6 +152,7 @@ class Picker(View):
         return False
 
     def paint(self, select=0):
+        self.painted = time.time()
         clear(self.list)
         self.items = []
         for item, child, on in self.rows(self.search.get_text().strip()):
@@ -297,7 +299,7 @@ class Account(Picker):
     title = "Accounts"
     icon = "\U000f0004"
     placeholder = "filter, or a new account's name"
-    interval = 60   # usage, asked again while it's open
+    interval = 60   # usage, asked again while it's open (an account asked in the last minute isn't)
 
     def __init__(self, thread=""):
         super().__init__()
@@ -313,13 +315,20 @@ class Account(Picker):
         self.renaming = None   # (harness, account) whose name is being typed
         self.removing = None   # (harness, account) whose Remove was clicked once
         self.fresh = None      # (harness, account) just added: kept only if its login works
+        self.asking = False    # a round of live asks is running (refresh)
+        self.painted = 0       # when the cards were last drawn: their "in 2h 38m" moves on
         self.set_hints()
+
+    def header_extra(self):
+        self.update_btn = button("\uf021 Update", lambda: self.refresh(force=True), "flat",
+                                 tooltip="F5: ask every account's usage now")
+        return [self.update_btn]
 
     def set_hints(self):
         here = self.current and self.current[0] == self.h
         self.hints = [("Enter", "switch the thread" if here else "make default"),
                       *([("Ctrl+D", "make default")] if here else []), ("F2", "rename"), ("Del", "remove"), ("Tab", "agent"),
-                      ("↑↓", "move"), ("Esc", "close")]
+                      ("F5", "update"), ("↑↓", "move"), ("Esc", "close")]
         if self.host:
             self.host.show_hints()
 
@@ -331,6 +340,7 @@ class Account(Picker):
         self.paint_side()
         self.select_next()
         self.refresh()
+        self.watch()
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self.stack.add_named(box(False, 0, self.side, page), "cards")
         return self.stack
@@ -363,15 +373,62 @@ class Account(Picker):
         want = ("use", self.h, names[(names.index(here) + 1) % len(names)])
         self.select(next((n for n, it in enumerate(self.items) if it == want), 0))
 
-    def refresh(self):
+    def refresh(self, force=False):
+        """Every account's usage asked live, all at once (one slow answer doesn't hold up the others); on
+        the timer, not those read in the last minute (a thread's turn just did). force: the Update button."""
+        if self.asking:
+            return
+        self.asking = True
+        self.update_btn.set_label("Updating\u2026")
+        self.update_btn.set_sensitive(False)
+        keys = [(h, a) for h in self.harnesses for a in lib.accounts(h)]
+
+        def ask(k):
+            fresh = not force and time.time() - (self.usage.get(k) or {}).get("at", 0) < 60
+            return lib.account_usage(*k, live=not fresh)
+
         def fetch():
-            got = {(h, a): lib.account_usage(h, a, live=True) for h in self.harnesses for a in lib.accounts(h)}
-            GLib.idle_add(lambda: self.got(got) and False)
+            with ThreadPoolExecutor(max(len(keys), 1)) as pool:
+                got = dict(zip(keys, pool.map(ask, keys)))
+            GLib.idle_add(lambda: self.got(got, force) and False)
         threading.Thread(target=fetch, daemon=True).start()
 
-    def got(self, usage):
-        self.usage = usage
-        self.paint(self.selected())
+    def got(self, usage, force=False):
+        if force is not None:   # a round of asks (not the file watch) is over
+            self.asking = False
+            self.update_btn.set_label("\uf021 Update")
+            self.update_btn.set_sensitive(True)
+        # drawn again only when something changed, or a minute on (the reset countdowns), never under a rename
+        if (usage != self.usage or time.time() - self.painted >= 59) and not self.renaming:
+            self.usage = usage
+            self.paint(self.selected())
+        if force:
+            stale = [lib.account_label(h, a) for h, a in usage if h == self.h and self.expired(h, a)]
+            self.say(f"Updated · {', '.join(stale)}: login expired, updates once a thread runs on it" if stale
+                     else "Updated", "bad" if stale else "ok", seconds=8 if stale else 3)
+
+    @staticmethod
+    def expired(h, a):
+        """Its login is too old to ask with: the agent renews it when it next runs (renewing it here could
+        race a running one and log it out)."""
+        me = lib.account_login(h, a)
+        return bool(me.get("email")) and h in lib.USAGE_URL and me.get("expires", 0) <= time.time() + 60
+
+    def watch(self):
+        """The cards follow the usage files: agentmux's cache (written after a thread's turn) and Claude
+        Code's own (.claude.json): a turn shows at once, not on the next minute's ask."""
+        paths = [lib.USAGE_CACHE] + [lib.account_config(h, a) for h in self.harnesses if h == "claude"
+                                     for a in lib.accounts(h)]
+        reread = debounced(lambda _: threading.Thread(target=self.reread, daemon=True).start(), 500)
+        self.monitors = []   # kept: a monitor nobody holds stops
+        for p in paths:
+            m = Gio.File.new_for_path(p).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+            m.connect("changed", lambda *_: reread(None))
+            self.monitors.append(m)
+
+    def reread(self):
+        got = {(h, a): lib.account_usage(h, a) for h in self.harnesses for a in lib.accounts(h)}
+        GLib.idle_add(lambda: self.got(got, None) and False)
 
     @staticmethod
     def bar(value, top, colour):
@@ -459,7 +516,8 @@ class Account(Picker):
                     card.append(self.today(name, pct, reset, use.get("today", {}).get(name)))
                     break
             if time.time() - use["at"] > 600:   # what was read last; its token too old to ask now
-                card.append(label(f"as of {ago(use['at'])} · updates once a thread runs on it", "dim", "acct-note"))
+                why = "login expired, updates once a thread runs on it" if self.expired(h, a) else "Update (F5) asks now"
+                card.append(label(f"as of {ago(use['at'])} · {why}", "dim", "acct-note"))
         elif email:
             card.append(label("usage not known yet · shows once a thread has run on it", "dim", "acct-note"))
         return card
@@ -687,6 +745,9 @@ class Account(Picker):
             i = self.selected()
             if 0 <= i < len(self.items) and self.items[i] and self.items[i][0] == "use":
                 self.start_rename(*self.items[i][1:])
+            return True
+        if keyval == Gdk.KEY_F5:
+            self.refresh(force=True)
             return True
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_d, Gdk.KEY_D):
             i = self.selected()

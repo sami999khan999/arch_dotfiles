@@ -554,6 +554,29 @@ and chosen for Hyprland in `config/xdg-desktop-portal/hyprland-portals.conf` (GT
 missing). `GTK_USE_PORTAL` / `GDK_DEBUG=portals` (`config/uwsm/env`) send GTK apps' dialogs there too. On a
 PC where it's new, log out and in once (or `systemctl --user restart xdg-desktop-portal`).
 
+## Images
+
+Images (`local/lib/panels/imagegui.py`) is the image viewer, the default for pictures (`sami-images.desktop`
+in `config/mimeapps.list`): opening a picture in Files (`Enter`), `xdg-open`, a browser's download… shows it
+there, in the panels' look and colour theme. `imagegui.py <picture>` shows it and the other pictures in its
+folder; several files, just those; a folder, its pictures. A running viewer takes what's opened next. Anything
+GdkPixbuf / glycin reads: JPEG, PNG, GIF and WebP (animated too), SVG, AVIF, HEIC, JPEG XL, TIFF, BMP, ICO…
+
+- **Move:** `←` / `→`, `Space` / `Backspace`, `PgUp` / `PgDn`, the mouse's back / forward buttons, `Home` /
+  `End`; or a click in the thumbnail strip (`t`). Sorted by name (numbers by value), date or size (menu).
+- **Zoom:** the wheel (at the pointer), a pinch, `+` / `−`, `0` fitted (never past 100 %), `1`–`4` that many
+  times 100 %, a double-click 100 % there and back. Drag to pan; zoomed past the window, the arrows pan.
+  Shrunk it's mipmapped, from 200 % it shows sharp pixels.
+- **Turn:** `r` / `Shift+R` rotate, `h` / `v` flip; `Ctrl+S` writes that into the file (ImageMagick).
+- **Show:** `f` / `F11` fullscreen (`Esc` leaves it), `s` slideshow (`[` / `]` slower / faster), `i` info
+  (file, pixels, the camera's EXIF), `b` background behind transparency (panel, checkerboard, light), `p`
+  pauses an animation.
+- **Do:** `F2` rename, `Del` to the trash, `Ctrl+C` copy the picture, `Ctrl+Shift+C` its path, `w` set as
+  the wallpaper, `e` show it in Files, `o` open with another app, `Ctrl+O` open, or drop files on it.
+  Right-click for all of it. `Esc` / `q` closes.
+- The folder is watched (a new screenshot shows up). It remembers the panes, the background, the sort
+  and the slideshow's pace (`~/.local/state/images`). imv is still installed.
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:
@@ -1076,7 +1099,7 @@ bind("SUPER + M", launch .. "mpv") -- open mpv
 
 - `local/share/applications/*.desktop` hide apps from Walker (`NoDisplay=true`).
   Delete one to bring that app back.
-- `config/mimeapps.list` sets default apps (imv for images, mpv for video).
+- `config/mimeapps.list` sets default apps (Images for pictures, mpv for video).
 
 ## Editing
 

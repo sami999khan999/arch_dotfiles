@@ -138,13 +138,15 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.(ask|dba
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.sysagent)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- the Open / Save dialogs (pickergui.py, the portal's file picker): Files' window, a little smaller than the screen
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.picker)$" }, size = { "monitor_w*0.70", "monitor_h*0.78" } })
+-- the image viewer (imagegui.py): most of the screen, the picture is what matters
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.images)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- the audio mixer (waybar volume click, Super + Ctrl + A): a few rows of streams, not a full page
 hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, size = { 720, 300 } })
 
 -- Slight transparency everywhere, except media. The same for unfocused windows: 0.9 made them look
 -- dimmed (more of the dark blur behind showing through); Settings → Appearance sets the rest
 hl.window_rule({ match = { class = ".*" }, opacity = "0.97 0.97" })
-hl.window_rule({ match = { class = "^(zoom|vlc|mpv|imv|org\\.kde\\.kdenlive|com\\.obsproject\\.Studio|steam_app.*|gamescope)$" }, opacity = "1 1" })
+hl.window_rule({ match = { class = "^(zoom|vlc|mpv|imv|panels\\.images|org\\.kde\\.kdenlive|com\\.obsproject\\.Studio|steam_app.*|gamescope)$" }, opacity = "1 1" })
 
 -- The backdrop behind a GUI popup (gtkkit.py, System Settings → Appearance → Panels): a see-through,
 -- darkened window over the whole screen, blurred by Hyprland like every window (one blur for windows

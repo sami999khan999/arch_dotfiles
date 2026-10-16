@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Images
+Comment=View pictures, in the colour theme
+Exec=python3 /home/sami/.local/lib/panels/imagegui.py %U
+Icon=image-viewer
+Categories=Graphics;Viewer;
+MimeType=image/jpeg;image/png;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/avif;image/heic;image/heif;image/jxl;image/x-icon;image/vnd.microsoft.icon;image/x-tga;image/qoi;image/x-portable-pixmap;image/x-portable-anymap;image/x-xpixmap;
+Keywords=image;picture;photo;viewer;
+StartupWMClass=panels.images

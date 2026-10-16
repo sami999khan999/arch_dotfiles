@@ -79,7 +79,8 @@ class Ask(View):
         self.entry.set_sensitive(False)
         self.entry.connect("activate", lambda *_: self.send())
         self.models = box(False, 0)
-        self.paint_models([self.model])
+        self.painted = None
+        self.paint_models(pj.ai_models_cached())   # last time's list, then opencode's own
         self.go = button("Ask", self.send, "primary", tooltip="Enter")
         self.go.set_sensitive(False)
         main = box(True, 10, self.scroller, box(False, 8, self.entry, self.models, self.go))
@@ -108,6 +109,9 @@ class Ask(View):
     def paint_models(self, models):
         if self.model not in models:
             models = [self.model] + models
+        if models == self.painted:   # the same list: the dropdown stays (one that's open isn't swapped away)
+            return False
+        self.painted = models
         dd = dropdown([(m, m.split("/")[-1].removesuffix("-free")) for m in models], self.model, self.pick_model)
         dd.add_css_class("model")
         dd.set_tooltip_text("the model that answers (free, through opencode); kept for next time")

@@ -479,13 +479,47 @@ def set_model(m):
         f.write(m)
 
 
-def models():
-    """The models opencode offers (its free ones without an account), or [] when it can't say."""
+# the list opencode gave last time, so a model dropdown has it from its first frame (per PC: what opencode offers)
+MODELS_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "opencode-models.json")
+
+
+def cached_models():
+    """The models opencode offered last time (at once, no opencode run), or []."""
     try:
-        r = subprocess.run(["opencode", "models"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
-    except (OSError, subprocess.TimeoutExpired):
+        with open(MODELS_CACHE) as f:
+            return [m for m in json.load(f) if isinstance(m, str)]
+    except (OSError, ValueError, TypeError):
         return []
-    return [l.strip() for l in r.stdout.splitlines() if "/" in l and " " not in l.strip()]
+
+
+def models():
+    """The models opencode offers (its free ones without an account), or [] when it can't say. Also used by
+    the Commit and Ask popups (projects' ai_models)."""
+    if not shutil.which("opencode"):
+        return []
+    # opencode's background server answers a folder it hasn't loaded yet with an empty list (it loads the
+    # providers after replying; a cold server takes longer): ask again, for a while. Three quick tries
+    # weren't always enough, and a panel's first open showed only the kept model
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            r = subprocess.run(["opencode", "models"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                               timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        found = [l.strip() for l in r.stdout.splitlines() if "/" in l and " " not in l.strip()]
+        if found:
+            if found != cached_models():
+                try:
+                    os.makedirs(os.path.dirname(MODELS_CACHE), exist_ok=True)
+                    with open(MODELS_CACHE, "w") as f:
+                        json.dump(found, f)
+                except OSError:
+                    pass
+            return found
+        if r.returncode or time.monotonic() > deadline:
+            return []
+        time.sleep(0.5)
 
 
 def transcript(history):

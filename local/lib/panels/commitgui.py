@@ -99,7 +99,8 @@ class Commit(View):
         # the model: the one kept until opencode's list is in (asking it takes a moment)
         self.model = pj.ai_model()
         self.models = box(False, 0)
-        self.paint_models([self.model])
+        self.painted = None
+        self.paint_models(pj.ai_models_cached())   # last time's list, then opencode's own
         threading.Thread(target=lambda: GLib.idle_add(self.paint_models, pj.ai_models()), daemon=True).start()
         top = box(False, 8, label("Message", "dim"), label(""), self.write, self.models)
         top.get_first_child().get_next_sibling().set_hexpand(True)
@@ -227,6 +228,9 @@ class Commit(View):
     def paint_models(self, models):
         if self.model not in models:
             models = [self.model] + models
+        if models == self.painted:   # the same list: the dropdown stays (one that's open isn't swapped away)
+            return False
+        self.painted = models
         dd = dropdown([(m, m.split("/")[-1].removesuffix("-free")) for m in models], self.model, self.pick_model)
         dd.add_css_class("model")
         dd.set_tooltip_text("the model that writes the message (free, through opencode); kept for next time")

@@ -468,24 +468,21 @@ def ai_model():
     return os.environ.get("PROJECTS_AI_MODEL") or load()["ai_model"] or AI_MODEL
 
 
+def _agentlib():
+    """sysagentlib (local/lib/panels): asking opencode for its models is done in one place."""
+    sys.path.insert(0, os.path.expanduser("~/.local/lib/panels"))
+    import sysagentlib
+    return sysagentlib
+
+
 def ai_models():
     """The models opencode offers (its free ones without an account), or [] when it can't say."""
-    if not shutil.which("opencode"):
-        return []
-    # opencode's background server answers a folder it hasn't loaded yet with an empty list (it loads the
-    # providers after replying), and with --standalone every time: ask again (the popup's first open showed
-    # only the kept model)
-    for _ in range(3):
-        try:
-            r = subprocess.run(["opencode", "models"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
-                               timeout=60)
-        except subprocess.TimeoutExpired:
-            return []
-        models = [l.strip() for l in r.stdout.splitlines() if "/" in l and " " not in l.strip()]
-        if models or r.returncode:
-            return models
-        time.sleep(0.5)
-    return []
+    return _agentlib().models()
+
+
+def ai_models_cached():
+    """The models opencode offered last time, at once (a dropdown's first frame), or []."""
+    return _agentlib().cached_models()
 
 
 def set_ai_model(model):

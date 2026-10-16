@@ -57,6 +57,9 @@
   agentmux account default <name> [h]
                                the account new threads start on
   agentmux usage <h> [account] an account's usage asked live (a thread's turn ended), the sidebars redrawn
+  agentmux usage all           every account's, asked live (agentmux-usage.timer, at midnight: where the
+                               Accounts panel's daily budget counts from)
+  agentmux usage enable        that timer (setup/install.sh enables it)
   agentmux account pick        the Accounts panel (Ctrl+Alt+K): usage, the default, the shown thread's
   agentmux account switch [thread] [name]
                                the thread (the shown one) goes on with its conversation on another
@@ -455,6 +458,58 @@ def refresh_usage(harness, account):
         return
     lib.account_usage(harness, account, live=True)
     poke()
+
+
+UNITS = os.path.expanduser("~/.config/systemd/user")
+USAGE_SERVICE = """[Unit]
+Description=agentmux: every account's usage at midnight, where the daily budget counts from
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/agentmux usage all
+Nice=10
+"""
+USAGE_TIMER = """[Unit]
+Description=agentmux usage at midnight
+
+[Timer]
+OnCalendar=*-*-* 00:00:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+"""
+
+
+def usage(args):
+    """agentmux usage <h> [account] | all | enable."""
+    if args[:1] == ["enable"]:   # install.sh runs this on every dotsync: systemd is reloaded only for new units
+        os.makedirs(UNITS, exist_ok=True)
+        changed = False
+        for unit, text in (("agentmux-usage.service", USAGE_SERVICE), ("agentmux-usage.timer", USAGE_TIMER)):
+            path = os.path.join(UNITS, unit)
+            try:
+                if open(path).read() == text:
+                    continue
+            except OSError:
+                pass
+            with open(path, "w") as f:
+                f.write(text)
+            changed = True
+        if changed:
+            subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        if changed or subprocess.run(["systemctl", "--user", "is-enabled", "-q", "agentmux-usage.timer"]).returncode:
+            subprocess.run(["systemctl", "--user", "enable", "--now", "agentmux-usage.timer"], check=True,
+                           capture_output=True)
+        return print("agentmux: every account's usage read at midnight")
+    if args[:1] == ["all"]:   # all at once: one slow answer doesn't hold up the others
+        from concurrent.futures import ThreadPoolExecutor
+        installed = {k for k, _ in lib.installed_harnesses()}
+        keys = [(h, a) for h in lib.ACCOUNT_AGENTS if h in installed for a in lib.accounts(h)]
+        with ThreadPoolExecutor(max(len(keys), 1)) as pool:
+            list(pool.map(lambda k: lib.account_usage(*k, live=True), keys))
+        return poke()
+    refresh_usage(args[0], args[1] if len(args) > 1 else "main")
 
 
 def account(args):
@@ -1652,7 +1707,7 @@ def main(argv):
         "clear-notices": lambda: clear_notices(args[0]),
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
         "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]), "account": lambda: account(args),
-        "usage": lambda: refresh_usage(args[0], args[1] if len(args) > 1 else "main"),
+        "usage": lambda: usage(args),
     }
     if cmd not in actions:
         sys.exit(__doc__)

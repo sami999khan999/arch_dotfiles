@@ -856,11 +856,13 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
   Antigravity's per group of models, as agy itself shows them (*Gemini Models*: Flash, Pro; *Claude and
   GPT models*: Opus, Sonnet, GPT-OSS; each a weekly limit). Percentages are *used* (agy's own screen
   says what's *left*). Under them, the **daily budget** shows how much of the weekly (or monthly) limit you can use per day
-to make it last: what's left divided by the time until the reset, the same two numbers the weekly bar
-shows (`36% left`, `in 4d 23h` → `7.2% a day`). On the last day, all of what's left is the day's. Its
-bar shows *used today* against that share, amber and then red as it fills, with what's left today at
-the right end. Used today counts from the day's first usage reading (kept in
-`~/.cache/agentmux/usage.json`, read after every turn). *this thread* marks the shown thread's account, the green dot and *default* the
+to make it last, counted from midnight: what was left at 12 AM divided by the days from then to the
+reset (`36% left`, `4d 12h` → `8.0% a day`), so what you use today doesn't shrink today's share. On
+the last day, all of what's left is the day's. Its bar shows *used today* against that share, amber
+and then red as it fills, with what's left today at the right end. Midnight's usage comes from
+`agentmux-usage.timer`, which reads every account at 00:00 (after a PC was off or asleep, as soon as it's
+back; kept in `~/.cache/agentmux/usage.json`, also read after every turn). If the nearest reading is more
+than an hour from midnight, the line says *used since 08:10* (or *since Tue 18:40*) instead of *today*. *this thread* marks the shown thread's account, the green dot and *default* the
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).

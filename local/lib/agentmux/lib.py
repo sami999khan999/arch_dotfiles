@@ -768,8 +768,8 @@ def account_usage(harness, account, live=False):
     now with the account's own login, unless its token has expired: the agent renews it when it next
     runs, and renewing it here could race a running one and log it out. Otherwise what was read last:
     Claude Code keeps its own in .claude.json, agentmux keeps every live answer (USAGE_CACHE). A window
-    whose reset time has passed is back at 0. "today": {window: [percent, reset]} where each stood when
-    today began (day_start), {} before the first reading of the day."""
+    whose reset time has passed is back at 0. "today": {window: [percent, reset, read at]} where each stood at
+    midnight (day_start), {} before the first reading of the day."""
     from datetime import datetime
     key = f"{harness}/{account}"
     try:
@@ -853,7 +853,7 @@ def account_usage(harness, account, live=False):
                 except (OSError, ValueError):
                     cache = {}
                 old = cache.get(key, {})
-                cache[key] = {"windows": windows, "at": at, "day": day_start(old, windows),
+                cache[key] = {"windows": windows, "at": at, "day": day_start(old, windows, at),
                               **({"project": project} if harness == "agy" else {})}
                 with open(USAGE_CACHE, "w") as f:
                     json.dump(cache, f)
@@ -866,18 +866,25 @@ def account_usage(harness, account, live=False):
             "today": day.get("start", {}) if day.get("date") == time.strftime("%Y-%m-%d") else {}}
 
 
-def day_start(old, windows):
-    """Where each window stood when today began: {"date", "start": {name: [percent, reset]}}. The last
-    reading before today (usage is read after every turn, so close to midnight's) or, the first time,
-    this one. A window that has reset since starts at 0. The Accounts panel's "used today" counts from it."""
+def day_start(old, windows, at):
+    """Where each window stood at midnight: {"date", "start": {name: [percent, reset, read at]}}. The
+    reading nearest midnight: the last one before it or today's first (the usage timer reads every
+    account at 00:00, so usually that one; a PC that was off or asleep reads when it's back). A window
+    that has reset since the last reading stood at 0 when it did. The Accounts panel's daily budget
+    counts from it, and says "since" when the nearest reading is far from midnight."""
     today = time.strftime("%Y-%m-%d")
     if (old.get("day") or {}).get("date") == today:
         return old["day"]
     now, before = time.time(), {w[0]: w for w in old.get("windows", [])}
+    midnight = time.mktime(time.strptime(today, "%Y-%m-%d"))
     start = {}
     for name, pct, reset, *_ in windows:
         prev = before.get(name)
-        start[name] = [0.0, reset] if prev and prev[2] and prev[2] < now else [prev[1], prev[2]] if prev else [pct, reset]
+        if prev and prev[2] and prev[2] < now:   # it reset after that reading: 0 from then
+            then = [0.0, reset, prev[2]]
+        else:
+            then = [prev[1], prev[2], old.get("at", 0)] if prev else None
+        start[name] = then if then and midnight - then[2] <= at - midnight else [pct, reset, at]
     return {"date": today, "start": start}
 
 

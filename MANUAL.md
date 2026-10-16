@@ -988,6 +988,9 @@ than an hour from midnight, the line says *used since 08:10* (or *since Tue 18:4
   Settings: `Ctrl+Alt+P` / `Ctrl+Alt+A` / `Ctrl+Alt+M` / `Ctrl+Alt+E` focus Projects / Threads / the
   thread / the terminals (a closed one is brought back), `Ctrl+Alt+F` the next part (left to right,
   wrapping), `Ctrl+Alt+N` new thread, `Ctrl+Alt+K` accounts, `Ctrl+Alt+O` open project, `Ctrl+Alt+T` terminal,
+  `Ctrl+Tab` / `Ctrl+Shift+Tab` next / previous thread of the project (round again), `Ctrl+1` … `Ctrl+9` its 1st … 9th thread
+  (in the Threads list's order; an option in Settings → Projects, off gives those keys to the agent); with Projects
+  focused (`Ctrl+Alt+P`) the same keys go through the projects, and the focus stays in Projects,
   `Ctrl+Alt+D` split terminal, `Ctrl+Alt+↑↓` previous / next terminal, `Ctrl+Alt+W` close terminal, `Ctrl+Alt+X` close, `Ctrl+Alt+1/2/3` panels, `Ctrl+Alt+Z` maximize, `Ctrl+Alt+←→`
   resize, `Ctrl+Alt+S` settings, `Ctrl+Alt+R` reload (configs read again, every pane restarted; agents
   and shells keep running), `Ctrl+Alt+Q` quit, `Ctrl+Alt+?` this list. In the sidebars: `↑↓`, Enter or a click, the

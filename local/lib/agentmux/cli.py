@@ -14,6 +14,9 @@
   agentmux term                new terminal (full height, listed at the right) in the terminals column (opens it)
   agentmux split-term [pane]   split a terminal (the shown one), stacked
   agentmux next-term [1|-1]    show the next / previous terminal
+  agentmux next-thread [1|-1]  show the project's next / previous thread, as the Threads list has them (Ctrl+Tab);
+                               with Projects focused, the next / previous project
+  agentmux thread <n>          show the project's nth thread (Ctrl+1 … Ctrl+9); with Projects focused, the nth project
   agentmux collapse-list collapse|expand
                                the terminal list down to its icons, or back to its width
   agentmux collapse projects|agents collapse|expand|toggle
@@ -721,6 +724,47 @@ def next_term(step):
     lib.agents("next-window" if step > 0 else "previous-window", "-t", f"={lib.terms_session(project)}")
 
 
+def project_threads():
+    """(the current project's threads in the Threads list's order, the one shown)."""
+    s = lib.load_state()
+    project = s.get("project")
+    mine = [t["name"] for t in lib.threads() if t["project"] == project and lib.runs_agent(t)]
+    return mine, s.get("threads", {}).get(project)
+
+
+def go_project(path):
+    """Switch project from the keyboard with Projects focused: the focus stays there (showing the project's
+    thread moves it to the thread), so the next key press goes on through the projects."""
+    switch_project(path)
+    if pane("projects"):
+        lib.app("select-pane", "-t", pane("projects"))
+
+
+def next_thread(step):
+    """The next (step 1) or previous (-1) thread of the project, round again; with Projects focused,
+    the next / previous project instead."""
+    if focused_role() == "projects":
+        items, current, go, none = lib.projects(), lib.load_state().get("project"), go_project, "No projects open"
+    else:
+        (items, current), go, none = project_threads(), show, "No threads here (new thread: Ctrl+Alt+N)"
+    if not items:
+        return msg(none)
+    i = items.index(current) if current in items else -step if step > 0 else 0
+    go(items[(i + step) % len(items)])
+
+
+def nth_thread(n):
+    """The project's nth thread (1 = the first in the Threads list); with Projects focused, the nth project."""
+    if focused_role() == "projects":
+        items, go, what = lib.projects(), go_project, "project"
+    else:
+        items, go, what = project_threads()[0], show, "thread"
+    if 1 <= n <= len(items):
+        go(items[n - 1])
+    else:
+        msg(f"No {what} {n}: there are {len(items)}")
+
+
 def set_hidden(role, closed):
     s = lib.load_state()
     h = set(s.get("hidden", []))
@@ -1381,6 +1425,10 @@ def apply_keys():
         else:
             lib.app("bind", "-n", key, "run-shell", "-b", f"{SELF} {cmd}")
         bound.append(key)
+    if lib.option("thread-numbers"):   # Ctrl+1 … Ctrl+9: the project's threads by their place in the list
+        for n in range(1, 10):
+            lib.app("bind", "-n", f"C-{n}", "run-shell", "-b", f"{SELF} thread {n}")
+            bound.append(f"C-{n}")
     set_opt("@bound_keys", " ".join(bound))
     lib.agents("set-option", "-g", "@bound_keys", " ".join(bound_agents))
     lib.app("set-option", "-g", "status-right", status_right(keys))
@@ -1695,6 +1743,7 @@ def main(argv):
         "new-thread": lambda: new_thread(next((a for a in args if not a.startswith("--") and a not in pfile + acct), None),
                                          pfile[0] if pfile else None, acct[0] if acct else None),
         "open": lambda: popup("project"), "first-run": first_run, "new": new_from_desktop,
+        "next-thread": lambda: next_thread(int(args[0]) if args else 1), "thread": lambda: nth_thread(int(args[0])),
         "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
         "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),
         "close-thread": close_thread, "collapse-list": lambda: collapse_list(args[0] if args else "collapse"),

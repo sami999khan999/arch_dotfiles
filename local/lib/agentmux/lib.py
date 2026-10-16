@@ -297,6 +297,8 @@ ACTIONS = [
     ("open-project", "Open project", "open", "C-M-o"),
     ("new-terminal", "New terminal", "term", "C-M-t"),
     ("split-terminal", "Split terminal", "split-term", "C-M-d"),
+    ("next-thread", "Next thread (Projects focused: next project)", "next-thread 1", "C-Tab"),
+    ("previous-thread", "Previous thread (Projects focused: previous project)", "next-thread -1", "C-BTab"),
     ("next-terminal", "Next terminal", "next-term 1", "C-M-Down"),
     ("previous-terminal", "Previous terminal", "next-term -1", "C-M-Up"),
     ("close-terminal", "Close terminal", "close-term", "C-M-w"),
@@ -322,6 +324,7 @@ OPTIONS = [
     ("notify-error", "Notifications", "When an agent stops on an error", True),
     ("notify-exited", "Notifications", "When an agent quits", True),
     ("resume-on-open", "Projects", "Opening a project resumes its agents' last sessions", True),
+    ("thread-numbers", "Threads", "Ctrl+1 … Ctrl+9 show the project's 1st … 9th thread (Projects focused: project)", True),
 ]
 
 
@@ -355,7 +358,7 @@ _SPECIAL = {"left": "Left", "right": "Right", "up": "Up", "down": "Down", "space
             "pageup": "PPage", "pgup": "PPage", "pagedown": "NPage", "pgdn": "NPage", "delete": "DC", "del": "DC",
             "insert": "IC", "backspace": "BSpace"}
 _SHOW = {"Left": "←", "Right": "→", "Up": "↑", "Down": "↓", "PPage": "PgUp", "NPage": "PgDn", "DC": "Delete",
-         "IC": "Insert", "BSpace": "Backspace", "Escape": "Esc"}
+         "IC": "Insert", "BSpace": "Backspace", "Escape": "Esc", "BTab": "Shift+Tab"}
 
 
 def key_label(key):
@@ -400,6 +403,9 @@ def parse_key(text):
     if "S" in out and len(name) == 1 and name.isalpha():   # tmux calls Shift+k "K"
         out.remove("S")
         name = name.upper()
+    if "S" in out and name == "Tab":   # and Shift+Tab "BTab" (Ctrl+Shift+Tab arrives as C-BTab)
+        out.remove("S")
+        name = "BTab"
     return "-".join(sorted(out, key=order.get) + [name])
 
 

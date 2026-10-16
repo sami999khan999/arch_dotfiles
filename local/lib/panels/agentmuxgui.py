@@ -19,7 +19,7 @@ DEFAULT_OPTS = {o: d for o, _, _, d in lib.OPTIONS}
 # the shortcuts page, in groups: (heading, action ids)
 GROUPS = [
     ("Focus", ["focus-projects", "focus-threads", "focus-thread", "focus-terminals", "focus-next"]),
-    ("Threads & projects", ["new-thread", "close-thread", "open-project"]),
+    ("Threads & projects", ["new-thread", "next-thread", "previous-thread", "close-thread", "open-project"]),
     ("Terminals", ["new-terminal", "split-terminal", "next-terminal", "previous-terminal", "close-terminal"]),
     ("Columns", ["toggle-projects", "toggle-threads", "toggle-terminals", "maximize", "resize-left", "resize-right"]),
     ("agentmux", ["settings", "reload", "help"]),
@@ -27,6 +27,8 @@ GROUPS = [
 EXPLAIN = {   # the dim line under a shortcut
     "focus-terminals": "Opens the column first if it's closed (the same for Projects and Threads)",
     "focus-next": "Left to right: Projects, Threads, the thread, the terminals, round again",
+    "next-thread": "The project's threads in the Threads list's order; with Projects focused, the projects. "
+                   "Ctrl+1 … Ctrl+9 jump to one (Projects page)",
     "close-thread": "The selected project or thread in a sidebar, else the shown thread; asks under its row first",
     "new-terminal": "Full height, listed at the right of the column, like VS Code's terminals",
     "split-terminal": "The shown terminal in two, stacked; each half is its own row in the list",
@@ -103,7 +105,7 @@ class AgentmuxSettings(View):
                     self.page_keys),
             Section("notify", "\uf0f3", "Notifications", "notify alert needs permission question finished done "
                     "error exited quit desktop", self.page_notify),
-            Section("projects", "\uf07b", "Projects", "resume session agents open project", self.page_projects),
+            Section("projects", "\uf07b", "Projects", "resume session agents open project threads ctrl numbers", self.page_projects),
         ]
 
     # ---- frame (as in System Settings) ---------------------------------------------------------
@@ -278,6 +280,10 @@ class AgentmuxSettings(View):
         p.append(self.option_row("resume-on-open", "Resume its agents",
                                  "Every agent the project used comes back in its last session "
                                  "(claude, codex, opencode, agy); off: an empty project"))
+        p.append(rule_heading("Threads", spaced=True))
+        p.append(self.option_row("thread-numbers", "Ctrl + a number shows that thread",
+                                 "Ctrl+1 … Ctrl+9: the project's 1st … 9th thread, in the Threads list's order; with Projects "
+                                 "focused, the 1st … 9th project (off: those keys go to the agent)"))
 
 
 def make():

@@ -717,6 +717,12 @@ class Account(Picker):
         self.search.grab_focus()
         self.say(f"Shown as {lib.account_label(h, a)}")
 
+    def clicked(self, i):
+        """A click on an account's card only selects it (the list did): Enter, Ctrl+D or its buttons act.
+        + Add account still adds on a click."""
+        if self.items[i] and self.items[i][0] != "use":
+            self.choose(self.items[i])
+
     def choose(self, item):
         kind, h, a = item
         if kind in ("new", "add"):   # + Add account (or a name typed in the search): made, and its login runs

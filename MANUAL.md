@@ -897,6 +897,7 @@ than an hour from midnight, the line says *used since 08:10* (or *since Tue 18:4
   default. `Enter` restarts the shown thread's agent in place on the selected account, on the same
   conversation (`claude --resume <id>`: for when its account runs out of usage); the default doesn't
   change. `Ctrl+D` or a row's **Make default** makes it the default (with no thread shown, `Enter` does).
+  A click on a card only selects it.
   Not while the agent is working. Any number of accounts per agent: **+ Add account** (under the cards)
   goes straight to its login (below); once logged in it's named after its email (before the @, Rename
   changes it), and one that doesn't get logged in, or turns out to be an account already there (the

@@ -432,21 +432,28 @@ class Service:
             return 409
         target = unique(os.path.join(DOWNLOADS, safe_name(f["name"])))
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        part, last, left = target + ".part", 0.0, length
+        # length None: a chunked body (the phone's app streams some uploads), read to its end
+        part, last, left, got = target + ".part", 0.0, length, 0
         try:
             with open(part, "wb") as out:
-                while left > 0:
-                    chunk = stream.read(min(left, 1 << 20))
+                while left is None or left > 0:
+                    chunk = stream.read(1 << 20 if left is None else min(left, 1 << 20))
                     if not chunk:
+                        if left is None:
+                            break
                         raise OSError("the transfer broke off")
                     out.write(chunk)
-                    left -= len(chunk)
+                    got += len(chunk)
+                    if left is not None:
+                        left -= len(chunk)
                     s["done_bytes"] += len(chunk)
                     if time.time() - last > PROGRESS_EVERY:
                         last = time.time()
                         self.emit({"ev": "incoming", "session": self.public_session(s)})
                     if s["state"] == "cancelled":
                         raise OSError("cancelled")
+            if f["size"] and got != f["size"]:   # never keep a cut-off (or empty) file as if it came whole
+                raise OSError(f"got {got} of {f['size']} bytes")
             os.replace(part, target)
         except OSError as e:
             try:
@@ -561,6 +568,35 @@ class Counting:
         return data
 
 
+class Chunked:
+    """A chunked request body (Transfer-Encoding: chunked, no Content-Length) read as a plain stream:
+    b"" at its end. http.server leaves the decoding to the handler."""
+
+    def __init__(self, f):
+        self.f, self.left, self.done = f, 0, False
+
+    def read(self, n):
+        while not self.left and not self.done:
+            try:
+                size = int(self.f.readline(1024).split(b";", 1)[0].strip() or b"0", 16)
+            except ValueError:
+                raise OSError("a malformed chunk") from None
+            if size == 0:
+                while self.f.readline(1024).strip():   # the trailer, up to its empty line
+                    pass
+                self.done = True
+            self.left = size
+        if self.done:
+            return b""
+        data = self.f.read(min(n, self.left))
+        if not data:
+            raise OSError("the transfer broke off")
+        self.left -= len(data)
+        if not self.left:
+            self.f.readline(1024)   # the CRLF after each chunk
+        return data
+
+
 def walk(path):
     """(file, name to send) for a file, or every file under a folder (named with the folder's path)."""
     path = os.path.abspath(path)
@@ -641,8 +677,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 status, body = svc.ask(m.get("info") or {}, m["files"], ip)
                 return self.reply(status, body)
             if url.path == f"{API}/upload":
-                n = int(self.headers.get("Content-Length") or 0)
-                status = svc.receive(q.get("sessionId"), q.get("fileId"), q.get("token", ""), ip, self.rfile, n)
+                stream, n = self.rfile, self.headers.get("Content-Length")
+                if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                    stream, n = Chunked(self.rfile), None
+                status = svc.receive(q.get("sessionId"), q.get("fileId"), q.get("token", ""), ip, stream,
+                                     None if n is None else int(n))
                 if status != 200:
                     self.close_connection = True   # the body may be left unread
                 return self.reply(status)

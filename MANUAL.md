@@ -620,7 +620,9 @@ shows up in it under its hostname; no LocalSend package on the PC.
   to accept. `lsend send <file>…` opens the window with those picked.
 - **Receive:** send from the phone to this PC. The window opens (with a notification) and asks: `y` / Accept,
   `n` / Decline; nothing is saved without it (unanswered for 90 s = declined). Files go to `~/Downloads`
-  (`name (2).ext` if taken; a folder keeps its folders); a message shows with Copy. Activity lists both
+  (`name (2).ext` if taken; a folder keeps its folders); a file that arrives short of the size the phone
+  announced fails instead of being kept (an empty JPG opened in the browser: there was no picture to read
+  its type from). Uploads with or without a length (chunked) both work. A message shows with Copy. Activity lists both
   ways with progress, Cancel, Open, Show in Files.
 - **Safety:** HTTPS with this PC's own certificate (`~/.local/share/lsend`, made once, never in the repo);
   only private-network addresses are answered; before sending, the device's certificate must match the

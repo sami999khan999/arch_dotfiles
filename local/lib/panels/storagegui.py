@@ -62,6 +62,25 @@ def parse_size(text):
     return int(float(m.group(1)) * UNITS[m.group(2).upper()]) if m else 0
 
 
+def drive_of(mount):
+    """What a mount is on, in words: "TEAM T253256GB · sdb1 · btrfs · SATA SSD" (lsblk; "" if it can't say)."""
+    try:
+        src = subprocess.run(["findmnt", "-no", "SOURCE", mount], capture_output=True, text=True,
+                             timeout=5).stdout.strip().split("[")[0]
+        tree = json.loads(subprocess.run(["lsblk", "-J", "-o", "NAME,MODEL,FSTYPE,ROTA,TRAN"], capture_output=True,
+                                         text=True, timeout=5).stdout or "{}")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ""
+    for disk in tree.get("blockdevices", []):
+        for part in disk.get("children") or [disk]:
+            if f"/dev/{part['name']}" == src:
+                kind = "hard disk" if disk.get("rota") else "SSD"
+                bus = (disk.get("tran") or "").upper()
+                return " · ".join(x for x in ((disk.get("model") or "").strip(), part["name"], part.get("fstype") or "",
+                                             f"{bus} {kind}".strip()) if x)
+    return ""
+
+
 def du(path):
     """Bytes a folder takes on disk (its blocks: a sparse or compressed file counts what it uses)."""
     try:
@@ -124,6 +143,7 @@ class Storage(View):
         self.open = set()        # items unfolded
         self.armed = None        # (key, time): Clean pressed once
         self.pool = ThreadPoolExecutor(4)
+        self.drives = {m: drive_of(m) for m, _ in DISKS}   # once: the disks don't change while it's open
 
     def items(self):
         """(key, title, what it is, how it's cleaned, where it is on disk) in the order shown."""
@@ -245,7 +265,8 @@ class Storage(View):
             head = box(False, 10, label(name, "bold"), label(mount, "dim"), label(""),
                        label(f"{human(used)} used · {human(free)} free of {human(total)}", "dim"))
             head.get_first_child().get_next_sibling().get_next_sibling().set_hexpand(True)
-            self.disks.append(box(True, 6, head, bar, classes=("disk",)))
+            what = label(self.drives.get(mount, ""), "dim")
+            self.disks.append(box(True, 6, head, *([what] if what.get_text() else []), bar, classes=("disk",)))
 
     def paint(self):
         clear(self.body)

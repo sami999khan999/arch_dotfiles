@@ -337,11 +337,12 @@ are in the list, so every PC has them, and follow a project that moves. On the r
   project with its terminals shown, and opens VS Code on it. Stop sends Ctrl+C to those terminals (closed
   once stopped) and stops the services (the containers stay). A green ▶ in the list marks a project running
   something (its services or a ▶ terminal; looked at every 10 s while the panel shows: one `docker compose
-  ls` and one tmux listing). **Run setup…** (beside Start) shows what Start starts: found by itself (compose files up to two
+  ls` and one tmux listing). **Run setup…** (beside Start; its own popup, `panels/runsetupgui.py`) shows what Start starts: found by itself (compose files up to two
   folders down, with the project's `.env` when the compose file's folder has none; `package.json`'s `dev`
   script with its lockfile's runner, else a Makefile's `dev` target, else `manage.py runserver`), or edited
-  and saved in the list for both PCs (one command a line, `name: command` or `name @ folder: command`;
-  Reset goes back to what's found). `projects running` lists what runs.
+  and saved in the list for both PCs: a row per compose file and the `.env` passed to them, a row per dev
+  command (its name, the folder it runs in, the command; ✕ drops a row, + adds one), VS Code or not; a file or
+  folder that isn't in the project is outlined red. **Save** (`Ctrl+S`); **Reset to what's found** forgets it. `projects running` lists what runs.
 - **.env** tab: the project's `.env` files, as the .env panel (`Super + Ctrl + K`) shows them: keys (hidden, edit
   and Save or `Ctrl+S`), the ones its `.env.example` has that it lacks in red, Create from the example, and its
   encrypted copy for the other PC (Push / Pull / pick one when both changed). Its count: files with something to do.

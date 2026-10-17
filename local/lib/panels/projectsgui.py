@@ -105,8 +105,6 @@ button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 /* the panel's own popups (Move, Delete…): a dimmed panel, a bordered card in the middle */
 .dialog { background: #1a1b26; border: 1px solid alpha(#3b4261, .7); padding: 20px 22px; }
 .dialog-title { font-weight: 700; font-size: 12pt; }
-.setup-cmds, .setup-cmds text { background: #16161e; color: #c0caf5; }
-.setup-cmds { border: 1px solid alpha(#3b4261, .7); }
 .folders { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
 .folders > row { padding: 4px 10px; }
 .folders > row:selected { background: #292e42; }
@@ -1692,46 +1690,10 @@ class Projects(View):
                          after=lambda ok: self.check_running())
 
     def ask_run_setup(self):
-        """What Start starts, as found or as saved (in the list: both PCs): the compose files, the .env they
-        read, a dev command per line ("name: command", or "name @ folder: command" to run it in a subfolder),
-        VS Code or not. Reset goes back to what's found."""
+        """Run setup: its own popup (runsetupgui.py): what Start starts, found or saved for both PCs."""
         p = self.current()
-        if not p or p.kind == "missing":
-            return
-        st = pj.run_setup(p.rel)
-        compose = Gtk.Entry(text=", ".join(st["compose"]), placeholder_text="docker/docker-compose.yml, …", hexpand=True)
-        env = Gtk.Entry(text=st.get("env_file", ""), placeholder_text=".env  (passed to compose; empty: its own)")
-        cmds = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=6, bottom_margin=6,
-                            left_margin=8, right_margin=8)
-        cmds.add_css_class("setup-cmds")
-        cmds.get_buffer().set_text("\n".join(f"{c['name']}{' @ ' + c['dir'] if c.get('dir') else ''}: {c['cmd']}"
-                                             for c in st["commands"]))
-        cmds.set_size_request(-1, 90)
-        code = Gtk.CheckButton(label="open VS Code on it", active=st.get("code", True))
-
-        def parse():
-            buf = cmds.get_buffer()
-            out = []
-            for line in buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).splitlines():
-                head, sep, cmd = line.partition(":")
-                if not sep or not cmd.strip():
-                    continue
-                name, _, folder = head.partition("@")
-                out.append({"name": name.strip(), "cmd": cmd.strip(), "dir": folder.strip().strip("/")})
-            return {"compose": [c.strip() for c in compose.get_text().split(",") if c.strip()],
-                    "env_file": env.get_text().strip(), "commands": out, "code": code.get_active()}
-
-        def save(setup):
-            self.run_job("saving the run setup…", lambda: (not (e := pj.set_run_setup(p.rel, setup)), e or "run setup saved"),
-                         after=lambda ok: None)
-        found = "saved for every PC" if st["saved"] else "found in the folder (not saved yet)"
-        self.open_dialog(f"Run setup · {p.name}",
-                         para(f"What Start (r) starts: {found}. Paths are inside the project.", "dim"),
-                         label("Compose files", "dim"), compose, label(".env for compose", "dim"), env,
-                         label("Dev commands, one a line:  name: command   (name @ folder: command)", "dim"), cmds, code,
-                         self.dialog_buttons(*([button("Reset to found", lambda: save(None), "flat")] if st["saved"] else []),
-                                             button("Save", lambda: save(parse()), "primary")),
-                         focus=compose)
+        if p and p.kind != "missing":
+            self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "runsetupgui.py"), p.rel)
 
     def busy_note(self, p):
         """A red line naming what runs in the project (moving or deleting it would break it), or None."""

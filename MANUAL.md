@@ -700,6 +700,22 @@ SIGTERM to the process (its whole job when a shell started it, so `pnpm dev` and
 `docker stop` for a container; root's services can't be stopped here. It asks `ss` every 2 s while open
 (docker at most every 10 s), nothing when closed.
 
+## .env files
+
+`Super + Ctrl + K` (`panels/envgui.py`, or `projects env`): every project's `.env` files (`.env`, `.env.local`,
+`.env.production`…, in the project and its apps two folders down), with a dot per project: green synced,
+amber something to do, red changed on both PCs. A project's page lists each file's keys (values hidden; the
+eye shows one): edit and **Save** (`Ctrl+S`) writes the file in place. A key its `.env.example` has and the file
+lacks is in red: fill it in and Save. An example with no `.env` beside it: **Create from the example**.
+
+**Synced to the other PC, encrypted**: each file is kept gpg-encrypted (AES-256) in the private list repo
+(`~/code/.projects/env/`), with a passphrase you set once per PC (the same on both; kept in the keyring). The
+repo only ever holds ciphertext and a keyed hash of each file (to tell which side changed). A file's state:
+*synced*, *changed here* (**Push**), *newer on the other PC* or *only on the other PC* (**Pull**), *changed on
+both* (**Keep this PC's** / **Take the other's**). **Sync** (`s`) pushes and pulls everything that isn't a
+clash. `projects clone` pulls a project's files after cloning it. Command line: `projects env` (status),
+`env push`, `env pull`, `env passphrase`.
+
 ## Updates
 
 `Super + Ctrl + U` (`panels/updatesgui.py`). **Updates**: what pacman (`checkupdates`, which never locks the

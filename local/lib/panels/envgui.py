@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # envgui.py — .env files (Super + Ctrl + K): every project's .env, its keys, what its .env.example has that
-# it lacks, and its encrypted copy for the other PC. Running it again closes it.
+# it lacks, and its encrypted copy for the other PC. Running it again closes it. The Projects panel's .env tab
+# is the same thing for the project it shows (EnvEditor).
 #
 #   left    the projects with a .env (or an example and no .env yet, or a copy only the other PC made); a
 #           dot per project: green synced, amber something to push / pull or keys missing, red changed on both
@@ -11,7 +12,7 @@
 #   Sync    push what changed here, pull what's newer there (a file changed on both PCs waits for you)
 #
 # The copies are the `projects env` ones: gpg (AES-256) in the private list repo, the passphrase in this PC's
-# keyring (asked once, here). The data and the sync are the `projects` command's.
+# keyring (asked once, here or in the Projects tab). The data and the sync are the `projects` command's.
 import importlib.machinery, importlib.util, os, shutil, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +41,134 @@ CSS = """
 """
 
 
+def project_state(rel):
+    """(status rows, examples without a .env) of one project: what EnvEditor.view shows."""
+    path = f"{pj.ROOT}/{rel}"
+    return pj.env_status([rel]), (pj.env_examples(path) if os.path.isdir(path) else [])
+
+
+class EnvEditor:
+    """One project's .env files as widgets, with their actions: the .env panel's right side and the Projects
+    panel's .env tab. say(msg, kind): the host's status line; changed(rel): after a write or a sync, so the
+    host loads the project again."""
+
+    def __init__(self, say, changed):
+        self.say, self.changed = say, changed
+        self.edits = {}   # (rel, file) -> {key: (Gtk.Entry, value read)} of the shown project
+
+    def banner(self, done):
+        """The passphrase prompt (None when it's set): done() after it's kept."""
+        if pj.passphrase():
+            return None
+        first = not os.path.isdir(pj.ENV_DIR)
+        b = box(True, 8, classes=("env-banner",))
+        b.append(label("Set the passphrase the copies are encrypted with" + (
+            " (new: the other PC needs the same one)" if first else " (the one you set on the other PC)") +
+            ". It stays in this PC's keyring.", wrap=True))
+        one = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="passphrase", hexpand=True)
+        two = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="again", hexpand=True)
+
+        def go(*_):
+            a, again = one.get_text(), two.get_text() if first else one.get_text()
+            if not a or a != again:
+                return self.say("the two don't match" if a else "type a passphrase", "bad")
+            problem = pj.set_passphrase(a)
+            if problem:
+                return self.say(problem, "bad")
+            self.say("passphrase kept in the keyring")
+            done()
+        one.connect("activate", go)
+        two.connect("activate", go)
+        b.append(box(False, 8, one, *([two] if first else []), button("Set", go, "primary")))
+        return b
+
+    def view(self, rel, status, examples):
+        """The project's files (status: its env_status rows) and the examples with no .env beside them."""
+        self.edits = {}
+        page = box(True, 4)
+        path = f"{pj.ROOT}/{rel}"
+        first = True
+        for st in status:
+            page.append(self.file_block(path, st, first))
+            first = False
+        for ex in examples:
+            target = os.path.join(os.path.dirname(ex), ".env")
+            n = len(pj.env_keys(open(os.path.join(path, ex), errors="replace").read()))
+            head = box(False, 10, label(target, "env-path"), label(f"no such file · {ex} has {n} keys", "amber"),
+                       label(""), button("Create from the example", lambda ex=ex, t=target: self.create(rel, ex, t), "primary"))
+            head.get_last_child().get_prev_sibling().set_hexpand(True)
+            page.append(box(True, 6, head, classes=("env-file",) + (("first",) if first else ())))
+            first = False
+        if first:
+            page.append(label("No .env files in this project (nor an .env.example).", "dim"))
+        return page
+
+    def file_block(self, path, st, first):
+        f, state = st["file"], st["state"]
+        acts = []
+        if state in ("changed here", "not synced"):
+            acts.append(button("Push", lambda: self.job(st["project"], pj.env_push, [st["key"]]), "primary"))
+        if state in ("newer there", "only there"):
+            acts.append(button("Pull", lambda: self.job(st["project"], pj.env_pull, [st["key"]]), "primary"))
+        if state == "both changed":
+            acts += [button("Keep this PC's", lambda: self.job(st["project"], pj.env_push, [st["key"]], True)),
+                     button("Take the other's", lambda: self.job(st["project"], pj.env_pull, [st["key"]], True))]
+        here = os.path.isfile(os.path.join(path, f))
+        if here:
+            acts.append(button("Save", lambda: self.save(st["project"], f), "flat", tooltip="Ctrl+S"))
+        head = box(False, 10, label(f, "env-path"), label(STATE_WORDS[state], STATE_CLASS[state]), label(""), *acts)
+        head.get_first_child().get_next_sibling().get_next_sibling().set_hexpand(True)
+        block = box(True, 8, head, classes=("env-file",) + (("first",) if first else ()))
+        if not here:
+            return block
+        grid = Gtk.Grid(column_spacing=12, row_spacing=4, css_classes=["env-grid"])
+        values = pj.env_keys(open(os.path.join(path, f), errors="replace").read())
+        entries = {}
+        for i, (k, v) in enumerate(list(values.items()) + [(k, None) for k in st["missing"]]):
+            grid.attach(label(k, "env-key", *(("missing",) if v is None else ())), 0, i, 1, 1)
+            e = Gtk.PasswordEntry(show_peek_icon=True, hexpand=True)
+            e.set_text(v or "")
+            if v is None:
+                e.set_property("placeholder-text", "in the example, not here: fill in and Save")
+            entries[k] = (e, v)
+            grid.attach(e, 1, i, 1, 1)
+        self.edits[(st["project"], f)] = entries
+        block.append(grid)
+        return block
+
+    def save(self, rel, f):
+        """The changed values (and filled-in missing keys) written into the file, each line in place."""
+        changed = 0
+        for k, (e, old) in self.edits.get((rel, f), {}).items():
+            new = e.get_text()
+            if new != (old or ""):
+                pj.env_set(f"{pj.ROOT}/{rel}", f, k, new)
+                changed += 1
+        self.say(f"saved {changed} value{'s' * (changed != 1)} in {f}" if changed else "nothing changed")
+        self.changed(rel)
+
+    def save_all(self):
+        for rel, f in list(self.edits):
+            self.save(rel, f)
+
+    def create(self, rel, example, target):
+        dest = f"{pj.ROOT}/{rel}/{target}"
+        if os.path.exists(dest):
+            return self.say(f"{target} is already there", "bad")
+        shutil.copyfile(f"{pj.ROOT}/{rel}/{example}", dest)
+        os.chmod(dest, 0o600)
+        self.say(f"made {target} from {example}: fill in its values")
+        self.changed(rel)
+
+    def job(self, rel, fn, keys, force=False):
+        self.say("working…", seconds=60)
+
+        def work():
+            ok, msg = fn(keys=keys, force=force)
+            GLib.idle_add(lambda: (self.say(msg, "ok" if ok else "bad"), self.changed(rel)) and False)
+        threading.Thread(target=work, daemon=True).start()
+
+
 class EnvFiles(View):
     title, subtitle = ".env files", "every project's, synced encrypted"
     icon = ""   # nf-fa-key
@@ -50,7 +179,7 @@ class EnvFiles(View):
     def __init__(self):
         super().__init__()
         self.status, self.examples, self.sel = [], {}, None
-        self.edits = {}   # (rel, file) -> {key: Gtk.Entry} of the shown project
+        self.editor = EnvEditor(self.say, lambda rel: self.load(keep=rel))
 
     def header_extra(self):
         self.sync_btn = button("Sync", self.sync, "flat", tooltip="s: push what changed here, pull what's newer there")
@@ -65,8 +194,7 @@ class EnvFiles(View):
         self.list.connect("row-selected", lambda _l, row: row and row.rel and self.pick(row.rel))
         left = box(True, 8, self.search, scrolled(self.list))
         left.set_size_request(280, -1)
-        self.banner = box(True, 8, classes=("env-banner",))
-        self.banner.set_visible(False)
+        self.banner = box(True, 0)
         self.detail = box(True, 4)
         right = box(True, 10, self.banner, scrolled(self.detail))
         right.set_hexpand(True)
@@ -91,7 +219,11 @@ class EnvFiles(View):
 
     def loaded(self, status, examples, keep):
         self.status, self.examples = status, examples
-        self.paint_banner()
+        clear(self.banner)
+        b = self.editor.banner(self.load)
+        if b:
+            self.banner.append(b)
+        self.sync_btn.set_sensitive(bool(pj.passphrase()))
         self.paint_list(keep or self.sel)
         return False
 
@@ -110,32 +242,6 @@ class EnvFiles(View):
         return "green" if states and all(st == "synced" for st in states) else "dim"
 
     # ---- drawing -----------------------------------------------------------------------------------
-    def paint_banner(self):
-        clear(self.banner)
-        self.banner.set_visible(not pj.passphrase())
-        self.sync_btn.set_sensitive(bool(pj.passphrase()))
-        if pj.passphrase():
-            return
-        first = not os.path.isdir(pj.ENV_DIR)
-        self.banner.append(label("Set the passphrase the copies are encrypted with" + (
-            " (new: the other PC needs the same one)" if first else " (the one you set on the other PC)") +
-            ". It stays in this PC's keyring.", wrap=True))
-        a = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="passphrase", hexpand=True)
-        b = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="again", hexpand=True)
-        go = lambda *_: self.set_phrase(a.get_text(), b.get_text() if first else a.get_text())
-        a.connect("activate", go)
-        b.connect("activate", go)
-        self.banner.append(box(False, 8, a, *([b] if first else []), button("Set", go, "primary")))
-
-    def set_phrase(self, a, b):
-        if not a or a != b:
-            return self.say("the two don't match" if a else "type a passphrase", "bad")
-        problem = pj.set_passphrase(a)
-        if problem:
-            return self.say(problem, "bad")
-        self.say("passphrase kept in the keyring")
-        self.load()
-
     def paint_list(self, keep=None):
         clear(self.list)
         pick = None
@@ -159,88 +265,10 @@ class EnvFiles(View):
     def pick(self, rel):
         self.sel = rel
         clear(self.detail)
-        self.edits = {}
-        path = f"{pj.ROOT}/{rel}"
         self.detail.append(label(rel, "heading"))
-        self.detail.append(label(path.replace(os.path.expanduser("~"), "~"), "dim", ellipsize=True))
-        first = True
-        for st in [s for s in self.status if s["project"] == rel]:
-            self.detail.append(self.file_block(path, st, first))
-            first = False
-        for ex in self.examples.get(rel, []):
-            target = os.path.join(os.path.dirname(ex), ".env")
-            n = len(pj.env_keys(open(os.path.join(path, ex), errors="replace").read()))
-            head = box(False, 10, label(target, "env-path"), label(f"no such file · {ex} has {n} keys", "amber"),
-                       label(""), button("Create from the example", lambda ex=ex, t=target: self.create(rel, ex, t), "primary"))
-            head.get_last_child().get_prev_sibling().set_hexpand(True)
-            self.detail.append(box(True, 6, head, classes=("env-file",) + (("first",) if first else ())))
-            first = False
-
-    def file_block(self, path, st, first):
-        f, state = st["file"], st["state"]
-        acts = []
-        if state in ("changed here", "not synced"):
-            acts.append(button("Push", lambda: self.job(pj.env_push, [st["key"]]), "primary"))
-        if state in ("newer there", "only there"):
-            acts.append(button("Pull", lambda: self.job(pj.env_pull, [st["key"]]), "primary"))
-        if state == "both changed":
-            acts += [button("Keep this PC's", lambda: self.job(pj.env_push, [st["key"]], True)),
-                     button("Take the other's", lambda: self.job(pj.env_pull, [st["key"]], True))]
-        here = os.path.isfile(os.path.join(path, f))
-        if here:
-            acts.append(button("Save", lambda: self.save(st["project"], f), "flat", tooltip="Ctrl+S"))
-        head = box(False, 10, label(f, "env-path"), label(STATE_WORDS[state], STATE_CLASS[state]), label(""), *acts)
-        head.get_first_child().get_next_sibling().get_next_sibling().set_hexpand(True)
-        block = box(True, 8, head, classes=("env-file",) + (("first",) if first else ()))
-        if not here:
-            return block
-        grid = Gtk.Grid(column_spacing=12, row_spacing=4, css_classes=["env-grid"])
-        values = pj.env_keys(open(os.path.join(path, f), errors="replace").read())
-        entries = {}
-        for i, (k, v) in enumerate(list(values.items()) + [(k, None) for k in st["missing"]]):
-            grid.attach(label(k, "env-key", *(("missing",) if v is None else ())), 0, i, 1, 1)
-            e = Gtk.PasswordEntry(show_peek_icon=True, hexpand=True)
-            e.set_text(v or "")
-            if v is None:
-                e.set_property("placeholder-text", "in the example, not here: fill in and Save")
-            entries[k] = (e, v)
-            grid.attach(e, 1, i, 1, 1)
-        self.edits[(st["project"], f)] = entries
-        block.append(grid)
-        return block
-
-    # ---- actions -----------------------------------------------------------------------------------
-    def save(self, rel, f):
-        """The changed values (and filled-in missing keys) written into the file, each line in place."""
-        changed = 0
-        for k, (e, old) in self.edits.get((rel, f), {}).items():
-            new = e.get_text()
-            if new != (old or "") or (old is None and new):
-                pj.env_set(f"{pj.ROOT}/{rel}", f, k, new)
-                changed += 1
-        self.say(f"saved {changed} value{'s' * (changed != 1)} in {f}" if changed else "nothing changed")
-        self.load(keep=rel)
-
-    def save_all(self):
-        for rel, f in list(self.edits):
-            self.save(rel, f)
-
-    def create(self, rel, example, target):
-        dest = f"{pj.ROOT}/{rel}/{target}"
-        if os.path.exists(dest):
-            return self.say(f"{target} is already there", "bad")
-        shutil.copyfile(f"{pj.ROOT}/{rel}/{example}", dest)
-        os.chmod(dest, 0o600)
-        self.say(f"made {target} from {example}: fill in its values")
-        self.load(keep=rel)
-
-    def job(self, fn, keys, force=False):
-        self.say("working…", seconds=60)
-
-        def work():
-            ok, msg = fn(keys=keys, force=force)
-            GLib.idle_add(lambda: (self.say(msg, "ok" if ok else "bad"), self.load(keep=self.sel)) and False)
-        threading.Thread(target=work, daemon=True).start()
+        self.detail.append(label(f"{pj.ROOT}/{rel}".replace(os.path.expanduser("~"), "~"), "dim", ellipsize=True))
+        self.detail.append(self.editor.view(rel, [s for s in self.status if s["project"] == rel],
+                                            self.examples.get(rel, [])))
 
     def sync(self):
         if not pj.passphrase():
@@ -259,7 +287,7 @@ class EnvFiles(View):
 
     def key(self, keyval, state):
         if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_s, Gdk.KEY_S):
-            self.save_all()
+            self.editor.save_all()
             return True
         if self.typing():
             return False

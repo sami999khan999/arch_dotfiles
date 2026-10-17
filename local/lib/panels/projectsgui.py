@@ -9,6 +9,8 @@
 #          VS Code, a terminal or agentmux; Start / Stop it (r: `projects up` / `down` — its docker compose
 #          services, its dev commands in agentmux terminals, VS Code; a green ▶ in the list while it runs;
 #          Run setup… edits what starts); Fetch, Pull (fast-forward only), Push, GitHub. Two tabs:
+#          .env (its .env files: keys, what the example has that they lack, the encrypted copy for the other
+#          PC — envgui.py's EnvEditor, as in the .env panel),
 #          Graph (the history of every branch as lanes, like VS Code's Git Graph; or one branch) and
 #          Branches (each local branch next to its remote: in sync / to push / to pull / diverged…).
 #   + New  a new project (empty, from a template, or cloned from a URL; optionally a GitHub repo), recorded
@@ -28,6 +30,7 @@ sys.path.insert(0, HERE)
 from gtkkit import (Gdk, Gio, GLib, Gtk, Pango, View, backdrop_setting, window_blur, box, button, clear, dropdown, label, recolor, rgbf, rule_heading, wrap_box,
                     run, scrolled, switch)
 from keys import fuzzy
+import envgui
 from keysgui import marked
 
 _loader = importlib.machinery.SourceFileLoader("projects", os.path.expanduser("~/.local/bin/projects"))
@@ -367,9 +370,9 @@ class Projects(View):
     title, subtitle = "Projects", ""
     icon = "\uea62"
     interval = 2   # refresh(): the shown project's git status, live
-    css = CSS
+    css = CSS + envgui.CSS
     hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("r", "start / stop"), ("c", "commit"), ("s", "sync"), ("p", "pin"), ("m", "move"), ("n", "new"),
-             ("Tab", "changes / conflicts / graph / branches"), ("←→", "fold"), ("/", "search"), ("?", "ask")]
+             ("Tab", "next tab"), ("←→", "fold"), ("/", "search"), ("?", "ask")]
 
     def __init__(self):
         super().__init__()
@@ -520,7 +523,8 @@ class Projects(View):
 
         self.tab_btns = {}
         bar = box(False, 0, classes=("tabs", "inner"))
-        for name, title in (("changes", "Changes"), ("conflicts", "Conflicts"), ("graph", "Graph"), ("branches", "Branches")):
+        for name, title in (("changes", "Changes"), ("conflicts", "Conflicts"), ("env", ".env"), ("graph", "Graph"),
+                            ("branches", "Branches")):
             b = button(title, lambda n=name: self.switch_tab(n), "tab")
             self.tab_btns[name] = b
             bar.append(b)
@@ -543,6 +547,9 @@ class Projects(View):
         self.tab_pages.add_named(scrolled(self.change_list), "changes")
         self.conflict_list = box(True, 4)
         self.tab_pages.add_named(scrolled(self.conflict_list), "conflicts")
+        self.env_page = box(True, 8)
+        self.env_editor = envgui.EnvEditor(self.say, lambda rel: self.load_env(rel))
+        self.tab_pages.add_named(scrolled(self.env_page), "env")
         self.tab_pages.add_named(scrolled(self.graph), "graph")
         self.tab_pages.add_named(scrolled(self.branch_list), "branches")
         self.tab_pages.set_margin_top(6)
@@ -1126,6 +1133,26 @@ class Projects(View):
             self.fetching.add(p.rel)
             threading.Thread(target=self.auto_fetch, args=(p,), daemon=True).start()
         threading.Thread(target=self.load_git, args=(p, gen), daemon=True).start()
+        self.load_env(p.rel)
+
+    def load_env(self, rel):
+        """The .env tab: the project's files and their sync state (a thread: a keyed hash of each file)."""
+        def go():
+            status, examples = envgui.project_state(rel)
+            GLib.idle_add(self.paint_env, rel, status, examples)
+        threading.Thread(target=go, daemon=True).start()
+
+    def paint_env(self, rel, status, examples):
+        if rel != self.selected:
+            return False
+        clear(self.env_page)
+        banner = self.env_editor.banner(lambda: self.load_env(rel)) if status else None
+        if banner:
+            self.env_page.append(banner)
+        self.env_page.append(self.env_editor.view(rel, status, examples))
+        todo = sum(st["state"] not in ("synced", "") or bool(st["missing"]) for st in status) + len(examples)
+        self.tab_btns["env"].set_label(f".env {todo}" if todo else ".env")
+        return False
 
     def auto_fetch(self, p):
         ok, _ = pj.git(p.path, "fetch", "--all", "--prune", "-q", timeout=60)
@@ -1155,6 +1182,7 @@ class Projects(View):
             self.actions.append(button("Stop" if on else "Start", self.start_stop, *(("danger",) if on else ()),
                                        tooltip="r: " + ("stop its dev terminals and docker services" if on else
                                                         "its docker services, its dev commands in agentmux, VS Code")))
+            self.actions.append(button("Run setup…", self.ask_run_setup, "flat", tooltip="what Start starts"))
             self.commit_btn = button("Commit…", self.ask_commit, tooltip="c: your changes, with a message")
             self.commit_btn.set_visible(p.kind == "repo" and p.dirty > 0)
             self.actions.append(self.commit_btn)
@@ -1176,7 +1204,6 @@ class Projects(View):
             pinned = p.rel in self.pinned
             self.manage.append(button("Unpin" if pinned else "Pin", self.toggle_pin, "flat",
                                       tooltip="p: " + ("off the Pinned section" if pinned else "first in the list, on every PC")))
-            self.manage.append(button("Run setup…", self.ask_run_setup, "flat", tooltip="what Start starts"))
             self.manage.append(button("Move…", self.ask_move, "flat", tooltip="m: to another folder in ~/code"))
             self.manage.append(button("Delete", self.ask_delete, "flat", "danger", tooltip="Delete: the folder"))
         # Delete on GitHub: only once GitHub says this account may (admin on the repo); asked in a thread
@@ -2329,6 +2356,10 @@ class Projects(View):
                 self.close_dialog()
                 return True
             return False
+        if (state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_s, Gdk.KEY_S) and page == "detail"
+                and self.tab == "env"):
+            self.env_editor.save_all()
+            return True
         if keyval == Gdk.KEY_Escape:
             if self.search.get_text():
                 self.search.set_text("")
@@ -2345,8 +2376,8 @@ class Projects(View):
         elif keyval == Gdk.KEY_question:
             self.ask()
         elif keyval == Gdk.KEY_Tab and page == "detail" and self.tabs_bar.get_visible():
-            order = ["changes", "conflicts", "graph", "branches"]
-            self.switch_tab(order[(order.index(self.tab) + 1) % 4])
+            order = ["changes", "conflicts", "env", "graph", "branches"]
+            self.switch_tab(order[(order.index(self.tab) + 1) % len(order)])
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_Right) and row and row.kind in ("group", "project"):
             group = row.key if row.kind == "group" else os.path.dirname(row.key)
             if row.kind == "project" and row.extra == "pinned" and group:

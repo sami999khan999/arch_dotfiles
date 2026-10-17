@@ -623,7 +623,9 @@ class ViewHost:
         underline.set_margin_top(8)
         head = box(True, 0, top, underline, classes=("head",))
 
-        self.status = label("", "foot")
+        # the hints (or a message) shorten with … at the window's width: a long line of hints set the window's
+        # minimum width, wider than a 1366 px screen, and the panel's right edge was cut off
+        self.status = label("", "foot", ellipsize=True)
         self.status.set_visible(self.view.footer)
         body = self.view.build()
         body.set_vexpand(True)

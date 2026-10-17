@@ -337,11 +337,14 @@ are in the list, so every PC has them, and follow a project that moves. On the r
   project with its terminals shown, and opens VS Code on it. Stop sends Ctrl+C to those terminals (closed
   once stopped) and stops the services (the containers stay). A green ▶ in the list marks a project running
   something (its services or a ▶ terminal; looked at every 10 s while the panel shows: one `docker compose
-  ls` and one tmux listing). **Run setup…** shows what Start starts: found by itself (compose files up to two
+  ls` and one tmux listing). **Run setup…** (beside Start) shows what Start starts: found by itself (compose files up to two
   folders down, with the project's `.env` when the compose file's folder has none; `package.json`'s `dev`
   script with its lockfile's runner, else a Makefile's `dev` target, else `manage.py runserver`), or edited
   and saved in the list for both PCs (one command a line, `name: command` or `name @ folder: command`;
   Reset goes back to what's found). `projects running` lists what runs.
+- **.env** tab: the project's `.env` files, as the .env panel (`Super + Ctrl + K`) shows them: keys (hidden, edit
+  and Save or `Ctrl+S`), the ones its `.env.example` has that it lacks in red, Create from the example, and its
+  encrypted copy for the other PC (Push / Pull / pick one when both changed). Its count: files with something to do.
 - **Graph** tab: the last 300 commits of every branch as coloured lanes (merges and forks drawn, ◯ is HEAD),
   with branch / remote / tag labels on their commits: a remote label is bright when the local branch of the
   same name is there too. The dropdown shows one branch's history instead.

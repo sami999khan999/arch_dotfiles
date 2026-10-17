@@ -790,7 +790,11 @@ class Documents(View):
             b.add_css_class("menu-btn")
             b.connect("clicked", lambda _b, fn=fn: (pop.popdown(), fn()))
             col.append(b)
-        pop.set_child(col)
+        sc = scrolled(col)   # as tall as it needs, never past the window (then it scrolls), as in Images
+        sc.set_propagate_natural_height(True)
+        sc.set_propagate_natural_width(True)
+        sc.set_max_content_height(max(self.window.get_height() - 40, 120))
+        pop.set_child(sc)
         pop.connect("closed", lambda p: GLib.idle_add(lambda: p.unparent() and False))
         pop.popup()
 

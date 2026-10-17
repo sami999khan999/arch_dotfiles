@@ -1020,10 +1020,13 @@ class Images(View):
             b.add_css_class("menu-btn")
             b.connect("clicked", lambda _b, fn=fn: (pop.popdown(), fn()))
             col.append(b)
-        pop.set_child(scrolled(col) if len(items) > 24 else col)
-        if len(items) > 24:   # taller than a small window: it scrolls
-            pop.get_child().set_size_request(260, min(self.window.get_height() - 40, 640))
-            pop.get_child().set_propagate_natural_height(True)
+        # as tall as it needs, but never past the window: then it scrolls. (A height forced on it, taller
+        # than there is room under the pointer, made GTK close the menu the moment it opened.)
+        sc = scrolled(col)
+        sc.set_propagate_natural_height(True)
+        sc.set_propagate_natural_width(True)
+        sc.set_max_content_height(max(self.window.get_height() - 40, 120))
+        pop.set_child(sc)
         pop.connect("closed", lambda p: GLib.idle_add(lambda: p.unparent() and False))
         pop.popup()
 

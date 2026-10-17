@@ -93,7 +93,10 @@ def _get_proc(_ctx, name):
 
 _gl = ctypes.CDLL("libGL.so.1") if _glx is not None else ctypes.CDLL("libOpenGL.so.0")
 _gl.glGetIntegerv.argtypes = [c_int, POINTER(c_int)]
+_gl.glClearColor.argtypes = [ctypes.c_float] * 4
+_gl.glClear.argtypes = [ctypes.c_uint]
 GL_FRAMEBUFFER_BINDING = 0x8CA6
+GL_COLOR_BUFFER_BIT = 0x4000
 
 
 def bound_framebuffer():
@@ -101,6 +104,14 @@ def bound_framebuffer():
     fbo = c_int(0)
     _gl.glGetIntegerv(GL_FRAMEBUFFER_BINDING, byref(fbo))
     return fbo.value
+
+
+def fill(color):
+    """Paint the bound framebuffer one colour ("#rrggbb"): mpv's renderer, with no video to draw, gives
+    back the last frame it had."""
+    r, g, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    _gl.glClearColor(r, g, b, 1)
+    _gl.glClear(GL_COLOR_BUFFER_BIT)
 
 
 class MpvError(Exception):

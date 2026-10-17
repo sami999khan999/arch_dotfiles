@@ -44,6 +44,7 @@ CSS = """
 .controls .time { color: #a9b1d6; }
 .controls .speed { color: #e0af68; }
 .controls scale { padding: 8px 0; }
+.controls scale.vol { padding: 2px 0; }   /* its ticks above and below take the rest */
 .list-pane { border-left: 1px solid alpha(#3b4261, .7); }
 .list-pane list > row { padding: 6px 14px; }
 .list-pane row.playing label { color: #6b8fe0; font-weight: 700; }
@@ -97,6 +98,7 @@ class Videos(View):
         self.props = {}
         self.tracks = []
         self.loaded = None          # the file mpv has open (set once it's loaded)
+        self.picture = False        # it has a video track (or cover art) to draw
         self.tick_timer = self.click_timer = self.hide_timer = self.osd_timer = 0
         self.dragging = False
         self.state = {"volume": 100, "mute": False, "list": False}
@@ -197,18 +199,21 @@ class Videos(View):
         self.seek.set_hexpand(True)
         self.seek.set_focusable(False)
         self.seek.connect("change-value", self.seek_dragged)
-        held = Gtk.GestureClick()   # while the bar is held, the playing position doesn't pull it back
-        held.connect("pressed", lambda *_: setattr(self, "dragging", True))
-        held.connect("stopped", lambda *_: setattr(self, "dragging", False))
-        held.connect("released", lambda *_: setattr(self, "dragging", False))
+        # while the bar is held, the playing position doesn't pull it back. The raw press and release: a
+        # GestureClick there competes with the scale's own drag gesture and could miss the release, which
+        # left the bar stuck while the time went on
+        held = Gtk.EventControllerLegacy()
+        held.connect("event", self.seek_held)
         held.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         self.seek.add_controller(held)
         self.b_vol = ctl(G_VOL_HIGH, self.toggle_mute, "Mute (m)")
         self.vol = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 150, 1)
         self.vol.set_draw_value(False)
+        self.vol.add_css_class("vol")
         self.vol.set_size_request(90, -1)
         self.vol.set_focusable(False)
-        self.vol.add_mark(100, Gtk.PositionType.BOTTOM, None)   # past it mpv amplifies
+        for side in (Gtk.PositionType.TOP, Gtk.PositionType.BOTTOM):   # past it mpv amplifies; a tick on
+            self.vol.add_mark(100, side, None)                           # both sides keeps the trough level
         self.vol.connect("change-value", lambda _s, _t, v: self.set_volume(v) or False)
         self.speed_label = label("", "speed")
         self.b_loop = ctl(G_LOOP, self.toggle_loop, "Loop this file (r)")
@@ -250,6 +255,9 @@ class Videos(View):
         self.player.render_free()
 
     def gl_render(self, area, _ctx):
+        if not self.picture:   # music: the background, not the video before it
+            libmpv.fill(recolor("#16161e"))
+            return True
         s = area.get_scale_factor()
         self.player.render(libmpv.bound_framebuffer(), area.get_width() * s, area.get_height() * s)
         return True
@@ -399,6 +407,16 @@ class Videos(View):
             self.pos_label.set_text(clock(value))
         return False
 
+    def seek_held(self, _ctl, event):
+        kind = event.get_event_type()
+        if kind == Gdk.EventType.BUTTON_PRESS:
+            self.dragging = True
+        elif kind == Gdk.EventType.BUTTON_RELEASE and self.dragging:
+            self.dragging = False
+            if self.loaded:   # the drag sought keyframes only: land exactly where it was let go
+                self.player.command("seek", self.seek.get_value(), "absolute+exact")
+        return False
+
     def set_volume(self, v):
         self.player.set("volume", round(min(max(v, 0), 150)))
         if self.props.get("mute"):
@@ -479,7 +497,10 @@ class Videos(View):
         if kind == libmpv.EV_FILE_LOADED:
             self.loaded = self.player.get("path")
             self.tracks = self.player.get_json("track-list", [])
-            if any(t.get("type") == "video" for t in self.tracks):
+            self.dragging = False
+            self.picture = any(t.get("type") == "video" for t in self.tracks)
+            self.area.queue_render()
+            if self.picture:
                 self.msg.set_visible(False)
             else:   # music: its name where the picture would be
                 self.say_center(f"{G_MUSIC}  {self.player.get('media-title') or os.path.basename(self.loaded)}")
@@ -488,7 +509,8 @@ class Videos(View):
             if self.info_label.get_visible():
                 self.fill_info()
         elif kind == libmpv.EV_END_FILE and data[0] == libmpv.END_ERROR:
-            self.loaded = None
+            self.loaded, self.picture = None, False
+            self.area.queue_render()
             name = os.path.basename(self.current() or "")
             self.say_center(f"Can't play {name}")
             self.say(f"can't play {name}: {data[1]}", "bad")

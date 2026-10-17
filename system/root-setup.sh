@@ -21,7 +21,16 @@ else
   echo "   no ufw: skipped"
 fi
 
-echo "== 3. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+echo "== 3. Snapshots readable by you (the Updates panel lists them): snapper's root config"
+if [ -f /etc/snapper/configs/root ]; then
+  owner=$(stat -c %U "$REPO")   # the dotfiles' owner, not root (pkexec / sudo)
+  snapper -c root set-config "ALLOW_USERS=$owner" "SYNC_ACL=yes"
+  echo "   $owner may list root's snapshots"
+else
+  echo "   no snapper root config: skipped"
+fi
+
+echo "== 4. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
 uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
 if [ ! -e "/dev/disk/by-uuid/${uuid#UUID=}" ]; then
   echo "   that drive isn't in this PC: skipped"

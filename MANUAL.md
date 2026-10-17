@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; snapshots listable; the data drive, where it's attached
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
 ```
@@ -699,6 +699,23 @@ and compose project; root's services (DNS, mDNS…) are named by their port. The
 SIGTERM to the process (its whole job when a shell started it, so `pnpm dev` and its node stop together),
 `docker stop` for a container; root's services can't be stopped here. It asks `ss` every 2 s while open
 (docker at most every 10 s), nothing when closed.
+
+## Updates
+
+`Super + Ctrl + U` (`panels/updatesgui.py`). **Updates**: what pacman (`checkupdates`, which never locks the
+database) and paru (`paru -Qua`) would update, the ones worth a look first in amber with why: the kernels
+(in use after a reboot; the LTS one stays bootable), the graphics stack and drivers, Hyprland (a new version
+can change the config's syntax: `hyprctl configerrors` after), the core (systemd, glibc), the boot loader,
+what the panels run on (GTK, PyGObject, VTE), tmux (`agentmux reload` after), waybar, Docker, and a Python
+version change (pip-installed packages stop loading). Above them, Arch's news since your last full upgrade
+(a manual intervention is announced there). **Update all** (`u`) runs `paru -Syu` in the terminal popup,
+where sudo asks for the password. Nothing checks in the background: it looks when it opens (`F5` again).
+
+**Snapshots**: snap-pac snapshots the system before and after every pacman run and grub-btrfs lists them in
+the boot menu. After a bad update: reboot, open GRUB's **Arch Linux snapshots** submenu, boot the one from
+before it (read-only: check it works), then **Open btrfs-assistant** → Snapper → Restore, and reboot. `/home`
+isn't in them: only the system goes back. Listing them here needs `system/root-setup.sh` once (it lets you
+read snapper's root config).
 
 ## Storage
 

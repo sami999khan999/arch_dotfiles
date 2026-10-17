@@ -58,6 +58,7 @@ bind("SUPER + CTRL + S",             panels .. "sysagentgui.py") -- System agent
 bind("SUPER + CTRL + D",             panels .. "lsendgui.py") -- LocalSend: send files / text to the phone, take what it sends
 bind("SUPER + CTRL + O",             panels .. "portsgui.py") -- Ports: what listens on this PC (dev servers, containers); open or stop it
 bind("SUPER + CTRL + F",             panels .. "storagegui.py") -- Storage: what fills the disks, and cleaning what can go (Docker, caches, Trash)
+bind("SUPER + CTRL + U",             panels .. "updatesgui.py") -- Updates: what pacman / paru would update, what to watch, snapshots to go back to
 bind("SUPER + CTRL + E",             "walker -m symbols")
 bind("SUPER + CTRL + V",             "walker -m clipboard")
 bind("SUPER + V",                    "walker -m clipboard")

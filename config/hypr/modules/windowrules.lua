@@ -138,6 +138,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.(ask|dba
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.sysagent)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.ports)$" }, size = { 900, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.storage)$" }, size = { 900, 640 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.updates)$" }, size = { 900, 640 } })
 -- a program in a terminal popup (termgui.py: the Docker panel's logs, shell, lazydocker)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.term)$" }, size = { "monitor_w*0.75", "monitor_h*0.82" } })
 -- the Open / Save dialogs (pickergui.py, the portal's file picker): Files' window, a little smaller than the screen

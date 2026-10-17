@@ -4,18 +4,21 @@
 # Places and drives on the left; a path bar, the folder as a sortable table (folders first), a filter.
 # Open, rename, new folder / file, copy / cut / paste (also to and from other apps, as file URIs), to the
 # trash (permanently with Shift+Delete, or where a drive has no trash, after asking), a terminal here.
-# The folder is watched: what changes in it shows by itself. Remembered (~/.local/state/files): the last
-# folder and whether hidden files show.
-import gc, json, os, shutil, subprocess, sys, threading, time
+# The folder is watched: what changes in it shows by itself. A details pane (Ctrl+I) on the right: what's
+# selected (or the folder) — size (a folder's added up), dates, permissions, owner, an image's size.
+# In the filter ↑ / ↓ move through what matches and Enter opens it. Remembered (~/.local/state/files): the
+# last folder, whether hidden files show and whether the details pane does.
+import gc, grp, json, os, pwd, shutil, stat, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, Gio, GLib, Gtk, Pango, PanelApp, View, box, button, clear, collect, label, scrolled
-from gi.repository import GObject
+from gi.repository import GdkPixbuf, GObject
 
 HOME = os.path.expanduser("~")
 STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or f"{HOME}/.local/state", "files", "state.json")
 G_FOLDER, G_FILE, G_LINK = "\uf07b", "\uf15b", "\uf0c1"
 G_HOME, G_DRIVE, G_ROOT, G_UP = "\uf015", "\uf0a0", "\uf0a0", "\uf062"
+G_INFO, G_MANY = "\uf05a", "\uf0c5"
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()   # English, like the rest (not the locale's)
 # a file's glyph and its colour, by extension (Nerd Font; the rest: G_FILE, dim)
 KINDS = [({"png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "heic"}, "\uf1c5", "magenta"),
@@ -49,6 +52,11 @@ popover.files-menu > contents { padding: 4px; }
 .info { color: #565f89; padding-top: 6px; }
 button.danger-fill { background: alpha(#f7768e, .16); color: #f7768e; }
 button.danger-fill:hover { background: alpha(#f7768e, .26); }
+.files-details { border-left: 1px solid alpha(#3b4261, .7); }
+.details-glyph { font-size: 30pt; }
+.details-name { color: #c0caf5; font-weight: 700; }
+.details-key { color: #565f89; }
+.details-val { color: #a9b1d6; }
 """
 
 
@@ -68,6 +76,15 @@ def when(t):
         return f"Yesterday {hm}"
     day = f"{lt.tm_mday:02d} {MONTHS[lt.tm_mon - 1]}"
     return f"{day} {hm}" if lt.tm_year == now.tm_year else f"{day} {lt.tm_year}"
+
+
+def when_full(t):
+    lt = time.localtime(t)
+    return f"{lt.tm_mday} {MONTHS[lt.tm_mon - 1]} {lt.tm_year}, {lt.tm_hour:02d}:{lt.tm_min:02d}"
+
+
+def plural(n, word):
+    return f"{n:,} {word}{'s' * (n != 1)}"
 
 
 def kind_of(name, is_dir):
@@ -116,7 +133,7 @@ class Files(View):
     interval = 0
     css = CSS
     hints = [("Enter", "open"), ("Bksp", "back"), ("F2", "rename"), ("Del", "trash"), ("Ctrl+C/X/V", "copy / cut / paste"),
-             ("Ctrl+H", "hidden"), ("/", "filter"), ("F4", "terminal")]
+             ("Ctrl+H", "hidden"), ("/", "filter"), ("Ctrl+I", "details"), ("F4", "terminal")]
 
     def __init__(self, start=None):
         super().__init__()
@@ -133,6 +150,8 @@ class Files(View):
         self.monitor = None
         self.gen = 0       # the folder load in flight: an older one's result is dropped
         self.prompt_ok = None
+        self.details_gen = 0   # the details shown: an older folder tally's result is dropped
+        self.details_timer = 0
 
     # ---- layout ------------------------------------------------------------------------------------
     def build(self):
@@ -161,9 +180,14 @@ class Files(View):
         self.crumb_scroll.add_controller(edit)
         self.filter = Gtk.SearchEntry(placeholder_text="/ filter")
         self.filter.set_size_request(220, -1)
-        self.filter.connect("search-changed", lambda *_: self.refilter())
-        self.filter.connect("activate", lambda *_: self.table.grab_focus())
-        bar = box(False, 4, self.nav_back, self.nav_fwd, up, self.crumb_scroll, self.path_entry, self.filter)
+        self.filter.connect("search-changed", lambda *_: self.filtered())
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)   # before the entry's own
+        keys.connect("key-pressed", lambda _c, keyval, _code, _state: self.filter_key(keyval))
+        self.filter.add_controller(keys)
+        self.details_btn = Gtk.ToggleButton(label=G_INFO, tooltip_text="details (Ctrl+I)")
+        self.details_btn.add_css_class("flat")
+        bar = box(False, 4, self.nav_back, self.nav_fwd, up, self.crumb_scroll, self.path_entry, self.filter,
+                  self.details_btn)
 
         self.store = Gio.ListStore(item_type=Entry)
         self.filt = Gtk.CustomFilter.new(self.visible)
@@ -190,7 +214,7 @@ class Files(View):
         sorter.append(self.table.get_sorter())
         self.sorted = Gtk.SortListModel(model=filtered, sorter=sorter)
         self.sel = Gtk.MultiSelection(model=self.sorted)
-        self.sel.connect("selection-changed", lambda *_: self.update_info())
+        self.sel.connect("selection-changed", lambda *_: (self.update_info(), self.details_soon()))
         self.table.set_model(self.sel)
         self.table.sort_by_column(cols["name"], Gtk.SortType.ASCENDING)
         self.table.connect("activate", lambda _t, pos: self.open_entry(self.sorted.get_item(pos)))
@@ -217,9 +241,21 @@ class Files(View):
         self.main = main
         for edge in ("start", "end", "top", "bottom"):
             getattr(main, f"set_margin_{edge}")(12)
+        # the details pane, on the right: what's selected, or the folder
+        self.details_body = box(True, 10)
+        for edge in ("start", "end", "top", "bottom"):
+            getattr(self.details_body, f"set_margin_{edge}")(14)
+        self.details = scrolled(self.details_body)
+        self.details.add_css_class("files-details")
+        self.details.set_size_request(290, -1)
+        self.details.set_hexpand(False)
+        self.details.set_margin_top(10)
+        self.details.set_visible(bool(self.state.get("details", False)))
+        self.details_btn.set_active(self.details.get_visible())
+        self.details_btn.connect("toggled", lambda b: self.toggle_details(b.get_active()))
         self.paint_places()
         GLib.idle_add(lambda: self.go(self.start, remember=False) and False)
-        return box(False, 0, side, main)
+        return box(False, 0, side, main, self.details)
 
     def cell_setup(self, _f, item, kind):
         if kind == "name":
@@ -362,6 +398,7 @@ class Files(View):
         elif self.sorted.get_n_items():
             self.table.scroll_to(0, None, Gtk.ListScrollFlags.FOCUS, None)
         self.update_info()
+        self.details_soon()
         if not keep:
             self.table.grab_focus()
         return False
@@ -475,6 +512,37 @@ class Files(View):
         self.filt.changed(Gtk.FilterChange.DIFFERENT)
         self.update_info()
 
+    def filtered(self):
+        """Typed in the filter: the first match selected, so Enter opens it and ↑ / ↓ go on from there."""
+        self.refilter()
+        if self.filter.get_text().strip() and self.sorted.get_n_items():
+            self.sel.select_item(0, True)
+            self.table.scroll_to(0, None, Gtk.ListScrollFlags.NONE, None)
+
+    def filter_key(self, keyval):
+        """Keys in the filter: ↑ / ↓ (Page Up / Down) move through the matches, the typing stays here;
+        Enter opens the one selected (as Enter in the list)."""
+        n = self.sorted.get_n_items()
+        step = {Gdk.KEY_Down: 1, Gdk.KEY_Up: -1, Gdk.KEY_Page_Down: 10, Gdk.KEY_Page_Up: -10}.get(keyval)
+        if step:
+            if n:
+                bits = self.sel.get_selection()
+                if not bits.get_size():
+                    i = 0 if step > 0 else n - 1
+                else:   # from the last selected going down, the first going up
+                    i = bits.get_nth(bits.get_size() - 1 if step > 0 else 0) + step
+                i = max(0, min(n - 1, i))
+                self.sel.select_item(i, True)
+                self.table.scroll_to(i, None, Gtk.ListScrollFlags.NONE, None)
+            return True
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            if n and not self.selected():
+                self.sel.select_item(0, True)
+            if self.selected():
+                self.enter()
+            return True
+        return False
+
     def toggle_hidden(self):
         self.show_hidden = not self.show_hidden
         self.save_state()
@@ -511,7 +579,7 @@ class Files(View):
         self.empty_note.set_visible(not n)
 
     def save_state(self):
-        self.state.update(dir=self.cwd, hidden=self.show_hidden)
+        self.state.update(dir=self.cwd, hidden=self.show_hidden, details=self.details.get_visible())
         try:
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
             with open(self.state_file, "w") as f:
@@ -531,6 +599,10 @@ class Files(View):
             self.go(e.path)
         else:   # its default app (mimeapps.list)
             self.launch("xdg-open", e.path)
+
+    def enter(self):
+        """Enter in the filter: what Enter in the list does."""
+        self.open_selected()
 
     def open_selected(self):
         sel = self.selected()
@@ -655,6 +727,166 @@ class Files(View):
                                            + "s" * (len(entries) != 1), "bad" if errors else "ok") and False)
         threading.Thread(target=work, daemon=True).start()
 
+    # ---- details -------------------------------------------------------------------------------------
+    def toggle_details(self, on=None):
+        on = not self.details.get_visible() if on is None else on
+        if self.details_btn.get_active() != on:
+            self.details_btn.set_active(on)   # calls back here, once
+            return
+        self.details.set_visible(on)
+        self.details_gen += 1   # hidden: a tally still running stops
+        self.save_state()
+        self.details_soon()
+
+    def details_soon(self):
+        """Repaint the details a moment after the selection settles (arrowing through a list, a rubberband)."""
+        if self.details_timer:
+            GLib.source_remove(self.details_timer)
+        self.details_timer = GLib.timeout_add(80, self.paint_details) if self.details.get_visible() else 0
+
+    def paint_details(self):
+        """The one selected (the folder shown when nothing is), or what several add up to."""
+        self.details_timer = 0
+        self.details_gen += 1   # a tally still adding up the last one stops
+        if not self.cwd:
+            return False
+        clear(self.details_body)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        rows = [0]
+
+        def row(key, value):
+            v = label(value, "details-val", wrap=True)
+            v.set_selectable(True)
+            v.set_hexpand(True)
+            grid.attach(label(key, "details-key"), 0, rows[0], 1, 1)
+            grid.attach(v, 1, rows[0], 1, 1)
+            rows[0] += 1
+            return v
+
+        sel = self.selected()
+        if len(sel) > 1:
+            dirs = [e for e in sel if e.is_dir and not e.link]
+            self.details_head(G_MANY, "accent", f"{len(sel)} items")
+            row("Selected", ", ".join(filter(None, (dirs and plural(len(dirs), "folder"),
+                                                    len(sel) > len(dirs) and plural(len(sel) - len(dirs), "file")))))
+            files = sum(e.size for e in sel if e not in dirs)
+            size = row("Size", "counting…" if dirs else human(files))
+            if dirs:
+                self.tally([e.path for e in dirs], files, len(sel) - len(dirs), size, row("In all", ""))
+            row("Location", self.cwd.replace(HOME, "~", 1))
+            self.details_body.append(grid)
+            return False
+
+        path = sel[0].path if sel else self.cwd
+        name = os.path.basename(path) or "/"
+        try:
+            lst = os.lstat(path)
+            st = os.stat(path) if stat.S_ISLNK(lst.st_mode) else lst
+        except OSError as err:   # gone, or a broken link
+            self.details_head(G_LINK if os.path.islink(path) else G_FILE, "dim", name)
+            row("Error", err.strerror)
+            self.details_body.append(grid)
+            return False
+        is_dir, link = stat.S_ISDIR(st.st_mode), stat.S_ISLNK(lst.st_mode)
+        glyph, cls, kind = kind_of(name, is_dir)
+        self.details_head(glyph, cls, name)
+        row("Type", f"Link to {kind.lower()}" if link else kind)
+        if is_dir:
+            try:
+                row("Contains", plural(len(os.listdir(path)), "item"))
+            except OSError:
+                pass
+            self.tally([path], 0, 0, row("Size", "counting…"), row("In all", ""))
+        else:
+            row("Size", human(st.st_size) + (f" ({st.st_size:,} bytes)" if st.st_size >= 1024 else ""))
+            if glyph == KINDS[0][1]:   # a picture: its size in pixels (read from its header)
+                try:
+                    fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(path)
+                except (GLib.Error, TypeError):   # unreadable, or no loader for it
+                    fmt = None
+                if fmt:
+                    row("Dimensions", f"{w} × {h}")
+        row("Location", (os.path.dirname(path) or "/").replace(HOME, "~", 1))
+        if link:
+            row("Points to", os.readlink(path))
+        row("Modified", when_full(st.st_mtime))
+        row("Accessed", when_full(st.st_atime))
+        try:   # the birth time: Gio has it (statx), os.stat doesn't
+            info = Gio.File.new_for_path(path).query_info("time::created", Gio.FileQueryInfoFlags.NONE, None)
+            if info.has_attribute("time::created"):
+                row("Created", when_full(info.get_attribute_uint64("time::created")))
+        except GLib.Error:
+            pass
+        row("Permissions", f"{stat.filemode(st.st_mode)}  {stat.S_IMODE(st.st_mode):o}")
+        try:
+            owner = pwd.getpwuid(st.st_uid).pw_name
+        except KeyError:
+            owner = str(st.st_uid)
+        try:
+            group = grp.getgrgid(st.st_gid).gr_name
+        except KeyError:
+            group = str(st.st_gid)
+        row("Owner", f"{owner} : {group}")
+        if not is_dir:
+            ctype = Gio.content_type_guess(name, None)[0]
+            if ctype:
+                row("MIME type", Gio.content_type_get_mime_type(ctype) or ctype)
+        self.details_body.append(grid)
+        return False
+
+    def details_head(self, glyph, cls, name):
+        g = label(glyph, "details-glyph", cls, xalign=0.5)
+        n = label(name, "details-name", wrap=True, xalign=0.5)
+        n.set_selectable(True)
+        n.set_justify(Gtk.Justification.CENTER)
+        self.details_body.append(box(True, 6, g, n))
+
+    def tally(self, folders, size, files, size_label, count_label):
+        """Add up the folders in a thread (each file once, links not followed, not into another drive) on top
+        of size / files already counted; the labels show the totals as they grow. A repaint stops it."""
+        gen = self.details_gen
+
+        def show(size, files, dirs, done):
+            if gen == self.details_gen:
+                size_label.set_text(human(size) + ("" if done else "…"))
+                count_label.set_text(f"{plural(files, 'file')}, {plural(dirs, 'folder')}")
+            return False
+
+        def work(size, files):
+            dirs, last, seen = 0, time.monotonic(), set()
+            for top in folders:
+                try:
+                    dev = os.stat(top).st_dev
+                except OSError:
+                    continue
+                stack = [top]
+                while stack:
+                    if gen != self.details_gen:
+                        return
+                    try:
+                        with os.scandir(stack.pop()) as it:
+                            for de in it:
+                                try:
+                                    st = de.stat(follow_symlinks=False)
+                                except OSError:
+                                    continue
+                                if stat.S_ISDIR(st.st_mode):
+                                    if st.st_dev == dev:
+                                        dirs += 1
+                                        stack.append(de.path)
+                                elif st.st_nlink < 2 or (st.st_dev, st.st_ino) not in seen:   # a hard link once
+                                    if st.st_nlink > 1:
+                                        seen.add((st.st_dev, st.st_ino))
+                                    files += 1
+                                    size += st.st_size
+                    except OSError:
+                        continue
+                    if time.monotonic() - last > 0.3:
+                        last = time.monotonic()
+                        GLib.idle_add(show, size, files, dirs, False)
+            GLib.idle_add(show, size, files, dirs, True)
+        threading.Thread(target=work, args=(size, files), daemon=True).start()
+
     # ---- the clipboard: our own list, and file URIs for other apps ------------------------------------
     def copy(self, cut=False):
         sel = self.selected()
@@ -755,7 +987,8 @@ class Files(View):
         pop.set_pointing_to(rect)
         items = []
         if sel:
-            items += [("Open", self.open_selected, "Enter"), None,
+            items += [("Open", self.open_selected, "Enter"), ("Details", lambda: self.toggle_details(True), "Ctrl+I"),
+                      None,
                       ("Cut", lambda: self.copy(cut=True), "Ctrl+X"), ("Copy", self.copy, "Ctrl+C"),
                       ("Copy path", self.copy_path, "Ctrl+Shift+C"), None]
             if len(sel) == 1:
@@ -764,7 +997,7 @@ class Files(View):
         else:
             items += [("New folder…", self.new_folder, "Ctrl+Shift+N"), ("New file…", lambda: self.new_folder(file=True), ""),
                       None, ("Paste", self.paste, "Ctrl+V"), ("Copy path", self.copy_path, "Ctrl+Shift+C"), None,
-                      ("Open terminal here", self.terminal, "F4"),
+                      ("Open terminal here", self.terminal, "F4"), ("Details", lambda: self.toggle_details(True), "Ctrl+I"),
                       ("Hide hidden files" if self.show_hidden else "Show hidden files", self.toggle_hidden, "Ctrl+H")]
         col = box(True, 0)
         for it in items:
@@ -809,6 +1042,9 @@ class Files(View):
             return True
         if ctrl and k == Gdk.KEY_f:
             self.filter.grab_focus()
+            return True
+        if ctrl and k == Gdk.KEY_i:
+            self.toggle_details()
             return True
         if self.typing():
             return False

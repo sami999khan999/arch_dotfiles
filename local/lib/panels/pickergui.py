@@ -66,7 +66,7 @@ class Picker(fg.Files):
         self.accept_label = opts.get("accept_label") or ("Save" if mode != "open" else "Select" if self.directory
                                                          else "Open")
         self.hints = [("Enter", "open folder / choose"), ("Bksp", "back"), ("Ctrl+H", "hidden"), ("/", "filter"),
-                      ("Ctrl+L", "type a path"), ("Esc", "cancel")]
+                      ("Ctrl+L", "type a path"), ("Ctrl+I", "details"), ("Esc", "cancel")]
 
     def build(self):
         page = super().build()
@@ -221,6 +221,7 @@ class Picker(fg.Files):
         pop.set_pointing_to(rect)
         col = box(True, 0)
         for text, fn in (("New folder…", self.new_folder), ("Copy path", self.copy_path),
+                         ("Details", lambda: self.toggle_details(True)),
                          ("Hide hidden files" if self.show_hidden else "Show hidden files", self.toggle_hidden)):
             b = button(text, lambda fn=fn: (pop.popdown(), fn()), "flat", "menu-btn")
             col.append(b)
@@ -234,13 +235,16 @@ class Picker(fg.Files):
             self.cancel()
             return True
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and not self.typing():
-            sel = self.selected()
-            if len(sel) == 1 and sel[0].is_dir and not self.directory:
-                self.go(sel[0].path)
-            else:
-                self.choose()
+            self.enter()
             return True
         return super().key(keyval, state)
+
+    def enter(self):
+        sel = self.selected()
+        if len(sel) == 1 and sel[0].is_dir and not self.directory:
+            self.go(sel[0].path)
+        else:
+            self.choose()
 
 
 class Dialog(ViewHost):

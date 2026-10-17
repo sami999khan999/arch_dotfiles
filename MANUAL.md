@@ -531,9 +531,16 @@ workspace 7 too).
 
 - **Left:** Places (home, the XDG folders, `~/code`, `~/dotfiles`) and Drives (`/`, what's mounted under
   `/mnt`, `/media`, `/run/media`). **Top:** back, forward, up, the path as crumbs (click one to go there;
-  click beside them or `Ctrl+L` to type a path), a filter (`/` or `Ctrl+F`: names containing what you type).
+  click beside them or `Ctrl+L` to type a path), a filter (`/` or `Ctrl+F`: names containing what you type;
+  the first match is selected, `↑` / `↓` move through the matches while you keep typing, `Enter` opens one),
+  the details button.
 - **The folder:** a table (name, size or a folder's item count, modified, type), folders first, sorted
   by a click on a column. The folder is watched: changes made anywhere show by themselves.
+- **Details** (`Ctrl+I`, the button at the top right, or Details in the right-click menu): a pane on the right
+  for what's selected, or the folder you're in when nothing is — type, size (a folder's added up as you
+  watch: its files and folders in all, links not followed, not into another drive), where it is, what a link
+  points to, modified / accessed / created, permissions, owner, MIME type, a picture's size in pixels.
+  Several selected: how many and what they add up to. It stays open (or closed) next time.
 - **Keys:** `Enter` open (a file in its default app), `Backspace` / `Alt+←` back, `Alt+→` forward,
   `Alt+↑` up, `F2` rename, `Ctrl+Shift+N` new folder, `Del` to the trash, `Shift+Del` delete permanently
   (asks), `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy / cut / paste, `Ctrl+Shift+C` copy the path, `Ctrl+H` hidden
@@ -541,7 +548,8 @@ workspace 7 too).
   the empty part for a menu.
 - Copy and cut put the files on the clipboard as file URIs too, so they paste into other apps; files another
   app copied paste here. A name that's taken gets " (2)". A drive without a trash (NTFS, `/tmp`) asks
-  before deleting for good. It remembers the last folder and the hidden-files choice (`~/.local/state/files`).
+  before deleting for good. It remembers the last folder, the hidden-files choice and whether the details
+  pane is open (`~/.local/state/files`).
 
 **The file picker.** The Open / Save dialogs apps show (a browser's upload and Save as, VS Code's Open
 Folder, GTK apps…) are Files windows too (`pickergui.py`): the same places, path, table and theme, the

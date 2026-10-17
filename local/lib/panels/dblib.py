@@ -4,7 +4,10 @@ driver per kind (Postgres, Redis, MongoDB, S3, SQLite). dbgui.py (workspace 6) d
 
 Connections are ~/.local/share/dbclient/connections.json (hosts and users only, mode 600, never in the
 dotfiles: they name private servers); passwords, keys and URIs with a password in them are in the
-keyring (secret-tool, gnome-keyring), under `app dbclient id <id>`.
+keyring (secret-tool, gnome-keyring), under `app dbclient id <id>`. A connection's "project" groups it in
+the list. The databases running in Docker are found by docker_scan() and kept as connections of their
+own (docker_merge(): "docker" is the container's compose project / service, the project theirs), so a
+rename sticks; one deleted is remembered in docker-ignored.json and not added again.
 
 Light on the PC: a driver's library is imported when a connection of its kind first opens, nothing
 connects until you open it, results come a page at a time (LIMIT/OFFSET, a server-side cursor, SCAN,
@@ -142,8 +145,141 @@ def put(conn, secrets):
 
 
 def remove(cid):
+    gone = next((c for c in load() if c["id"] == cid), None)
     save([c for c in load() if c["id"] != cid])
     store_secret(cid, "", {})
+    if gone and gone.get("docker"):   # found in Docker: not added back by the next scan
+        ignored = docker_ignored() | {gone["docker"]}
+        with open(IGNORED, "w") as f:
+            json.dump(sorted(ignored), f)
+
+
+def rename(cids, name=None, project=None):
+    """A new name for a connection, or a new project for some (project "" takes them out of theirs)."""
+    conns = load()
+    for c in conns:
+        if c["id"] in cids:
+            if name is not None:
+                c["name"] = name
+            if project is not None:
+                c.pop("project", None)
+                if project:
+                    c["project"] = project
+    save(sorted(conns, key=lambda c: c["name"].lower()))
+
+
+# ---- the databases running in Docker -------------------------------------------------------------
+IGNORED = f"{DIR}/docker-ignored.json"
+# an image's own name (its last part, no tag) → (kind, the port it listens on inside the container); exact,
+# so redis-commander or mongo-express (admin UIs) aren't taken for the database
+DOCKER_IMAGES = {**dict.fromkeys(("postgres", "postgis", "pgvector", "timescaledb", "timescaledb-ha"), ("postgres", 5432)),
+                 **dict.fromkeys(("redis", "redis-stack", "redis-stack-server", "valkey", "keydb", "dragonfly"),
+                                 ("redis", 6379)),
+                 **dict.fromkeys(("mongo", "mongodb-community-server"), ("mongo", 27017)),
+                 "minio": ("s3", 9000)}
+
+
+def docker_ignored():
+    try:
+        with open(IGNORED) as f:
+            return set(json.load(f))
+    except (OSError, ValueError):
+        return set()
+
+
+def docker_kind(image):
+    """(kind, port inside) for a database image, else None."""
+    return DOCKER_IMAGES.get(image.split("@")[0].rsplit("/", 1)[-1].split(":")[0].lower())
+
+
+def docker_scan():
+    """The database containers running now: [{"docker": key, "project", "service", fields…, "secrets"}].
+    Reached on their published port, else on the container's own address (Docker's bridge, from this PC);
+    the credentials are the ones its image's environment sets up."""
+    try:
+        ids = subprocess.run(["docker", "ps", "-q"], capture_output=True, text=True, timeout=10).stdout.split()
+        if not ids:
+            return []
+        info = json.loads(subprocess.run(["docker", "inspect", *ids], capture_output=True, text=True,
+                                         timeout=15).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None   # no docker: leave the list as it is
+    out = []
+    for c in info:
+        cfg = c.get("Config") or {}
+        found = docker_kind(cfg.get("Image") or "")
+        if not found:
+            continue
+        kind, inner = found
+        labels = cfg.get("Labels") or {}
+        name = (c.get("Name") or "").lstrip("/")
+        project = labels.get("com.docker.compose.project") or ""
+        service = labels.get("com.docker.compose.service") or name
+        env = dict(e.partition("=")[::2] for e in cfg.get("Env") or [])
+        net = c.get("NetworkSettings") or {}
+        bound = [b for b in (net.get("Ports") or {}).get(f"{inner}/tcp") or [] if b.get("HostPort")]
+        if bound:
+            host, port = "127.0.0.1", bound[0]["HostPort"]
+        else:
+            ips = [n.get("IPAddress") for n in (net.get("Networks") or {}).values() if n.get("IPAddress")]
+            if not ips:
+                continue
+            host, port = ips[0], str(inner)
+        d = {"docker": f"{project or name}/{service}", "project": project, "service": service, "kind": kind,
+             "container": name}
+        if kind == "postgres":
+            user = env.get("POSTGRES_USER") or "postgres"
+            d.update(host=host, port=port, user=user, database=env.get("POSTGRES_DB") or user,
+                     secrets={"password": env.get("POSTGRES_PASSWORD", "")})
+        elif kind == "redis":
+            cmd = cfg.get("Cmd") or []
+            pw = next((cmd[i + 1] for i, a in enumerate(cmd[:-1]) if a == "--requirepass"),
+                      env.get("REDIS_PASSWORD", ""))
+            d.update(host=host, port=port, database="0", secrets={"password": pw})
+        elif kind == "mongo":
+            user, pw = env.get("MONGO_INITDB_ROOT_USERNAME", ""), env.get("MONGO_INITDB_ROOT_PASSWORD", "")
+            from urllib.parse import quote
+            auth = f"{quote(user, '')}:{quote(pw, '')}@" if user else ""
+            d.update(host=host, port=port, secrets={"uri": f"mongodb://{auth}{host}:{port}/" +
+                                                    ("?authSource=admin" if user else "")})
+        else:
+            d.update(endpoint=f"http://{host}:{port}", region="us-east-1",
+                     access_key=env.get("MINIO_ROOT_USER") or env.get("MINIO_ACCESS_KEY") or "minioadmin",
+                     secrets={"secret_key": env.get("MINIO_ROOT_PASSWORD") or env.get("MINIO_SECRET_KEY")
+                              or "minioadmin"})
+        out.append(d)
+    return out
+
+
+def docker_merge(found):
+    """Save what docker_scan() found: a new database becomes a connection named after its service in its
+    project's group; a known one gets its address and credentials again (its name and group are yours).
+    Returns the ids whose settings changed (an open connection to one must connect again)."""
+    import hashlib
+    conns, ignored, changed = load(), docker_ignored(), []
+    by_key = {c["docker"]: c for c in conns if c.get("docker")}
+    for d in found:
+        if d["docker"] in ignored:
+            continue
+        fields = {k: d[k] for k, _l, secret in FIELDS[d["kind"]] if not secret and k in d}
+        sig = hashlib.sha256(json.dumps([d["kind"], fields, d["secrets"]], sort_keys=True).encode()).hexdigest()[:16]
+        c = by_key.get(d["docker"])
+        if c and c.get("docker_sig") == sig:
+            continue
+        if c:
+            for k, _l, secret in FIELDS[c["kind"]]:
+                c.pop(k, None)
+            changed.append(c["id"])
+        else:
+            c = {"id": uuid.uuid4().hex[:12], "name": d["service"], "docker": d["docker"]}
+            if d["project"]:
+                c["project"] = d["project"]
+            conns.append(c)
+        c.update(kind=d["kind"], docker_sig=sig, **fields)
+        store_secret(c["id"], c["name"], {k: v for k, v in d["secrets"].items() if v})
+    if changed or len(conns) != len(load()):
+        save(sorted(conns, key=lambda c: c["name"].lower()))
+    return changed
 
 
 # ---- Liam ERD: the schema diagram (dbliam.py shows it) --------------------------------------------

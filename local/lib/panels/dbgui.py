@@ -3,9 +3,11 @@
 # S3 and SQLite, local or remote (directly or through an SSH tunnel). Tiled, so running it again just
 # brings it up. The connections, drivers and tunnels are dblib.py's; this draws them.
 #
-#   left   the connections; open one (Enter / double-click) for its schemas → tables, keys,
+#   left   the connections, grouped by project; open one (Enter / double-click) for its schemas → tables, keys,
 #          databases → collections, buckets → folders → files. A green dot: connected. The search filters
-#          what's open; the dropdown below it shows one kind of database only.
+#          what's open; the dropdown below it shows one kind of database only. The databases running in
+#          Docker are added by themselves, in their compose project's group (looked for when the window
+#          comes on screen: dblib.docker_scan). F2 renames a connection or a group, in place.
 #   right  the selected table / key / collection / file, a page at a time (« ‹ page › », the page size), the query box
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once. An S3 image (the file
@@ -31,6 +33,9 @@ from gi.repository import GObject
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 INDENT = 16
+GROUP_GLYPHS = ("\uf07b", "\uf07c")   # a group folded / unfolded (nf-fa-folder, folder_open)
+DOCKER_GLYPH = "\uf308"   # nf-linux-docker: a group or connection Docker made
+SCAN_EVERY = 10   # seconds: the window coming on screen again looks in Docker at most this often
 GLYPHS = {"schema": "", "database": "", "folder": "", "bucket": "", "table": "",
           "view": "", "collection": "", "object": "", "more": "…"}
 KEY_GLYPH = ""   # a Redis key (its type is the dim note)
@@ -38,6 +43,12 @@ CSS = """
 .db-tree > row { padding: 3px 10px; }
 .db-glyph { min-width: 18px; color: #565f89; }
 .db-conn { font-weight: 700; }
+.db-conn.off { color: #565f89; }   /* a Docker database whose container isn't running */
+/* a project's group: space and a thin line above, as the Docker panel's */
+.db-tree > row.db-group-row { padding-top: 8px; margin-top: 6px; border-top: 1px solid alpha(#3b4261, .7); }
+.db-tree > row.db-group-row.first { margin-top: 0; border-top: none; }
+.db-group { color: #a9b1d6; font-weight: 700; }
+entry.rename { font-size: 13pt; font-weight: 700; padding: 0 6px; min-height: 0; }
 .db-live { color: #9ece6a; }
 .db-err { color: #f7768e; }
 .query, .query text { background: #16161e; color: #c0caf5; }
@@ -118,8 +129,8 @@ class Databases(View):
     icon = ""
     interval = 5   # refresh(): only closes idle connections
     css = CSS
-    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("a", "ask AI"), ("d", "diagram"), ("n", "new connection"), ("e", "edit"), ("F5", "reload"),
-             ("Del", "delete")]
+    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("a", "ask AI"), ("d", "diagram"), ("n", "new connection"), ("e", "edit"),
+             ("F2", "rename"), ("F5", "reload"), ("Del", "delete")]
 
     def __init__(self):
         super().__init__()
@@ -138,6 +149,11 @@ class Databases(View):
         self.ai_queries = set()  # queries the AI suggested and you put in the query box
         self.confirm = None      # (text, time): Run pressed once on a write the AI suggested
         self.only = ""           # the one kind of database shown ("": every kind)
+        self.folded = set()      # groups (projects) shown as just their row
+        self.group = None        # the group picked in the list (its page on the right), or None
+        self.docker_up = set()   # the Docker databases running ("docker" keys); the rest show dimmed
+        self.scanned = 0         # when Docker was last looked in
+        self.renaming = None     # ("conn", id) or ("group", name) while the name is being edited
 
     def conn(self, cid):
         return next((c for c in self.conns if c["id"] == cid), None)
@@ -157,8 +173,10 @@ class Databases(View):
         self.tree = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.tree.add_css_class("db-tree")
         self.tree.set_activate_on_single_click(False)
-        self.tree.connect("row-selected", lambda _l, row: row and self.picked(row.key))
-        self.tree.connect("row-activated", lambda _l, row: self.toggle(row.key))
+        self.tree.connect("row-selected", lambda _l, row: row and (self.picked_group(row.group) if row.group is not None
+                                                                   else self.picked(row.key)))
+        self.tree.connect("row-activated", lambda _l, row: self.fold(row.group) if row.group is not None
+                          else self.toggle(row.key))
         top = box(True, 6, self.filter, self.kind)
         for edge in ("top", "start", "end", "bottom"):
             getattr(top, f"set_margin_{edge}")(10)
@@ -179,6 +197,7 @@ class Databases(View):
                            lambda st, _p: st.get_visible_child_name() != "diagram" and self.diagram.drop())
         self.paint_tree()
         self.show_empty()
+        self.scan_docker()
         GLib.idle_add(lambda: self.tree.grab_focus() and False)
         use = Gio.SimpleAction.new("use-query", GLib.VariantType.new("s"))   # Ask's "Put in query box"
         use.connect("activate", self.use_query)
@@ -187,10 +206,19 @@ class Databases(View):
 
     def build_browse(self):
         self.heading = label("", "heading", ellipsize=True)
+        # F2 / Rename: the name edited in its place (Enter saves, Esc or a click elsewhere leaves it)
+        self.rename_entry = Gtk.Entry(visible=False, css_classes=["rename"])
+        self.rename_entry.connect("activate", lambda *_: self.end_rename(True))
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", lambda _c, k, _code, _s: k == Gdk.KEY_Escape and self.end_rename(False) is None)
+        self.rename_entry.add_controller(keys)
+        away = Gtk.EventControllerFocus()
+        away.connect("leave", lambda *_: self.end_rename(False))
+        self.rename_entry.add_controller(away)
         self.state = label("", "dim", ellipsize=True)
         self.actions = box(False, 8)
         self.actions.set_margin_top(10)
-        head = box(True, 2, self.heading, self.state, self.actions)
+        head = box(True, 2, self.heading, self.rename_entry, self.state, self.actions)
 
         self.query = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=2, bottom_margin=2)
         self.query.add_css_class("query")
@@ -271,27 +299,61 @@ class Databases(View):
         return page
 
     # ---- the tree --------------------------------------------------------------------------------
+    def groups(self):
+        """[(project, [connection])] as the list shows them: the projects by name, then the connections
+        in none ("" — under "Other" when there are groups)."""
+        named = {}
+        for c in self.conns:
+            if not self.only or c["kind"] == self.only:
+                named.setdefault(c.get("project", ""), []).append(c)
+        return sorted(named.items(), key=lambda g: (not g[0], g[0].lower()))
+
     def paint_tree(self):
-        keep = self.tree.get_selected_row().key if self.tree.get_selected_row() else None
+        sel = self.tree.get_selected_row()
+        keep = (sel.group, sel.key) if sel else None
         self.painting = True
         clear(self.tree)
         text = self.filter.get_text().strip().lower()
-        for c in self.conns:
-            if self.only and c["kind"] != self.only:
-                continue
-            cid = c["id"]
-            self.add_row((cid, ()), 0, c)
-            if (cid, ()) in self.open:
-                self.add_kids(cid, (), 1, text)
-        if not self.conns or (self.only and not any(c["kind"] == self.only for c in self.conns)):
+        groups = self.groups()
+        headed = any(p for p, _ in groups)
+        for i, (project, conns) in enumerate(groups):
+            if headed:
+                self.add_group_row(project, conns, i == 0)
+                if project in self.folded:
+                    continue
+            for c in conns:
+                cid = c["id"]
+                self.add_row((cid, ()), int(headed), c)
+                if (cid, ()) in self.open:
+                    self.add_kids(cid, (), 1 + headed, text)
+        if not groups:
             hint = Gtk.ListBoxRow(selectable=False, activatable=False)
             hint.set_child(label(f"No {db.KINDS[self.only][0]} connections" if self.conns else
                                  "No connections yet: + Connection (n)", "dim"))
-            hint.key = None
+            hint.key, hint.group = None, None
             self.tree.append(hint)
-        if keep:
-            self.select_key(keep)
+        if keep and keep != (None, None):
+            self.select_key(*keep)
         self.painting = False
+
+    def add_group_row(self, project, conns, first):
+        row = Gtk.ListBoxRow(css_classes=["db-group-row"] + (["first"] if first else []))
+        row.key, row.group = None, project or ""
+        docker = all(c.get("docker") for c in conns)
+        glyph = DOCKER_GLYPH if docker and project else GROUP_GLYPHS[project not in self.folded]
+        up = sum(c.get("docker") in self.docker_up for c in conns)
+        note = f"{up}/{len(conns)} running" if any(c.get("docker") for c in conns) else str(len(conns))
+        row.set_child(box(False, 8, label(glyph, "db-glyph"), label(project or "Other", "db-group", ellipsize=True),
+                          label(note, "dim", xalign=1.0, ellipsize=True)))
+        row.get_child().get_last_child().set_hexpand(True)
+        self.tree.append(row)
+
+    def fold(self, project):
+        """Enter / double-click on a group: show it as just its row, or open it again."""
+        self.folded ^= {project}
+        self.paint_tree()
+        if self.group == project:
+            self.picked_group(project)
 
     def add_kids(self, cid, path, depth, text):
         for n in self.kids.get((cid, path), []):
@@ -304,15 +366,24 @@ class Databases(View):
 
     def add_row(self, key, depth, conn=None, node=None):
         row = Gtk.ListBoxRow()
-        row.key = key
+        row.key, row.group = key, None
         line = box(False, 8)
         line.set_margin_start(depth * INDENT)
         if conn:
             kind = db.KINDS[conn["kind"]]
             glyph = label(kind[1], "db-glyph")
-            name = label(conn["name"], "db-conn")
-            note = label(conn.get("ssh") and f"via {conn['ssh']}" or conn.get("host") or os.path.basename(conn.get("path", ""))
-                         or conn.get("endpoint") or kind[0], "dim", xalign=1.0, ellipsize=True)
+            name = label(conn["name"], "db-conn", ellipsize=True)
+            if conn.get("docker"):   # where Docker publishes it; dimmed while its container is stopped
+                port = conn.get("port") or conn.get("endpoint", "").rsplit(":", 1)[-1]
+                up = conn["docker"] in self.docker_up
+                note = label(f"{DOCKER_GLYPH} :{port}" if up else f"{DOCKER_GLYPH} stopped", "dim", xalign=1.0)
+                if not up:
+                    name.add_css_class("off")
+            else:
+                note = label(conn.get("ssh") and f"via {conn['ssh']}" or conn.get("host") or
+                             os.path.basename(conn.get("path", "")) or conn.get("endpoint") or kind[0],
+                             "dim", xalign=1.0, ellipsize=True)
+            note.set_hexpand(True)
             dot = label("●" if conn["id"] in self.live else "", "db-live")
             if conn["id"] in self.errors:
                 name.add_css_class("db-err")
@@ -329,10 +400,12 @@ class Databases(View):
         row.set_child(line)
         self.tree.append(row)
 
-    def select_key(self, key):
+    def select_key(self, group, key=None):
+        """Select the row of a group (its project; None: a connection or node's row, by key)."""
         r = self.tree.get_first_child()
         while r is not None:
-            if getattr(r, "key", None) == key:
+            if (group is not None and getattr(r, "group", None) == group) or \
+                    (group is None and getattr(r, "key", None) == key):
                 self.tree.select_row(r)
                 return
             r = r.get_next_sibling()
@@ -476,6 +549,108 @@ class Databases(View):
         if live and live.driver and hasattr(live.driver, "cancel"):
             live.driver.cancel()   # thread-safe for both: libpq's cancel request, sqlite's interrupt
 
+    # ---- groups, Docker, renaming -----------------------------------------------------------------
+    def picked_group(self, project):
+        """A group's row: its page on the right (what's in it, Rename, Collapse)."""
+        if self.painting:
+            return
+        if self.sel:
+            self.queries[self.sel[0]] = self.query_text()
+        self.sel, self.group, self.pager = None, project, None
+        self.end_rename(False)
+        self.gen += 1
+        self.stack.set_visible_child_name("browse")
+        conns = dict(self.groups()).get(project, [])
+        docker = [c for c in conns if c.get("docker")]
+        self.heading.set_text(project or "Other")
+        what = f"{len(conns)} connection{'s' * (len(conns) != 1)}"
+        if docker:
+            up = sum(c["docker"] in self.docker_up for c in docker)
+            what += f" · {len(docker)} from Docker, {up} running"
+        self.state.set_text(what)
+        self.query_box.set_visible(False)
+        self.results.set_visible(False)
+        self.previewpane.set_visible(False)
+        clear(self.actions)
+        if project:
+            self.actions.append(button("Rename", lambda: self.start_rename(("group", project)), "primary", tooltip="F2"))
+        self.actions.append(button("Expand" if project in self.folded else "Collapse", lambda: self.fold(project),
+                                   tooltip="Enter"))
+
+    def scan_docker(self, force=False):
+        """Look in Docker for databases (in a thread): new ones join the list in their project's group, a
+        known one gets its address and password again (one that changed while open connects again)."""
+        if not force and time.time() - self.scanned < SCAN_EVERY:
+            return
+        self.scanned = time.time()
+
+        def work():
+            found = db.docker_scan()
+            changed = db.docker_merge(found) if found is not None else []
+            GLib.idle_add(done, found, changed)
+
+        def done(found, changed):
+            if found is None:
+                return False
+            new = {d["docker"] for d in found} - {c.get("docker") for c in self.conns}
+            for cid in changed:
+                self.disconnect(cid)
+            self.docker_up = {d["docker"] for d in found}
+            self.conns = db.load()
+            self.paint_tree()
+            if self.group is not None:
+                self.picked_group(self.group)
+            added = [c["name"] for c in self.conns if c.get("docker") in new]
+            if added:
+                self.say(f"from Docker: {', '.join(added)}")
+            elif force:
+                self.say(f"{len(found)} database{'s' * (len(found) != 1)} running in Docker")
+            return False
+        threading.Thread(target=work, daemon=True).start()
+
+    def shown_changed(self, shown):
+        if shown:
+            self.refresh()
+            self.scan_docker()
+
+    def start_rename(self, what):
+        """F2 / Rename: the heading becomes the name to edit."""
+        kind, ident = what
+        old = self.conn(ident)["name"] if kind == "conn" else ident
+        self.renaming = what
+        self.heading.set_visible(False)
+        self.rename_entry.set_text(old)
+        self.rename_entry.set_visible(True)
+        self.rename_entry.grab_focus()
+        self.say("Enter saves the name, Esc leaves it", seconds=10)
+
+    def end_rename(self, save):
+        """Leave the name's entry; save: the typed name for the connection, or for the group (its project,
+        on each connection in it: a group of the same name merges them)."""
+        what, self.renaming = self.renaming, None
+        if not what:
+            return
+        self.rename_entry.set_visible(False)
+        self.heading.set_visible(True)
+        name = self.rename_entry.get_text().strip()
+        kind, ident = what
+        if save and name and name != (self.conn(ident)["name"] if kind == "conn" else ident):
+            if kind == "conn":
+                db.rename({ident}, name=name)
+            else:
+                db.rename({c["id"] for c in self.conns if c.get("project", "") == ident}, project=name)
+                if ident in self.folded:
+                    self.folded = self.folded - {ident} | {name}
+            self.conns = db.load()
+            self.paint_tree()
+            if kind == "conn":
+                self.select_key(None, (ident, ()))
+                self.heading.set_text(name)
+            else:
+                self.select_key(name)
+            self.say(f"renamed to {name}")
+        self.tree.grab_focus()
+
     # ---- the right side --------------------------------------------------------------------------
     def show_empty(self):
         self.heading.set_text("Databases")
@@ -494,6 +669,8 @@ class Databases(View):
             self.queries[self.sel[0]] = self.query_text()
         same_conn = self.sel and self.sel[0] == cid
         self.sel = (cid, node)
+        self.group = None
+        self.end_rename(False)
         self.gen += 1
         self.armed = 0
         self.stack.set_visible_child_name("browse")
@@ -537,6 +714,7 @@ class Databases(View):
         if node is None:
             add(button("Open" if cid not in self.live else "Reload", lambda: self.reload(cid), "primary", tooltip="Enter / F5"))
             add(button("Edit", lambda: self.form(c), tooltip="e"))
+            add(button("Rename", lambda: self.start_rename(("conn", cid)), "flat", tooltip="F2"))
             if cid in self.live:
                 add(button("Disconnect", lambda: self.disconnect(cid), "flat"))
             return
@@ -905,7 +1083,12 @@ class Databases(View):
             name = Gtk.Entry(text=c["name"] if c else "", placeholder_text="e.g. shop (prod)")
             fields["name"] = name
             line("Name", name, 0)
-            r = 1
+            known = sorted({x.get("project") for x in self.conns if x.get("project")}, key=str.lower)
+            project = Gtk.Entry(text=(c or {}).get("project", "") or (self.group or ""),
+                                placeholder_text="its group in the list" + (f", e.g. {known[0]}" if known else ""))
+            fields["project"] = project
+            line("Project (optional)", project, 1)
+            r = 2
             if kind in ("postgres", "redis"):
                 url = Gtk.Entry(placeholder_text=f"paste a {kind}:// URL to fill the fields")
                 url.connect("changed", lambda e: self.paste_url(e.get_text(), fields))
@@ -940,10 +1123,13 @@ class Databases(View):
         def collect():
             k = state["kind"]
             conn = {"kind": k, "name": fields["name"].get_text().strip() or db.KINDS[k][0]}
+            if fields["project"].get_text().strip():
+                conn["project"] = fields["project"].get_text().strip()
             if c:
                 conn["id"] = c["id"]
-                if c.get("ai_data"):   # set in the Ask pane, not here: kept
-                    conn["ai_data"] = True
+                for k in ("ai_data", "docker", "docker_sig"):   # set in the Ask pane / by Docker, not here: kept
+                    if c.get(k):
+                        conn[k] = c[k]
             secrets = {}
             for key, _t, is_secret in db.FIELDS[k] + [("ssh", "", False)]:
                 if key in fields:
@@ -965,7 +1151,7 @@ class Databases(View):
             self.conns = db.load()
             self.errors.pop(conn["id"], None)
             self.paint_tree()
-            self.select_key((conn["id"], ()))
+            self.select_key(None, (conn["id"], ()))
             self.say(f"saved {conn['name']}")
 
         def test():
@@ -1038,7 +1224,8 @@ class Databases(View):
         self.stack.set_visible_child_name("browse")
         self.show_empty()
         self.paint_tree()
-        self.say(f"deleted the connection {c['name']} (the database itself is untouched)")
+        self.say(f"deleted the connection {c['name']} (the database itself is untouched" +
+                 ("; Docker won't add it again)" if c.get("docker") else ")"))
 
     # ---- Ask: the AI about this connection, its own popup (dbaskgui.py) ----------------------------
     def ask(self):
@@ -1107,7 +1294,14 @@ class Databases(View):
             return True
         row = self.tree.get_selected_row()
         key = row.key if row else None
-        if keyval == Gdk.KEY_n:
+        if keyval == Gdk.KEY_F2 and row:
+            if row.group:
+                self.start_rename(("group", row.group))
+            elif key and not key[1]:
+                self.start_rename(("conn", key[0]))
+        elif keyval == Gdk.KEY_F5 and row and row.group is not None:
+            self.scan_docker(force=True)
+        elif keyval == Gdk.KEY_n:
             self.form(None)
         elif keyval == Gdk.KEY_e and key:
             self.form(self.conn(key[0]))

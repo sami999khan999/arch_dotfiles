@@ -480,6 +480,19 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   or a host from `~/.ssh/config` reaches a Postgres / Redis that only listens on that server (key login).
   The list is `~/.local/share/dbclient/connections.json` (hosts and users only: it stays on this PC,
   never in this repo); passwords, keys and connection strings are in the keyring (gnome-keyring).
+- **Projects**: the list is grouped by project (a connection's *Project* in its form; the rest are under
+  *Other*). Enter or a double-click on a group collapses it; its page on the right counts what's in it.
+- **Docker**: the databases running in Docker (Postgres and its variants such as pgvector / PostGIS / Timescale,
+  Redis / Valkey / KeyDB / Dragonfly, MongoDB, MinIO as S3) are added by themselves, named after their
+  compose service, in a group named after the compose project, with the user, password and database
+  their container's environment sets up (`POSTGRES_USER`…, `--requirepass`, `MONGO_INITDB_ROOT_*`,
+  `MINIO_ROOT_*`). The window looks when it comes on screen (and `F5` on a group). It connects on the
+  published port, else on the container's own address. A Docker connection shows its port (the
+  Docker glyph), dimmed with *stopped* while its container is down. A new port or password is picked up
+  by itself; the name and group you gave it stay. Deleting one keeps it out of the list for good
+  (`~/.local/share/dbclient/docker-ignored.json`).
+- **Rename** (`F2`, or *Rename*): a connection's or a group's name is edited where it's shown; Enter saves,
+  Esc leaves it. A group renamed to an existing group's name merges into it.
 - **The tree** (left): Enter or a double-click opens a connection (a green dot while connected), then
   schemas → tables and views, Redis keys (with their type), databases → collections, buckets → folders →
   files. `/` filters what's listed; on a Redis connection, Enter in the filter asks the server for keys

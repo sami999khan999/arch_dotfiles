@@ -21,6 +21,7 @@ CODE = f"{HOME}/code"
 CACHE = f"{HOME}/.cache"
 TRASH = f"{HOME}/.local/share/Trash"
 TERM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termgui.py")
+FILES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filesgui.py")
 STALE_DAYS = 30
 DISKS = (("/", "SSD (system, ~/code)"), ("/mnt/data", "HDD (data, code backup)"))
 UNITS = {"B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "KIB": 1024, "MIB": 1024 ** 2, "GIB": 1024 ** 3,
@@ -31,6 +32,12 @@ CSS = """
 .disk levelbar trough { background: #292e42; border: none; padding: 0; min-height: 8px; }
 .disk levelbar block { min-height: 8px; border: none; }
 .disk levelbar block.empty { background: transparent; }
+.disk levelbar.green block.filled { background: #9ece6a; }
+.disk levelbar.yellow block.filled { background: #e0af68; }
+.disk levelbar.red block.filled { background: #f7768e; }
+.item-where { color: #565f89; font-size: 9pt; }
+.item-where button, .sub-row .open { padding: 0 6px; min-height: 0; color: #6b8fe0; background: transparent; }
+.item-where button:hover, .sub-row .open:hover { color: #c0caf5; }
 .item { padding: 10px 0; border-bottom: 1px solid alpha(#3b4261, .7); }
 .item-title { font-weight: 700; }
 .item-size { font-weight: 700; color: #e0af68; min-width: 80px; }
@@ -119,19 +126,37 @@ class Storage(View):
         self.pool = ThreadPoolExecutor(4)
 
     def items(self):
-        """(key, title, what it is, how it's cleaned) in the order shown."""
+        """(key, title, what it is, how it's cleaned, where it is on disk) in the order shown."""
+        docker = "/var/lib/docker"
         return [("docker-cache", "Docker build cache", "layers kept from earlier builds; a build makes them again",
-                 "docker builder prune -af"),
+                 "docker builder prune -af", [f"{docker}/buildkit"]),
                 ("docker-images", "Docker images no container uses", "pulled or built images nothing runs from "
-                 "(a stopped container's image stays)", "docker image prune -af"),
-                ("docker-stopped", "Stopped Docker containers", "their volumes and images stay", "docker container prune -f"),
+                 "(a stopped container's image stays)", "docker image prune -af", [f"{docker}/image", f"{docker}/overlay2"]),
+                ("docker-stopped", "Stopped Docker containers", "their volumes and images stay", "docker container prune -f",
+                 [f"{docker}/containers"]),
                 ("node-modules", f"node_modules of projects untouched for {STALE_DAYS}+ days",
-                 "never in the code backup; pnpm / npm install brings them back", "deleted"),
+                 "never in the code backup; pnpm / npm install brings them back", "deleted", [CODE]),
                 ("pacman", "Package cache (pacman, paru)", "older versions of installed packages (the newest kept) and "
-                 "uninstalled ones; needs your password", "paccache -rk1, paccache -ruk0"),
+                 "uninstalled ones; needs your password", "paccache -rk1, paccache -ruk0",
+                 ["/var/cache/pacman/pkg"] + ([f"{CACHE}/paru/clone"] if os.path.isdir(f"{CACHE}/paru/clone") else [])),
                 ("cache", "~/.cache", "apps' caches, made again as needed (browser caches, downloaded test browsers…)",
-                 "deleted"),
-                ("trash", "Trash", "what Files deleted", "emptied")]
+                 "deleted", [CACHE]),
+                ("trash", "Trash", "what Files deleted", "emptied", [f"{TRASH}/files"])]
+
+    def where(self, paths):
+        """The item's folders, each with Open (in Files) when you may read it: Docker's is root's."""
+        row = box(False, 6, label("\uf07b", "item-where"), classes=("item-where",))
+        for p in paths:
+            row.append(label(p.replace(HOME, "~"), "item-where"))
+            if os.access(p, os.R_OK | os.X_OK):
+                b = button("Open", lambda p=p: self.open_folder(p), tooltip="in Files")
+                b.set_focusable(False)
+                row.append(b)
+        return row
+
+    def open_folder(self, path):
+        subprocess.Popen(["uwsm", "app", "--", sys.executable, FILES, path], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def build(self):
         self.disks = box(True, 6)
@@ -227,7 +252,7 @@ class Storage(View):
         total = sum(s for s in self.sizes.values() if s)
         busy = any(s is None for s in self.sizes.values())
         self.set_subtitle(("measuring… " if busy else "") + f"{human(total)} can be freed")
-        for key, title, what, how in self.items():
+        for key, title, what, how, paths in self.items():
             size = self.sizes.get(key)
             sub = self.lists.get(key) or []
             unfolds = key in ("node-modules", "cache") and sub
@@ -236,7 +261,7 @@ class Storage(View):
                 fold.set_opacity(0)
                 fold.set_sensitive(False)
             fold.set_focusable(False)
-            text = box(True, 2, label(title, "item-title"), label(f"{what} · {how}", "dim", wrap=True))
+            text = box(True, 2, label(title, "item-title"), label(f"{what} · {how}", "dim", wrap=True), self.where(paths))
             text.set_hexpand(True)
             size_l = label("measuring…" if size is None else human(size), "item-size", xalign=1.0)
             if size is not None and size < 50_000_000:
@@ -258,7 +283,11 @@ class Storage(View):
                     b.set_focusable(False)
                     b.set_sensitive(bool(paths))
                     n = label(name, ellipsize=True)
-                    self.body.append(box(False, 12, n, label(note, "dim"), label(human(bytes_), "dim", xalign=1.0), b,
+                    folder = os.path.dirname(paths[0]) if key == "node-modules" and paths else (paths or [""])[0]
+                    o = button("Open", lambda f=folder: self.open_folder(f), "open", tooltip=folder.replace(HOME, "~"))
+                    o.set_focusable(False)
+                    o.set_sensitive(bool(folder))
+                    self.body.append(box(False, 12, n, label(note, "dim"), label(human(bytes_), "dim", xalign=1.0), o, b,
                                          classes=("sub-row",)))
 
     def toggle(self, key):

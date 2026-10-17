@@ -43,6 +43,13 @@
                        delete its folder and drop it from the list (codesync's trash keeps the backup
                        copy for a while). Both say what only this copy has and ask first, unless -y
   projects init        once: create the private repo that holds the list, and record ~/code into it
+  projects env [status] | push [path…] | pull [path…] | passphrase
+                       the projects' .env files, kept encrypted in the list repo (gpg, AES-256, a passphrase
+                       you type once per PC: kept in the keyring) so the other PC has them too. status: each
+                       file, synced / changed here / newer on the other PC / both changed / not synced / only
+                       there, and the keys its .env.example has that it lacks. push: the ones changed here
+                       (and never synced) go up; pull: the ones newer there (or missing here) come down — a
+                       file changed on both PCs is left alone (the .env panel asks). clone pulls them too.
   projects up <path>   start the project: its docker compose services (up -d), each dev command in an
                        agentmux terminal named "▶ <name>", agentmux on the project, VS Code on it
   projects down <path> stop it: Ctrl+C to its ▶ terminals (closed after), docker compose stop
@@ -863,6 +870,8 @@ def clone_all(todo, report, stop=None):
         report(e, "ok" if ok else "failed", detail)
     with ThreadPoolExecutor(CLONE_JOBS) as pool:
         list(pool.map(one, todo))
+    if passphrase():   # their .env files come with them (projects env)
+        env_pull([e["path"] for e in todo])
     return fails[0]
 
 
@@ -1188,6 +1197,243 @@ def down(rel, report=print):
         if r.returncode:
             return False, f"docker compose stop failed: {last_line(r.stderr, 'error')}"
     return True, f"{rel}: stopped"
+
+
+# ---- .env files: encrypted in the list repo (projects env; the .env panel, envgui.py) --------------
+ENV_DIR = f"{DIR}/env"                 # <project>/<file>.gpg, and index.json: what each copy holds
+ENV_SEEN = os.path.join(os.path.dirname(SEEN), "env-seen.json")   # this PC: what it last synced, per file
+EXAMPLES = (".example", ".sample", ".template", ".dist", ".defaults")
+KEYRING = ["app", "projects-env"]      # the passphrase, in the keyring (secret-tool)
+
+
+def env_files(path):
+    """A project's .env files (.env, .env.local, .env.production…; not the examples), relative to it: in
+    the project and its subfolders two deep (a monorepo's apps), never in node_modules."""
+    out = []
+    for d, dirs, files in os.walk(path):
+        depth = os.path.relpath(d, path).count(os.sep) + (d != path)
+        dirs[:] = [x for x in sorted(dirs) if x not in SKIP and not x.startswith(".")] if depth < 2 else []
+        out += [os.path.relpath(os.path.join(d, f), path) for f in sorted(files)
+                if (f == ".env" or f.startswith(".env.")) and not f.endswith(EXAMPLES)]
+    return out
+
+
+def env_examples(path):
+    """The examples (.env.example…) with no .env next to them: a file the project wants and this PC lacks."""
+    out = []
+    for d, dirs, files in os.walk(path):
+        depth = os.path.relpath(d, path).count(os.sep) + (d != path)
+        dirs[:] = [x for x in sorted(dirs) if x not in SKIP and not x.startswith(".")] if depth < 2 else []
+        if ".env" not in files:
+            out += [os.path.relpath(os.path.join(d, f), path) for f in sorted(files)
+                    if f.startswith(".env") and f.endswith(EXAMPLES)][:1]
+    return out
+
+
+def example_of(path, rel_file):
+    """The example a .env file follows (.env.example beside it, else <file>.example…), or None."""
+    d, name = os.path.split(os.path.join(path, rel_file))
+    for cand in [f"{name}{e}" for e in EXAMPLES] + [f".env{e}" for e in EXAMPLES]:
+        if os.path.isfile(os.path.join(d, cand)):
+            return os.path.join(d, cand)
+    return None
+
+
+def env_keys(text):
+    """{KEY: value} of a .env's lines (export KEY=…, quotes kept as written), in order."""
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=(.*)$", line)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
+def env_missing(path, rel_file):
+    """The keys the file's example has that the file doesn't."""
+    ex = example_of(path, rel_file)
+    if not ex:
+        return []
+    have = env_keys(open(os.path.join(path, rel_file), errors="replace").read())
+    return [k for k in env_keys(open(ex, errors="replace").read()) if k not in have]
+
+
+def env_set(path, rel_file, key, value):
+    """Set one key in a .env, in place: its line rewritten where it is, or added at the end."""
+    full = os.path.join(path, rel_file)
+    lines = open(full, errors="replace").read().splitlines() if os.path.exists(full) else []
+    pat = re.compile(r"\s*(?:export\s+)?" + re.escape(key) + r"\s*=")
+    for i, line in enumerate(lines):
+        if pat.match(line):
+            lines[i] = f"{key}={value}"
+            break
+    else:
+        lines.append(f"{key}={value}")
+    with open(full, "w") as f:   # in place: a symlinked .env stays a link
+        f.write("\n".join(lines) + "\n")
+
+
+def passphrase():
+    try:
+        return subprocess.run(["secret-tool", "lookup", *KEYRING], capture_output=True, text=True,
+                              timeout=10).stdout.rstrip("\n")
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def set_passphrase(phrase):
+    """Keep the passphrase in the keyring, after checking it opens a copy already there (a wrong one would
+    write copies the other PC can't open). Returns a problem, or ""."""
+    copies = [os.path.join(d, f) for d, _, fs in os.walk(ENV_DIR) for f in fs if f.endswith(".gpg")]
+    if copies and _gpg(["--decrypt", copies[0]], phrase) is None:
+        return "that passphrase doesn't open the copies already there"
+    r = subprocess.run(["secret-tool", "store", "--label", "projects: .env passphrase", *KEYRING],
+                       input=phrase, capture_output=True, text=True, timeout=10)
+    return "" if r.returncode == 0 else "couldn't save it in the keyring: " + r.stderr.strip()
+
+
+def _gpg(args, phrase, data=None):
+    """gpg with the passphrase on a pipe of its own (never on the command line): its output, or None."""
+    rfd, wfd = os.pipe()
+    os.write(wfd, phrase.encode() + b"\n")
+    os.close(wfd)
+    try:
+        r = subprocess.run(["gpg", "--batch", "--quiet", "--yes", "--no-symkey-cache", "--pinentry-mode", "loopback",
+                            "--passphrase-fd", str(rfd), *args], input=data, capture_output=True, pass_fds=(rfd,),
+                           timeout=30)
+    finally:
+        os.close(rfd)
+    return r.stdout if r.returncode == 0 else None
+
+
+def _env_mac(phrase, data):
+    import hashlib, hmac
+    return hmac.new(phrase.encode(), data, hashlib.sha256).hexdigest()[:32]
+
+
+def _env_index():
+    try:
+        return json.load(open(f"{ENV_DIR}/index.json"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _env_seen():
+    try:
+        return json.load(open(ENV_SEEN))
+    except (OSError, ValueError):
+        return {}
+
+
+def _env_save_seen(seen):
+    os.makedirs(os.path.dirname(ENV_SEEN), exist_ok=True)
+    with open(ENV_SEEN, "w") as f:
+        json.dump(seen, f, indent=1)
+
+
+def env_status(rels=None):
+    """[{project, file, key ("<project>/<file>"), state, missing}] for every .env here or in the repo.
+    state: synced, changed here, newer there, both changed, not synced, only there; "" without a passphrase.
+    The copies are told apart by a keyed hash of their content (index.json): nothing readable in the repo."""
+    phrase, index, seen = passphrase(), _env_index(), _env_seen()
+    rels = rels or [e["path"] for e in load()["projects"] + load()["local_only"]]
+    out = []
+    for rel in rels:
+        path = f"{ROOT}/{rel}"
+        files = env_files(path) if os.path.isdir(path) else []
+        there = sorted(k[len(rel) + 1:] for k in index if k.startswith(rel + "/") and k[len(rel) + 1:] not in files)
+        for f in files + there:
+            key = f"{rel}/{f}"
+            here = os.path.isfile(os.path.join(path, f))
+            mac = _env_mac(phrase, open(os.path.join(path, f), "rb").read()) if here and phrase else None
+            remote, last = index.get(key, {}).get("mac"), seen.get(key)
+            if not phrase:
+                state = ""
+            elif not here:
+                state = "only there"
+            elif remote is None:
+                state = "not synced"
+            elif mac == remote:
+                state = "synced"
+            elif remote == last:
+                state = "changed here"
+            elif mac == last:
+                state = "newer there"
+            else:
+                state = "both changed"
+            out.append({"project": rel, "file": f, "key": key, "state": state,
+                        "missing": env_missing(path, f) if here else []})
+    return out
+
+
+def env_push(rels=None, keys=None, force=False):
+    """Encrypt the files changed here (or never synced) into the repo, commit and push. keys: only those;
+    force: also the ones changed on both PCs (this PC's wins). (ok, message)."""
+    phrase = passphrase()
+    if not phrase:
+        return False, "no passphrase yet: projects env passphrase"
+    list_pull()
+    index, seen, done = _env_index(), _env_seen(), []
+    for st in env_status(rels):
+        if keys and st["key"] not in keys:
+            continue
+        if st["state"] not in ("changed here", "not synced") + (("both changed",) if force else ()):
+            continue
+        data = open(f"{ROOT}/{st['key']}", "rb").read()
+        blob = _gpg(["--symmetric", "--cipher-algo", "AES256", "--output", "-"], phrase, data)
+        if blob is None:
+            return False, f"gpg couldn't encrypt {st['key']}"
+        dest = f"{ENV_DIR}/{st['key']}.gpg"
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:
+            f.write(blob)
+        index[st["key"]] = {"mac": _env_mac(phrase, data), "at": int(time.time())}
+        seen[st["key"]] = index[st["key"]]["mac"]
+        done.append(st["key"])
+    if not done:
+        return True, "nothing to push: every .env is synced"
+    os.makedirs(ENV_DIR, exist_ok=True)
+    with open(f"{ENV_DIR}/index.json", "w") as f:
+        json.dump(index, f, indent=1, sort_keys=True)
+        f.write("\n")
+    _env_save_seen(seen)
+    if os.path.isdir(f"{DIR}/.git"):
+        git(DIR, "add", "env")
+        ok, out = git(DIR, "commit", "-q", "-m", f"env: {len(done)} file{'s' * (len(done) != 1)}")
+        problem = list_push() if ok or "nothing to commit" in out else out
+        if problem:
+            return True, f"encrypted {len(done)}, but {problem}"
+    return True, f"pushed {len(done)}: {', '.join(done)}"
+
+
+def env_pull(rels=None, keys=None, force=False):
+    """Decrypt the files newer there (or missing here) into their projects. keys: only those; force: also
+    the ones changed on both PCs (the other PC's wins). Never writes into a project that isn't here. (ok, message)."""
+    phrase = passphrase()
+    if not phrase:
+        return False, "no passphrase yet: projects env passphrase"
+    list_pull()
+    seen, done = _env_seen(), []
+    index = _env_index()
+    for st in env_status(rels):
+        if keys and st["key"] not in keys:
+            continue
+        if st["state"] not in ("newer there", "only there") + (("both changed",) if force else ()):
+            continue
+        if not os.path.isdir(f"{ROOT}/{st['project']}"):
+            continue
+        data = _gpg(["--decrypt", f"{ENV_DIR}/{st['key']}.gpg"], phrase)
+        if data is None:
+            return False, f"couldn't decrypt {st['key']} (a different passphrase on the other PC?)"
+        dest = f"{ROOT}/{st['key']}"
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as f:   # in place
+            f.write(data)
+        os.chmod(dest, 0o600)
+        seen[st["key"]] = index[st["key"]]["mac"]
+        done.append(st["key"])
+    _env_save_seen(seen)
+    return True, f"pulled {len(done)}: {', '.join(done)}" if done else "nothing to pull"
 
 
 def mark(rel, status):
@@ -1560,6 +1806,24 @@ def main():
     elif cmd == "init":
         ok, msg = init_list()
         print(msg) if ok else sys.exit(msg)
+    elif cmd == "env":
+        sub, rest = (args[0] if args else "status"), [a.strip("/") for a in args[1:]]
+        if sub == "passphrase":
+            import getpass
+            phrase = getpass.getpass("passphrase for the .env copies: ")
+            if not phrase or (not os.path.isdir(ENV_DIR) and getpass.getpass("again: ") != phrase):
+                sys.exit("not set")
+            problem = set_passphrase(phrase)
+            print(problem or "kept in the keyring") if not problem else sys.exit(problem)
+        elif sub in ("push", "pull"):
+            ok, msg = (env_push if sub == "push" else env_pull)(rest or None)
+            print(msg) if ok else sys.exit(msg)
+        else:
+            colour = {"synced": GREEN, "changed here": AMBER, "newer there": AMBER, "both changed": RED,
+                      "not synced": AMBER, "only there": AMBER, "": DIM}
+            for st in env_status(rest or None):
+                print(f"{colour[st['state']]}{st['state'] or 'no passphrase':13}{RESET} {st['key']}" +
+                      (f"  {RED}missing: {', '.join(st['missing'])}{RESET}" if st["missing"] else ""))
     elif cmd in ("up", "down") and args:
         ok, msg = (up if cmd == "up" else down)(args[0], report=lambda m: print(f"{DIM}{m}{RESET}"))
         print(msg) if ok else sys.exit(msg)

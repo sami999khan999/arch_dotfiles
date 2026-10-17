@@ -700,6 +700,21 @@ SIGTERM to the process (its whole job when a shell started it, so `pnpm dev` and
 `docker stop` for a container; root's services can't be stopped here. It asks `ss` every 2 s while open
 (docker at most every 10 s), nothing when closed.
 
+## Storage
+
+`Super + Ctrl + F` (`panels/storagegui.py`): the SSD and the HDD (used / free), then what can be freed, each
+with its size (measured when it opens; `F5` again) and a **Clean** button (twice within 3 s):
+- **Docker build cache** (`docker builder prune -af`), **images no container uses** (`docker image prune -af`;
+  a stopped container's image stays), **stopped containers** (`docker container prune -f`). Volumes never:
+  they hold databases (the Docker panel deletes one by one).
+- **node_modules** of `~/code` projects untouched for 30+ days (last commit, else newest file): codesync never
+  backs them up, `pnpm install` brings them back. The arrow lists them, to delete one project's.
+- **Package cache**: older versions of installed packages (the newest kept) and uninstalled ones
+  (`paccache -rk1`, `paccache -ruk0`), in the terminal popup where sudo asks for the password.
+- **~/.cache** (the arrow lists its folders, to delete one) and the **Trash** (`gio trash --empty`).
+It deletes only inside `~/.cache` and `node_modules` folders in `~/code`; never `/mnt/data` (codesync's
+`.code-trash` is codesync's).
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:

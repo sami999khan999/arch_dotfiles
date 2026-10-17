@@ -22,6 +22,7 @@ _loader = importlib.machinery.SourceFileLoader("projects", os.path.expanduser("~
 pj = importlib.util.module_from_spec(importlib.util.spec_from_loader("projects", _loader))
 _loader.exec_module(pj)
 
+EYE = ("\uf06e", "\uf070")   # nf-fa-eye / eye_slash: show a value, hide it again
 STATE_CLASS = {"synced": "green", "changed here": "amber", "newer there": "amber", "not synced": "amber",
                "only there": "amber", "both changed": "red", "": "dim"}
 STATE_WORDS = {"synced": "synced with the other PC", "changed here": "changed here: push it",
@@ -37,6 +38,12 @@ CSS = """
 .env-key { color: #a9b1d6; min-width: 220px; }
 .env-key.missing { color: #f7768e; }
 .env-grid entry { min-height: 0; padding: 2px 8px; }
+/* a hidden value's dots in the muted colour, not the text's white; shown (the eye), it's text again */
+.env-grid entry text { color: #565f89; }
+.env-grid entry.shown text { color: #c0caf5; }
+.env-eye { min-width: 0; min-height: 0; padding: 0 6px; background: transparent; color: #565f89; }
+.env-eye:hover { color: #c0caf5; background: transparent; }
+.env-eye.on { color: #6b8fe0; }
 .env-banner { padding: 10px 12px; border: 1px solid #e0af68; }
 """
 
@@ -126,15 +133,27 @@ class EnvEditor:
         entries = {}
         for i, (k, v) in enumerate(list(values.items()) + [(k, None) for k in st["missing"]]):
             grid.attach(label(k, "env-key", *(("missing",) if v is None else ())), 0, i, 1, 1)
-            e = Gtk.PasswordEntry(show_peek_icon=True, hexpand=True)
+            e = Gtk.Entry(visibility=False, hexpand=True)
             e.set_text(v or "")
+            entries[k] = (e, v)
+            # the eye: a glyph of the panels' font (GTK's own peek icon came from the icon theme, in its colours)
+            eye = Gtk.Button(label=EYE[0], css_classes=["env-eye"], focusable=False, tooltip_text="show / hide the value")
+            eye.connect("clicked", lambda b, e=e: self.peek(e, b))
+            grid.attach(eye, 2, i, 1, 1)
             if v is None:
                 e.set_property("placeholder-text", "in the example, not here: fill in and Save")
-            entries[k] = (e, v)
             grid.attach(e, 1, i, 1, 1)
         self.edits[(st["project"], f)] = entries
         block.append(grid)
         return block
+
+    @staticmethod
+    def peek(entry, eye):
+        shown = not entry.get_visibility()
+        entry.set_visibility(shown)
+        eye.set_label(EYE[shown])
+        for w in (entry, eye):
+            (w.add_css_class if shown else w.remove_css_class)("shown" if w is entry else "on")
 
     def save(self, rel, f):
         """The changed values (and filled-in missing keys) written into the file, each line in place."""

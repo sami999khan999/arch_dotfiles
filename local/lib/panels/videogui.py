@@ -84,7 +84,6 @@ def path_short(p):
 class Videos(View):
     title, icon = "Videos", G_MOVIE
     interval = 0
-    backdrop = False
     css = CSS
     hints = [("Space", "play / pause"), ("←/→", f"{SEEK_SMALL} s"), ("↑/↓", "volume"),
              ("n/p", "next / previous"), ("f", "fullscreen"), ("c", "subtitles"), ("t", "playlist"),

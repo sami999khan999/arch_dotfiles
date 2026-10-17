@@ -346,7 +346,6 @@ class Canvas(Gtk.Widget):
 class Images(View):
     title, icon = "Images", G_IMAGE
     interval = 0
-    backdrop = False
     css = CSS
     hints = [("\u2190/\u2192", "previous / next"), ("+/\u2212", "zoom"), ("0", "fit"), ("r", "rotate"),
              ("f", "fullscreen"), ("i", "info"), ("t", "thumbnails"), ("s", "slideshow"), ("Del", "trash"),

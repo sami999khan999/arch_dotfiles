@@ -143,7 +143,6 @@ class Page(Gtk.Widget):
 class Documents(View):
     title, icon = "Documents", G_DOC
     interval = 0
-    backdrop = False
     css = CSS
     hints = [("Space/PgDn", "next page"), ("+/−", "zoom"), ("w", "fit width"), ("z", "fit page"),
              ("f", "fullscreen"), ("t", "outline"), ("Ctrl+F", "find"), ("g", "go to page"), ("Right-click", "more")]

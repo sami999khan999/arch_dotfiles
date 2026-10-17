@@ -9,11 +9,11 @@
 #   right  the selected item: details, what you can do with it, then a pane below — a container's
 #          Logs / Env / Mounts / Inspect, an image's layers, a volume's or network's users — with a
 #          filter of its own (and Errors, on the logs)
-# The divider between the two sides can be dragged.
+# The divider between the two sides can be dragged, and the one between the details and the pane below.
 #
 # The data and the docker commands are dockerpanel.py's (its DockerPanel is the model here:
 # it polls docker in background threads); this only draws them. Full-screen things (logs in
-# less, exec, compose logs, lazydocker) open in a floating terminal.
+# less, exec, compose logs, lazydocker) open in a terminal popup over the blurred backdrop (termgui.py).
 import json, os, re, shlex, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +34,7 @@ COLUMNS = {"containers": (("CPU", -6), ("MEM", -6), ("PORT", -7), ("", -9)),
            "networks": (("DRIVER", 8), ("SUBNET", 16), ("#", -3))}
 PANES = (("logs", "Logs"), ("env", "Env"), ("mounts", "Mounts"), ("inspect", "Inspect"))
 FILES = os.path.expanduser("~/.local/lib/panels/filesgui.py")
+TERM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termgui.py")
 DOT = "●"
 
 CSS = """
@@ -55,7 +56,7 @@ textview, textview text { background: transparent; color: #c0caf5; }
 .pane-bar { padding: 0 20px 4px 20px; border-bottom: 1px solid alpha(#3b4261, .7); }
 .pane-bar .tab { padding: 6px 10px; }
 .pane-bar entry { min-height: 20px; padding: 2px 8px; }
-paned > separator { background: alpha(#3b4261, .7); min-width: 1px; }
+paned > separator { background: alpha(#3b4261, .7); min-width: 1px; min-height: 1px; }
 """
 
 
@@ -140,9 +141,8 @@ class Docker(View):
         GLib.idle_add(lambda: self.say(msg, "bad" if color == dp.RED else "ok") and False)
 
     def terminal(self, argv, title="docker"):
-        """A program in a floating terminal (TUI.float: windowrules float and centre it)."""
-        subprocess.Popen(["uwsm", "app", "--", "kitty", "--class", "TUI.float", "--title", title, "-e", *argv],
-                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        """A program in a terminal popup over the blurred backdrop, like every panel popup."""
+        self.launch(sys.executable, TERM, title, "--", *argv)
 
     def launch(self, *argv):
         subprocess.Popen(["uwsm", "app", "--", *argv], start_new_session=True,
@@ -226,8 +226,19 @@ class Docker(View):
             buf.create_tag(name, **props)
         self.text_scroll = scrolled(self.text)
 
-        right = box(True, 0, top, pane_bar, self.text_scroll)
+        # the details above, the pane below, the divider between them draggable: until it's dragged the
+        # details take what they need (fit_split); scrolled, so dragged up they still show, scrolling
+        self.top = top
+        right = self.split = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL, wide_handle=False,
+                                       start_child=Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, child=top),
+                                       end_child=box(True, 0, pane_bar, self.text_scroll), resize_start_child=False,
+                                       shrink_start_child=True, shrink_end_child=False)
         right.set_hexpand(True)
+        self.split_dragged = False
+        drag = Gtk.GestureDrag(propagation_phase=Gtk.PropagationPhase.CAPTURE)   # a press on the divider
+        drag.connect("drag-begin", lambda _g, _x, y: abs(y - right.get_position()) < 8
+                     and setattr(self, "split_dragged", True))
+        right.add_controller(drag)
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, start_child=left, end_child=right,
                           resize_start_child=False, shrink_start_child=False, shrink_end_child=False,
                           wide_handle=False)
@@ -567,12 +578,23 @@ class Docker(View):
             self.set_actions("none", lambda: [])
             self.lower_title.set_text("")
             self.set_text([])
+            self.fit_split()
             return
         if dp.is_project(e):
             self.project_detail(e)
         else:
             {"containers": self.container_detail, "images": self.image_detail,
              "volumes": self.volume_detail, "networks": self.network_detail}[m.tab](e)
+        self.fit_split()
+
+    def fit_split(self):
+        """The divider under the details, as tall as they are, until it's dragged: then it stays put."""
+        if self.split_dragged:
+            return
+        width = self.top.get_width() or 600
+        need = self.top.measure(Gtk.Orientation.VERTICAL, width)[1]
+        if need != self.split.get_position():
+            self.split.set_position(need)
 
     def set_state_class(self, cls):
         for c in ("dim", "green", "amber", "red", "accent"):
@@ -1073,11 +1095,12 @@ class Docker(View):
     # ---- full-screen views -----------------------------------------------------------------------
     def full_logs(self, c):
         """Formatted logs in less, following (F / Ctrl+C toggle). dockerlogs.py writes to a file
-        that less follows, in its own session so Ctrl+C in less doesn't stop it."""
-        script = (f'f=$(mktemp); setsid {shlex.quote(sys.executable)} {shlex.quote(dp.DOCKERLOGS)} --follow '
+        that less follows, in its own session so Ctrl+C in less doesn't stop it; stopped, and the file
+        gone, however less ends (q, or the popup closed: a hang-up)."""
+        script = (f'f=$(mktemp); trap \'kill -- -$p 2>/dev/null; rm -f "$f"\' EXIT; trap exit HUP TERM; '
+                  f'setsid {shlex.quote(sys.executable)} {shlex.quote(dp.DOCKERLOGS)} --follow '
                   f'{shlex.quote(c["ID"])} --width "$(tput cols)" >"$f" 2>/dev/null & p=$!; sleep 0.4; '
-                  f'less -R --mouse +F {shlex.quote("-Ps" + c["Names"] + " logs · F follow · Ctrl+C stop following · / search · q close$")} "$f"; '
-                  f'kill -- -$p 2>/dev/null; rm -f "$f"')
+                  f'less -R --mouse +F {shlex.quote("-Ps" + c["Names"] + " logs · F follow · Ctrl+C stop following · / search · q close$")} "$f"')
         self.terminal(["sh", "-c", script], f"{c['short']} logs")
 
     def project_logs(self, name):

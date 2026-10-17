@@ -1130,7 +1130,9 @@ Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home
 
 `panels/dockergui.py`, workspace 9's app (a tiled window, class `sami.docker`). Tabs for
 Containers, Images, Volumes and Networks (`1`–`4`, `Tab`, `←→` or a click); the list on the left,
-the selected item's details, actions and a lower pane on the right (drag the divider between them).
+the selected item's details, actions and a lower pane on the right. Both dividers drag: the one between the
+two sides, and the one between the details and the pane below (until it's dragged it sits under the details;
+dragged up, the details scroll).
 The header sums it up: how many run and are stopped, what the images and volumes take on disk.
 
 - **Find:** the search box over the list (`/`; `Esc` clears it) matches names, images, projects, ports,
@@ -1148,15 +1150,17 @@ The header sums it up: how many run and are stopped, what the images and volumes
   **Logs** (formatted by `panels/dockerlogs.py`: local time, level, message, details dimmed; it follows
   the end while you're there; **Errors** keeps the errors and warnings), **Env**, **Mounts** or the whole
   **Inspect**; the pane's own filter (`Ctrl+F`) keeps the lines with that text. `l` follows the logs in
-  `less` in a floating terminal. **Shell** (`e`) opens the container's own shell straight away in a
-  floating terminal (bash, else ash, else sh); **Run…** (`x`) runs a command (presets, the last ones,
-  "as root").
+  `less` in a terminal popup. **Shell** (`e`) opens the container's own shell straight away in a
+  terminal popup (bash, else ash, else sh); **Run…** (`x`) runs a command (presets, the last ones,
+  "as root"). The terminal popup (`panels/termgui.py`) opens over the blurred backdrop like every panel
+  popup and closes when its program ends; every key is the program's (Esc too), `Ctrl+Shift+C / V` copy and
+  paste, a click opens a link, Close or a click on the backdrop ends it.
 - **Delete stopped (N)** in the header (`D`, twice) deletes every stopped container at once; their
   volumes and images stay. On Images it's **Delete dangling (N)**: the untagged images no container uses.
 - Images: `u` pull, `n` run it once in a terminal (`docker run --rm -it`), `y` copy its name. Images,
   volumes, networks: `d` twice deletes it (docker refuses if in use). A first press turns the button red
   ("Click again to delete") for 3 s.
-- `L` (or the lazydocker button) opens lazydocker in a floating terminal.
+- `L` (or the lazydocker button) opens lazydocker in the terminal popup.
 - Light on Docker: it follows `docker events` instead of asking every second, waits while workspace 9
   isn't on screen, reads CPU / memory (`docker stats`) only on Containers and the volumes' sizes
   (`docker system df`, which measures every volume) only on Volumes. It used to keep dockerd at about half

@@ -136,6 +136,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.commit)$
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.(ask|dbask))$" }, size = { "monitor_w*0.75", "monitor_h*0.82" } })
 -- the System agent (sysagentgui.py): larger still, for long logs and config files (1536×929 on 1920×1080)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.sysagent)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.ports)$" }, size = { 900, 560 } })
 -- a program in a terminal popup (termgui.py: the Docker panel's logs, shell, lazydocker)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.term)$" }, size = { "monitor_w*0.75", "monitor_h*0.82" } })
 -- the Open / Save dialogs (pickergui.py, the portal's file picker): Files' window, a little smaller than the screen

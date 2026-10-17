@@ -687,6 +687,19 @@ shows up in it under its hostname; no LocalSend package on the PC.
   seen. The firewall must let the phone in: `system/root-setup.sh` opens port 53317 (TCP + UDP) to private
   networks only. Another name than the hostname: `{"alias": "…"}` in `~/.local/share/lsend/settings.json`.
 
+## Ports
+
+`Super + Ctrl + O` (`panels/portsgui.py`): everything listening on this PC, one row a port: who can reach
+it (**this PC** only, or the **network**, amber), what it is and how long it's been up. A dev server shows
+its program (`next-server`, `vite`, `http.server`) and its project in `~/code` (the folder it runs in); an
+app or service its name (its cgroup, as the System panel's Apps tab names it); a Docker container its name
+and compose project; root's services (DNS, mDNS…) are named by their port. The chips (`f` cycles) show
+**All**, **Dev** (your processes in `~/code` and agentmux terminals), **Docker** or **System**; `/` searches.
+**Open** (Enter) opens `http://localhost:<port>`, **Copy URL** (`y`), **Stop** (`d`, twice within 3 s):
+SIGTERM to the process (its whole job when a shell started it, so `pnpm dev` and its node stop together),
+`docker stop` for a container; root's services can't be stopped here. It asks `ss` every 2 s while open
+(docker at most every 10 s), nothing when closed.
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:

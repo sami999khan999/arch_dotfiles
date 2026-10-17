@@ -18,28 +18,41 @@ FILES = f"{HOME}/.local/lib/panels/filesgui.py"
 G_SEND = "\U000f048a"
 G_PHONE, G_DESKTOP, G_LAPTOP, G_TABLET = "\U000f011c", "\U000f0379", "\U000f0322", "\U000f04f6"
 G_DOWN, G_UP, G_FILE, G_FOLDER, G_CROSS = "\U000f01da", "\U000f0552", "\U000f0214", "\U000f0256", "\U000f0156"
+G_MESSAGE, G_SCAN = "\U000f0369", "\U000f0450"
 TYPE_GLYPH = {"mobile": G_PHONE, "desktop": G_DESKTOP, "laptop": G_LAPTOP, "tablet": G_TABLET}
 STATE_TEXT = {"asking": "waiting for an answer", "receiving": "receiving", "sending": "sending", "done": "done",
               "declined": "declined", "cancelled": "cancelled", "failed": "failed"}
+STATE_CLASS = {"asking": "amber", "receiving": "accent", "sending": "accent", "done": "green", "failed": "red"}
 CSS = """
 .devices { border-right: 1px solid alpha(#3b4261, .7); padding: 14px 14px 14px 20px; }
-.devices list > row { padding: 8px 12px; }
-.dev-glyph { color: #6b8fe0; font-size: 15pt; min-width: 28px; }
+.devices list > row { padding: 9px 12px; border-left: 2px solid transparent; }
+.devices list > row:selected { border-left-color: #6b8fe0; }
+.dev-glyph { color: #565f89; font-size: 15pt; min-width: 28px; }
+.devices list > row:selected .dev-glyph { color: #6b8fe0; }
 .dev-name { font-weight: 700; }
+.dev-empty .big { color: #3b4261; font-size: 26pt; }
 .pane { padding: 14px 20px; }
-.drop { border: 1px dashed alpha(#3b4261, .9); padding: 18px; }
+.drop { border: 1px dashed alpha(#3b4261, .9); padding: 14px 16px; }
 .drop.hover { border-color: #6b8fe0; background: alpha(#6b8fe0, .06); }
-.picked list > row { padding: 3px 6px; }
-.picked .x { padding: 0 6px; min-height: 0; }
-.transfer { padding: 8px 0; border-bottom: 1px solid alpha(#c0caf5, .04); }
-.transfer .glyph { font-size: 13pt; min-width: 26px; }
+.drop-empty { padding: 10px 0 4px 0; }
+.drop-empty .big { color: #3b4261; font-size: 22pt; }
+.drop.hover .drop-empty .big { color: #6b8fe0; }
+.picked list > row { padding: 4px 6px; }
+.picked .x { padding: 0 6px; min-height: 0; color: #565f89; }
+.picked .x:hover { color: #f7768e; }
+.drop-foot { border-top: 1px solid alpha(#c0caf5, .05); padding-top: 8px; }
+.transfer { padding: 10px 12px; margin-bottom: 6px; background: alpha(#292e42, .35); border-left: 2px solid transparent; }
+.transfer.asking { border-left-color: #e0af68; background: alpha(#292e42, .6); }
+.transfer.failed { border-left-color: #f7768e; }
+.transfer .glyph { font-size: 14pt; min-width: 30px; }
 .transfer .glyph.in { color: #9ece6a; }
 .transfer .glyph.out { color: #6b8fe0; }
-.transfer .message { color: #c0caf5; background: alpha(#292e42, .6); padding: 6px 10px; }
+.transfer .what { font-weight: 700; }
+.transfer .message { color: #c0caf5; background: alpha(#16161e, .6); border-left: 2px solid #3b4261; padding: 6px 10px;
+                     margin-top: 4px; }
+.transfer progressbar { margin-top: 6px; }
 progressbar trough { background: #292e42; min-height: 3px; border: none; }
 progressbar progress { background: #6b8fe0; min-height: 3px; border: none; }
-progressbar.done progress { background: #9ece6a; }
-progressbar.bad progress { background: #f7768e; }
 """
 
 
@@ -85,26 +98,41 @@ class LSend(View):
     def build(self):
         self.dev_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.dev_list.connect("row-selected", self.device_picked)
-        self.dev_empty = label("None seen yet.\n\nOpen LocalSend on the phone, on the same Wi-Fi, "
-                               "then scan (r).", "dim", wrap=True)
-        self.scan_btn = button("Scan", self.scan, tooltip="r")
+        self.dev_empty = box(True, 10, label(G_PHONE, "big", xalign=0.5),
+                             label("No devices yet", "sub", xalign=0.5),
+                             label("Open LocalSend on the phone, on the same Wi-Fi, then scan.", "dim", xalign=0.5,
+                                   wrap=True), classes=("dev-empty",))
+        self.dev_empty.set_margin_top(40)
+        self.dev_empty.get_last_child().set_justify(Gtk.Justification.CENTER)
+        self.dev_empty.get_last_child().set_max_width_chars(28)   # wraps instead of widening the column
+        self.scan_btn = button(f"{G_SCAN}  Scan", self.scan, tooltip="r")
         self.scan_btn.set_focusable(False)
-        left = box(True, 8, rule_heading("Devices"), self.dev_empty, scrolled(self.dev_list),
-                   box(False, 0, self.scan_btn), classes=("devices",))
-        left.set_size_request(280, -1)
+        left = box(True, 10, rule_heading("Devices"), self.dev_empty, scrolled(self.dev_list), self.scan_btn,
+                   classes=("devices",))
+        left.set_size_request(300, -1)
         left.set_hexpand(False)   # a device's long name doesn't widen the column
 
         self.picked_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.picked_list.add_css_class("picked")
-        self.drop_msg = label("Drop files or folders here", "dim", xalign=0.5)
+        # empty: a centred target saying what to do; with files: their list and a footer with the total
+        self.drop_msg = box(True, 6, label(G_UP, "big", xalign=0.5), label("Drop files or folders here", "sub", xalign=0.5),
+                            box(False, 6, button(f"{G_FILE}  Files…", lambda: self.pick(False), tooltip="Ctrl+O"),
+                                button(f"{G_FOLDER}  Folder…", lambda: self.pick(True), tooltip="Ctrl+Shift+O")),
+                            label("or paste them (Ctrl+V)", "dim", xalign=0.5), classes=("drop-empty",))
+        self.drop_msg.get_last_child().get_prev_sibling().set_halign(Gtk.Align.CENTER)
+        self.drop_msg.get_last_child().get_prev_sibling().set_margin_top(6)
+        self.picked_total = label("", "dim")
         add_files = button(f"{G_FILE}  Files…", lambda: self.pick(False), "flat", tooltip="Ctrl+O")
         add_folder = button(f"{G_FOLDER}  Folder…", lambda: self.pick(True), "flat", tooltip="Ctrl+Shift+O")
-        self.clear_btn = button("Clear", self.clear_picked, "flat")
         self.picked_scroll = scrolled(self.picked_list, vexpand=False)
         self.picked_scroll.set_max_content_height(180)
         self.picked_scroll.set_propagate_natural_height(True)
-        self.drop = box(True, 8, self.drop_msg, self.picked_scroll,
-                        box(False, 6, add_files, add_folder, Gtk.Box(hexpand=True), self.clear_btn), classes=("drop",))
+        self.picked_foot = box(False, 6, self.picked_total, Gtk.Box(hexpand=True), add_files, add_folder,
+                               button("Clear", self.clear_picked, "flat", "danger"), classes=("drop-foot",))
+        self.drop = box(True, 8, self.drop_msg, self.picked_scroll, self.picked_foot, classes=("drop",))
+        for b in [*self.drop_msg.get_last_child().get_prev_sibling(), *self.picked_foot]:
+            if isinstance(b, Gtk.Button):
+                b.set_focusable(False)
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
         target.connect("drop", lambda _t, files, _x, _y: self.add([f.get_path() for f in files.get_files()
                                                                    if f.get_path()]) or True)
@@ -120,6 +148,7 @@ class LSend(View):
         send_row = box(False, 10, self.message, self.send_btn)
 
         self.activity = box(True, 0)
+        self.activity.set_margin_top(4)
         self.activity_empty = label("Nothing sent or received yet.", "dim")
         self.clear_activity = button("Clear", lambda: self.request({"op": "clear"}), "flat")
         self.clear_activity.set_focusable(False)
@@ -257,8 +286,10 @@ class LSend(View):
 
     def fill_picked(self):
         clear(self.picked_list)
+        total = 0
         for p in self.picked:
             size, count = folder_size(p)
+            total += size
             what = human(size) if os.path.isfile(p) else f"{count} files  ·  {human(size)}"
             x = button(G_CROSS, lambda p=p: (self.picked.remove(p), self.fill_picked()), "flat", "x",
                        tooltip="Leave it out")
@@ -266,9 +297,11 @@ class LSend(View):
             name = label(os.path.basename(p), ellipsize=True)
             self.picked_list.append(box(False, 8, label(G_FOLDER if os.path.isdir(p) else G_FILE, "accent"), name,
                                         label(what, "dim"), x))
+        n = len(self.picked)
+        self.picked_total.set_text(f"{n} item{'s' if n != 1 else ''}  ·  {human(total)}")
         self.drop_msg.set_visible(not self.picked)
         self.picked_scroll.set_visible(bool(self.picked))
-        self.clear_btn.set_visible(bool(self.picked))
+        self.picked_foot.set_visible(bool(self.picked))
         self.update_send()
 
     def update_send(self):
@@ -332,7 +365,7 @@ class LSend(View):
         clear(self.activity)
         self.rows = {}
         for tid in reversed(list(self.transfers)):   # newest first
-            row = box(True, 6, classes=("transfer",))
+            row = box(False, 10, classes=("transfer",))
             self.rows[tid] = row
             self.activity.append(row)
             self.update_row(tid)
@@ -341,52 +374,69 @@ class LSend(View):
                                             for _k, d in self.transfers.values()))
 
     def update_row(self, tid):
+        """A card: what (bold) and who / how big under it, the state on the right, the actions after it;
+        a bar only while it moves, the message itself when it's text."""
         kind, d = self.transfers[tid]
         row = self.rows[tid]
         clear(row)
-        files, state = d.get("files", []), d["state"]
+        files, state, text = d.get("files", []), d["state"], d.get("text")
+        for c in ("asking", "failed"):
+            (row.add_css_class if state == c else row.remove_css_class)(c)
         who = d.get("from") if kind == "in" else d.get("to")
-        if d.get("text") is not None:
-            what = "a message"
+        if text is not None:
+            what = "Message"
         elif len(files) == 1:
             what = files[0]["name"]
         else:
             what = f"{len(files)} files"
-        size = f"  ·  {human(d.get('total', 0))}" if d.get("text") is None else ""
-        line = f"{'from' if kind == 'in' else 'to'} {who}:  {what}{size}"
-        status = STATE_TEXT.get(state, state) + (f": {d['error']}" if d.get("error") else "")
-        top = box(False, 8, label(G_DOWN if kind == "in" else G_UP, "glyph", kind),
-                  label(line, ellipsize=True), label(status, "red" if state == "failed" else "dim"))
-        row.append(top)
-        if d.get("text") is not None and (kind == "out" or state == "done"):
-            msg = label(d["text"], "message", wrap=True)
+        details = f"{'from' if kind == 'in' else 'to'} {who}"
+        if text is None:
+            details += f"  ·  {human(d.get('total', 0))}"
+        status = "wants to send" if kind == "in" and state == "asking" else STATE_TEXT.get(state, state)
+        moving = state in ("receiving", "sending") and text is None and d.get("total")
+        if moving:
+            status += f"  {min(d.get('done_bytes', 0) * 100 // max(d['total'], 1), 100)} %"
+        glyph = G_MESSAGE if text is not None else G_DOWN if kind == "in" else G_UP
+        g = label(glyph, "glyph", kind)
+        g.set_valign(Gtk.Align.START)
+        who_line = label(details + "  ·  ", "dim", ellipsize=True)
+        who_line.set_hexpand(False)   # the state right after it; cut first so a long line can't widen the window
+        main = box(True, 3, label(what, "what", ellipsize=True),
+                   box(False, 0, who_line, label(status, STATE_CLASS.get(state, "dim"))))
+        main.set_hexpand(True)
+        if d.get("error"):
+            main.append(label(d["error"], "red", wrap=True))
+        if text is not None and (kind == "out" or state == "done"):
+            msg = label(text, "message", wrap=True)
             msg.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
             msg.set_selectable(True)
             msg.set_can_focus(False)
-            row.append(msg)
+            main.append(msg)
         elif len(files) > 1 and state == "asking":
             names = ", ".join(f["name"] for f in files[:4]) + (f" and {len(files) - 4} more" if len(files) > 4 else "")
-            row.append(label(names, "dim", wrap=True))
-        if state in ("receiving", "sending", "done", "failed") and d.get("text") is None and d.get("total"):
-            bar = Gtk.ProgressBar(fraction=min(d.get("done_bytes", 0) / max(d["total"], 1), 1.0))
-            bar.add_css_class("done" if state == "done" else "bad" if state == "failed" else "active")
-            row.append(bar)
+            main.append(label(names, "sub", wrap=True))
+        if moving:
+            main.append(Gtk.ProgressBar(fraction=min(d.get("done_bytes", 0) / max(d["total"], 1), 1.0)))
+        row.append(g)
+        row.append(main)
         actions = []
         if kind == "in" and state == "asking":
             actions += [button("Accept", lambda: self.answer(tid, True), "primary", tooltip="y"),
-                        button("Decline", lambda: self.answer(tid, False), "flat", tooltip="n")]
+                        button("Decline", lambda: self.answer(tid, False), tooltip="n")]
         if state in ("receiving", "sending") or (kind == "out" and state == "asking"):
             actions.append(button("Cancel", lambda: self.request({"op": "cancel", "id": tid}), "flat"))
         if kind == "in" and state == "done" and d.get("saved"):
             first = d["saved"][0]
             actions.append(button("Open", lambda: self.launch("xdg-open", first), "flat"))
             actions.append(button("Show in Files", lambda: self.launch("python3", FILES, first), "flat"))
-        if d.get("text") is not None and state == "done":
-            actions.append(button("Copy", lambda: self.copy(d["text"]), "flat"))
+        if text is not None and state == "done":
+            actions.append(button("Copy", lambda: self.copy(text), "flat"))
         if actions:
             for b in actions:
                 b.set_focusable(False)
-            row.append(box(False, 6, *actions))
+            acts = box(False, 4, *actions)
+            acts.set_valign(Gtk.Align.CENTER)
+            row.append(acts)
 
     def answer(self, tid, accept):
         self.request({"op": "answer", "id": tid, "accept": accept})

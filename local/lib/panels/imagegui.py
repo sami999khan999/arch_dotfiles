@@ -32,7 +32,7 @@ THUMBS_KEPT = 400
 ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 0.02, 32.0, 1.25
 BACKGROUNDS = ("panel", "checker", "light")
 SORTS = (("name", "Name"), ("date", "Date modified"), ("size", "Size"))
-G_IMAGE = "\uf1c5"
+G_IMAGE, G_FULL = "\uf1c5", "\U000f0293"
 CSS = """
 .canvas-msg { color: #565f89; }
 .strip { border-top: 1px solid alpha(#3b4261, .7); }
@@ -381,6 +381,9 @@ class Images(View):
             pass
 
     # ---- the window -----------------------------------------------------------------------------------
+    def header_extra(self):
+        return [button(f"{G_FULL} Fullscreen", self.fullscreen, "flat", tooltip="f / F11")]
+
     def build(self):
         self.canvas = Canvas(self)
         self.canvas.bg = self.state["bg"] if self.state["bg"] in BACKGROUNDS else "panel"
@@ -803,7 +806,7 @@ class Images(View):
     def fullscreen(self):
         self.full = not self.full
         win = self.window
-        (win.fullscreen if self.full else win.unfullscreen)()
+        self.host.set_fullscreen(self.full)
         (win.add_css_class if self.full else win.remove_css_class)("full")
         self.chrome(not self.full)
         self.panes()

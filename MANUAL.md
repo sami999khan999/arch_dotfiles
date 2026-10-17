@@ -576,7 +576,7 @@ GdkPixbuf / glycin reads: JPEG, PNG, GIF and WebP (animated too), SVG, AVIF, HEI
   times 100 %, a double-click 100 % there and back. Drag to pan; zoomed past the window, the arrows pan.
   Shrunk it's mipmapped, from 200 % it shows sharp pixels.
 - **Turn:** `r` / `Shift+R` rotate, `h` / `v` flip; `Ctrl+S` writes that into the file (ImageMagick).
-- **Show:** `f` / `F11` fullscreen (`Esc` leaves it), `s` slideshow (`[` / `]` slower / faster), `i` info
+- **Show:** `f` / `F11` / the header's Fullscreen fullscreen (`Esc` leaves it), `s` slideshow (`[` / `]` slower / faster), `i` info
   (file, pixels, the camera's EXIF), `b` background behind transparency (panel, checkerboard, light), `p`
   pauses an animation.
 - **Do:** `F2` rename, `Del` to the trash, `Ctrl+C` copy the picture, `Ctrl+Shift+C` its path, `w` set as
@@ -606,6 +606,28 @@ those; a folder, its videos. A running player takes what's opened next.
 - Each file resumes where it was left (`~/.local/state/videos/watch_later`); one watched to the end starts
   over, and the next in the folder plays. The folder is watched (a finished download joins the list). It
   remembers the volume, mute and the playlist pane (`~/.local/state/videos`). mpv is still installed.
+
+## Documents
+
+Documents (`local/lib/panels/docgui.py`) is the PDF viewer, the default for PDFs (`sami-documents.desktop` in
+`config/mimeapps.list`): opening one in Files, `xdg-open`, a browser's download… shows it there, in the panels'
+look. Poppler draws the pages (in a thread of their own, only those near the view; the paper stays white
+whatever the colour theme). A running viewer takes what's opened next.
+
+- **Move:** scroll, `Space` / `PgDn` / `→` on (the rest of a page first), `Shift+Space` / `PgUp` / `←` back, `↑`
+  / `↓` a little, `Home` / `End`, `g` go to a page, the mouse's back / forward buttons; `t` the outline (the
+  document's chapters, a click jumps there). A page link jumps, a web link opens in the browser.
+- **Zoom:** `w` fit the width (the default), `z` fit the page, `+` / `−` or `Ctrl` + the wheel or a pinch,
+  `1` printed size.
+- **Show:** `f` / `F11` / the header's Fullscreen: a page fills the screen and `←` / `→`, `Space` or the
+  wheel turn them, as a presentation (`Esc` or a double-click leaves).
+- **Find:** `Ctrl+F`, `Enter` the next match, `Shift+Enter` the previous; matches amber, the current one
+  blue; `Esc` clears them.
+- **Do:** `Ctrl+C` copy the page's text, `Ctrl+Shift+C` its path, `i` info, `e` show it in Files, `o` open
+  with another app, `F5` reload, `Ctrl+O` open, or drop a file on it. Right-click for all of it. A locked
+  PDF asks for its password. `Esc` / `q` closes.
+- The file is watched: rewritten (a LaTeX build), it's read again at the same place. Each file reopens at
+  its page and zoom; the outline pane is remembered (`~/.local/state/documents`).
 
 ## LocalSend (phone transfers)
 
@@ -743,6 +765,9 @@ Every panel is a GTK window (`local/lib/panels/*gui.py`) in the look of the Cont
 icon and title with details on the right, a blue underline, blue section headings, amber keys and
 window classes, green / amber / red levels, key hints at the bottom. The popups float in the middle of the screen; running one again (its
 key or waybar click) closes it, and so does `Esc`. The hints at the bottom list each panel's keys.
+`F11` makes any panel fullscreen and back (`Esc` leaves fullscreen first; `set_fullscreen` in `gtkkit.py`
+unpins a popup for the while, as Hyprland won't make a pinned window fullscreen). Images, Videos and
+Documents also hide their header and hints there.
 A click anywhere outside a text field (a search box…) leaves it, so the panel's keys work again
 (`leave_text` in `gtkkit.py`; Projects goes back to its list).
 While a popup is open the screen behind it is blurred and darkened, the bar excepted (a see-through,
@@ -1160,7 +1185,9 @@ bind("SUPER + M", launch .. "mpv") -- open mpv
 
 - `local/share/applications/*.desktop` hide apps from Walker (`NoDisplay=true`).
   Delete one to bring that app back.
-- `config/mimeapps.list` sets default apps (Images for pictures, Videos for video and music).
+- `config/mimeapps.list` sets default apps: Images for every picture type GdkPixbuf reads, Videos for
+  every video and audio type (playlists and MIDI excepted), Documents for PDFs. A type that's in neither
+  list (or a file with no type, like an empty one) goes to `xdg-open`'s fallback, the browser.
 
 ## Editing
 

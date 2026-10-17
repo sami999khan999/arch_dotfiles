@@ -663,7 +663,7 @@ class Videos(View):
     def fullscreen(self):
         self.full = not self.full
         win = self.window
-        (win.fullscreen if self.full else win.unfullscreen)()
+        self.host.set_fullscreen(self.full)
         (win.add_css_class if self.full else win.remove_css_class)("full")
         self.chrome(not self.full)
         self.panes()

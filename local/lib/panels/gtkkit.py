@@ -719,7 +719,8 @@ class ViewHost:
         """The popup stays on its workspace with its backdrop: another workspace shown unpins it there,
         its own shown again pins it back above the backdrop."""
         def moved(e):
-            self.set_pinned(e[len(b"workspace>>"):].decode(errors="replace") == self.home)
+            if not getattr(self, "full", False):   # fullscreen, it stays unpinned (set_fullscreen)
+                self.set_pinned(e[len(b"workspace>>"):].decode(errors="replace") == self.home)
         hypr_events(self.win, (b"workspace>>",), moved)
 
     def watch_shown(self):
@@ -782,11 +783,29 @@ class ViewHost:
         (self.view.refresh if getattr(self, "shown", True) else self.view.hidden_refresh)()
         return True
 
+    def set_fullscreen(self, on):
+        """The window over the whole screen, or back. Hyprland won't make a pinned window fullscreen
+        (a popup over its backdrop is pinned: pin_over_backdrop), so it's unpinned for the while."""
+        self.full = on
+        if on and self.backdrop:
+            self.set_pinned(False)
+        (self.win.fullscreen if on else self.win.unfullscreen)()
+        if not on and self.backdrop:
+            GLib.timeout_add(150, lambda: self.set_pinned(True) or False)   # once it's floating again
+
     def _on_key(self, _ctrl, keyval, _code, state):
+        if keyval == Gdk.KEY_Escape and getattr(self, "full", False):   # Esc leaves fullscreen first
+            self.set_fullscreen(False)
+            return True
         if keyval == Gdk.KEY_Escape and self.toggle and not self.typing():
             self.win.close()
             return True
-        return self.view.key(keyval, state)
+        if self.view.key(keyval, state):
+            return True
+        if keyval == Gdk.KEY_F11:   # any panel: F11 fullscreen (a viewer's own f / F11 hides its chrome too)
+            self.set_fullscreen(not getattr(self, "full", False))
+            return True
+        return False
 
     def _on_click(self, _gesture, _n, x, y):
         # the outermost text field around the focus: an entry's own Gtk.Text is one too, and its icons

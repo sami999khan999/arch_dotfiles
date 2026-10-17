@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Documents
+Comment=Read PDFs, in the colour theme
+Exec=python3 /home/sami/.local/lib/panels/docgui.py %U
+Icon=x-office-document
+Categories=Office;Viewer;
+MimeType=application/pdf;application/x-pdf;
+Keywords=pdf;document;reader;viewer;
+StartupWMClass=panels.documents

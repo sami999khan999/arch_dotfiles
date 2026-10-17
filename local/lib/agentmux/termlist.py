@@ -22,10 +22,11 @@ from term import CLOSE, PAD, App, Line, fit, width
 
 AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
 FS, RS = "\x1f", "\x1e"
-FIELDS = ["session", "window", "window_active", "pane", "pane_active", "command", "panes"]
+FIELDS = ["session", "window", "window_active", "pane", "pane_active", "command", "panes", "name"]
 SUB = ("#{S:#{?#{m:*" + lib.SEP + "terms,#{session_name}},#{W:#{P:" + FS.join(
     ["#{session_name}", "#{window_index}", "#{window_active}", "#{pane_id}", "#{pane_active}",
-     "#{pane_current_command}", "#{window_panes}"]) + RS + "}},}}")
+     "#{pane_current_command}", "#{window_panes}", "#{window_name}"]) + RS + "}},}}")
+RUN_MARK = "▶ "   # a project's dev command (agentmux run): the row shows its name, not the program
 TERM_ICON, SPLIT_ICON, MINIMIZE = "\uf489", "\ueb56", "\ueaba"
 EDGE = "\U0001fb87"   # 🮇 right one-quarter block: as thick as the sidebars' left ▎ (▕ is half that)
 COLLAPSE, EXPAND = "\ueab6", "\ueab5"   # chevrons: › folds the list to its icons, ‹ opens it
@@ -187,7 +188,8 @@ class TermList(App):
                 need = lambda a: sum(width(t) + 1 for t, _ in a)   # " ◫ ×": a space before each
                 if acts and w - l.w - 1 - PAD - need(acts) < 3:
                     acts = acts[1:]
-                l.add(" ").add(fit(p["command"], max(w - l.w - PAD - need(acts), 0)), "text" if on else "sub", bold=on)
+                text = p["name"] if p["name"].startswith(RUN_MARK) else p["command"]
+                l.add(" ").add(fit(text, max(w - l.w - PAD - need(acts), 0)), "text" if on else "sub", bold=on)
                 x = w - PAD
                 spots = []
                 for text, cmd in reversed(acts):

@@ -6,7 +6,9 @@
 #          a dot when it has uncommitted changes; a cloud for a listed project that isn't cloned on this
 #          PC; ⚠ a local-only folder (no git remote: only the SSD and the HDD backup have it)
 #   right  the selected project: branch, to push / to pull, changed files, last fetch, remotes; open it in
-#          VS Code, a terminal or agentmux; Fetch, Pull (fast-forward only), Push, GitHub. Two tabs:
+#          VS Code, a terminal or agentmux; Start / Stop it (r: `projects up` / `down` — its docker compose
+#          services, its dev commands in agentmux terminals, VS Code; a green ▶ in the list while it runs;
+#          Run setup… edits what starts); Fetch, Pull (fast-forward only), Push, GitHub. Two tabs:
 #          Graph (the history of every branch as lanes, like VS Code's Git Graph; or one branch) and
 #          Branches (each local branch next to its remote: in sync / to push / to pull / diverged…).
 #   + New  a new project (empty, from a template, or cloned from a URL; optionally a GitHub repo), recorded
@@ -45,6 +47,8 @@ FILTERS = [("all", "All"), ("changes", "Changes"), ("behind", "Behind"), ("confl
 EMPTY = {"changes": "Everything is committed and pushed.", "behind": "Everything is up to date with GitHub.",
          "conflicts": "Nothing to merge by hand."}
 G_PIN = "\U000f0403"             # a pinned project (nf-md-pin)
+G_RUNNING = "\u25b6"            # ▶ a project running something (its compose services, its dev terminals)
+RUNNING_EVERY = 10               # seconds between looks at what runs, while the panel shows
 # a project's status (projects mark; the dropdown on its page): its name and colour, in pj.STATUSES' order
 STATUS = {"in-progress": ("In progress", "#7aa2f7"), "active": ("Active", "#9ece6a"), "testing": ("Testing", "#73daca"),
           "blocked": ("Blocked", "#f7768e"), "planned": ("Planned", "#7dcfff"), "idea": ("Idea", "#bb9af7"),
@@ -98,6 +102,8 @@ button.branch-chip:hover { background: alpha(#c0caf5, .1); }
 /* the panel's own popups (Move, Delete…): a dimmed panel, a bordered card in the middle */
 .dialog { background: #1a1b26; border: 1px solid alpha(#3b4261, .7); padding: 20px 22px; }
 .dialog-title { font-weight: 700; font-size: 12pt; }
+.setup-cmds, .setup-cmds text { background: #16161e; color: #c0caf5; }
+.setup-cmds { border: 1px solid alpha(#3b4261, .7); }
 .folders { background: #16161e; border: 1px solid alpha(#3b4261, .7); }
 .folders > row { padding: 4px 10px; }
 .folders > row:selected { background: #292e42; }
@@ -362,7 +368,7 @@ class Projects(View):
     icon = "\uea62"
     interval = 2   # refresh(): the shown project's git status, live
     css = CSS
-    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("c", "commit"), ("s", "sync"), ("p", "pin"), ("m", "move"), ("n", "new"),
+    hints = [("Enter", "VS Code"), ("t", "terminal"), ("a", "agent"), ("r", "start / stop"), ("c", "commit"), ("s", "sync"), ("p", "pin"), ("m", "move"), ("n", "new"),
              ("Tab", "changes / conflicts / graph / branches"), ("←→", "fold"), ("/", "search"), ("?", "ask")]
 
     def __init__(self):
@@ -382,6 +388,7 @@ class Projects(View):
         self.git_moved = set()        # repos whose .git changed: counted again shortly (or once shown)
         self.git_timer = 0
         self.counting, self.count_again = threading.Lock(), False   # count_changes() runs / asked again meanwhile
+        self.running, self.running_at = {}, 0   # pj.running_all(): what each project runs; when it was looked at
         self.shown_rel = None         # the project on the page: the same one again isn't blanked first
         self.tree_seen = None         # what the tree shows (paint_tree skips a repaint that changes nothing)
         self.branch_names = []        # for the graph's branch filter
@@ -635,6 +642,26 @@ class Projects(View):
         if select:
             self.select_rel(select)
         threading.Thread(target=self.count_changes, daemon=True).start()
+        self.check_running()
+        return False
+
+    def check_running(self):
+        """What each project runs (two calls: docker compose ls, tmux), in a thread: the ▶ in the list, the
+        Start / Stop button."""
+        self.running_at = time.time()
+
+        def go():
+            found = pj.running_all()
+            GLib.idle_add(self.got_running, found)
+        threading.Thread(target=go, daemon=True).start()
+
+    def got_running(self, found):
+        if found != self.running:
+            self.running = found
+            self.paint_tree(keep_scroll=True)
+            p = self.current()
+            if p and self.pages.get_visible_child_name() == "detail":
+                self.paint_actions(p)
         return False
 
     # ---- the tabs' counts follow every repo: a watch on its .git, nothing polled -------------------
@@ -684,6 +711,7 @@ class Projects(View):
         couple of minutes (edits); fetched again if it's been an hour (Behind)."""
         if not shown:
             return
+        self.check_running()
         if time.time() - self.counted_all > 120:
             self.git_moved.clear()
             threading.Thread(target=self.count_changes, daemon=True).start()
@@ -885,6 +913,7 @@ class Projects(View):
         # nothing it shows changed (a sync or a live check that found the same): no rebuild, no flicker
         self.paint_filters()
         seen = (self.layout(), self.selected, self.syncing, tuple(self.pinned), tuple(sorted(self.marks.items())), self.filter,
+                tuple(sorted(self.running)),
                 tuple((p.rel, p.kind, p.branch, p.dirty, p.unpushed, p.out_of_date, p.to_sync, p.conflicts) for p in self.projects))
         if keep_scroll and seen == self.tree_seen:
             return False
@@ -969,6 +998,11 @@ class Projects(View):
             if p.kind == "repo":
                 branch.set_tooltip_text(f"checked out: {right} (not the main branch)")
             line.append(branch)
+        if p.rel in self.running:
+            run = self.running[p.rel]
+            mark = label(G_RUNNING, "green")
+            mark.set_tooltip_text("running: " + ", ".join(run["commands"] + (["its docker services"] if run["compose"] else [])))
+            line.append(mark)
         # its status at the right end, lined up down the list (by status, its section says it)
         if p.rel in self.marks and self.marks[p.rel] in STATUS and self.sort != BY_STATUS:
             name, colour = STATUS[self.marks[p.rel]]
@@ -1117,6 +1151,10 @@ class Projects(View):
             self.actions.append(button("VS Code", self.open_code, "primary", tooltip="Enter"))
             self.actions.append(button("Terminal", self.open_term, tooltip="t"))
             self.actions.append(button("Agent", self.open_agent, tooltip="a: an agentmux thread here"))
+            on = p.rel in self.running
+            self.actions.append(button("Stop" if on else "Start", self.start_stop, *(("danger",) if on else ()),
+                                       tooltip="r: " + ("stop its dev terminals and docker services" if on else
+                                                        "its docker services, its dev commands in agentmux, VS Code")))
             self.commit_btn = button("Commit…", self.ask_commit, tooltip="c: your changes, with a message")
             self.commit_btn.set_visible(p.kind == "repo" and p.dirty > 0)
             self.actions.append(self.commit_btn)
@@ -1138,6 +1176,7 @@ class Projects(View):
             pinned = p.rel in self.pinned
             self.manage.append(button("Unpin" if pinned else "Pin", self.toggle_pin, "flat",
                                       tooltip="p: " + ("off the Pinned section" if pinned else "first in the list, on every PC")))
+            self.manage.append(button("Run setup…", self.ask_run_setup, "flat", tooltip="what Start starts"))
             self.manage.append(button("Move…", self.ask_move, "flat", tooltip="m: to another folder in ~/code"))
             self.manage.append(button("Delete", self.ask_delete, "flat", "danger", tooltip="Delete: the folder"))
         # Delete on GitHub: only once GitHub says this account may (admin on the repo); asked in a thread
@@ -1199,6 +1238,8 @@ class Projects(View):
         # the other PC's changes pulled): show it, not what was there when the panel opened
         if (self.list_stamp() != self.list_seen or self.disk_changed()) and not self.busy:
             self.reload()
+        if time.time() - self.running_at > RUNNING_EVERY:
+            self.check_running()
         p = self.current()
         if (not p or p.kind != "repo" or self.live_busy or self.dim.get_visible()
                 or self.pages.get_visible_child_name() != "detail"):
@@ -1610,6 +1651,60 @@ class Projects(View):
             GLib.idle_add(lambda: (self.say(msg, "ok" if ok else "bad", seconds=8),
                                    (after or (lambda ok: self.reload()))(ok)) and False)
         threading.Thread(target=go, daemon=True).start()
+
+    # ---- Start / Stop (projects up / down) -----------------------------------------------------------
+    def start_stop(self):
+        p = self.current()
+        if not p or p.kind == "missing":
+            return
+        if p.rel in self.running:
+            self.run_job(f"stopping {p.name}…", lambda: pj.down(p.rel, report=lambda m: None),
+                         after=lambda ok: self.check_running())
+        else:
+            self.run_job(f"starting {p.name}…", lambda: pj.up(p.rel, report=lambda m: None),
+                         after=lambda ok: self.check_running())
+
+    def ask_run_setup(self):
+        """What Start starts, as found or as saved (in the list: both PCs): the compose files, the .env they
+        read, a dev command per line ("name: command", or "name @ folder: command" to run it in a subfolder),
+        VS Code or not. Reset goes back to what's found."""
+        p = self.current()
+        if not p or p.kind == "missing":
+            return
+        st = pj.run_setup(p.rel)
+        compose = Gtk.Entry(text=", ".join(st["compose"]), placeholder_text="docker/docker-compose.yml, …", hexpand=True)
+        env = Gtk.Entry(text=st.get("env_file", ""), placeholder_text=".env  (passed to compose; empty: its own)")
+        cmds = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=6, bottom_margin=6,
+                            left_margin=8, right_margin=8)
+        cmds.add_css_class("setup-cmds")
+        cmds.get_buffer().set_text("\n".join(f"{c['name']}{' @ ' + c['dir'] if c.get('dir') else ''}: {c['cmd']}"
+                                             for c in st["commands"]))
+        cmds.set_size_request(-1, 90)
+        code = Gtk.CheckButton(label="open VS Code on it", active=st.get("code", True))
+
+        def parse():
+            buf = cmds.get_buffer()
+            out = []
+            for line in buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).splitlines():
+                head, sep, cmd = line.partition(":")
+                if not sep or not cmd.strip():
+                    continue
+                name, _, folder = head.partition("@")
+                out.append({"name": name.strip(), "cmd": cmd.strip(), "dir": folder.strip().strip("/")})
+            return {"compose": [c.strip() for c in compose.get_text().split(",") if c.strip()],
+                    "env_file": env.get_text().strip(), "commands": out, "code": code.get_active()}
+
+        def save(setup):
+            self.run_job("saving the run setup…", lambda: (not (e := pj.set_run_setup(p.rel, setup)), e or "run setup saved"),
+                         after=lambda ok: None)
+        found = "saved for every PC" if st["saved"] else "found in the folder (not saved yet)"
+        self.open_dialog(f"Run setup · {p.name}",
+                         para(f"What Start (r) starts: {found}. Paths are inside the project.", "dim"),
+                         label("Compose files", "dim"), compose, label(".env for compose", "dim"), env,
+                         label("Dev commands, one a line:  name: command   (name @ folder: command)", "dim"), cmds, code,
+                         self.dialog_buttons(*([button("Reset to found", lambda: save(None), "flat")] if st["saved"] else []),
+                                             button("Save", lambda: save(parse()), "primary")),
+                         focus=compose)
 
     def busy_note(self, p):
         """A red line naming what runs in the project (moving or deleting it would break it), or None."""
@@ -2268,6 +2363,8 @@ class Projects(View):
             self.open_term()
         elif keyval == Gdk.KEY_a:
             self.open_agent()
+        elif keyval == Gdk.KEY_r and page == "detail":
+            self.start_stop()
         elif keyval == Gdk.KEY_s and page == "detail":
             self.sync_one()
         elif keyval == Gdk.KEY_f:

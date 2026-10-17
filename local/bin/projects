@@ -43,6 +43,16 @@
                        delete its folder and drop it from the list (codesync's trash keeps the backup
                        copy for a while). Both say what only this copy has and ask first, unless -y
   projects init        once: create the private repo that holds the list, and record ~/code into it
+  projects up <path>   start the project: its docker compose services (up -d), each dev command in an
+                       agentmux terminal named "▶ <name>", agentmux on the project, VS Code on it
+  projects down <path> stop it: Ctrl+C to its ▶ terminals (closed after), docker compose stop
+  projects running [path…]
+                       what's up: the compose services and ▶ terminals of each (JSON with -j)
+  projects run-setup <path> [--json '<setup>' | --reset]
+                       what up starts (printed): found by itself (compose files up to two folders down;
+                       package.json's dev script with its lockfile's runner, a Makefile's dev target,
+                       manage.py runserver), or the setup saved in the list for every PC (--json sets
+                       it, --reset goes back to the found one). The Projects panel's Run setup edits it.
 
 The list is ~/code/.projects/projects.json, a git repo of its own (private on GitHub: it names private
 and organisation repos, so it never goes in the public dotfiles). Two copies: GitHub, and the HDD
@@ -1011,6 +1021,175 @@ def pin(rel, on=True):
     return commit(f"{'pin' if on else 'unpin'} {rel}")
 
 
+# ---- running a project (projects up / down; the Projects panel's Start) -------------------------
+COMPOSE_NAMES = ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")
+AGENTMUX = os.path.expanduser("~/.local/bin/agentmux")
+SHELLS = {"fish", "bash", "zsh", "sh"}
+
+
+def detect_run(path):
+    """What up starts, found in the folder: {"compose": [files], "env_file", "commands": [{"name", "cmd",
+    "dir"}], "code": True}, paths relative to the project. Compose files up to two folders down (a
+    docker/ folder's), the project's .env passed to them when theirs has none (as its own scripts do)."""
+    compose = []
+    for d, dirs, files in os.walk(path):
+        depth = os.path.relpath(d, path).count(os.sep) + (d != path)
+        dirs[:] = [x for x in sorted(dirs) if x not in SKIP and not x.startswith(".")] if depth < 2 else []
+        name = next((n for n in COMPOSE_NAMES if n in files), None)
+        if name:
+            compose.append(os.path.relpath(os.path.join(d, name), path))
+    # a compose file in a subfolder with no .env of its own reads the project's (compose looks next to the file)
+    sub = [os.path.dirname(c) for c in compose if os.path.dirname(c)]
+    env_file = ".env" if sub and os.path.isfile(f"{path}/.env") and \
+        not any(os.path.isfile(os.path.join(path, d, ".env")) for d in sub) else ""
+    commands = []
+    try:
+        scripts = json.load(open(f"{path}/package.json")).get("scripts") or {}
+    except (OSError, ValueError):
+        scripts = {}
+    if "dev" in scripts:
+        runner = next((r for lock, r in (("pnpm-lock.yaml", "pnpm"), ("bun.lockb", "bun"), ("bun.lock", "bun"),
+                                         ("yarn.lock", "yarn")) if os.path.isfile(f"{path}/{lock}")), "npm")
+        commands.append({"name": "dev", "cmd": f"{runner} run dev", "dir": ""})
+    elif os.path.isfile(f"{path}/Makefile") and re.search(r"^dev:", open(f"{path}/Makefile").read(), re.M):
+        commands.append({"name": "dev", "cmd": "make dev", "dir": ""})
+    elif os.path.isfile(f"{path}/manage.py"):
+        commands.append({"name": "server", "cmd": "python manage.py runserver", "dir": ""})
+    return {"compose": compose, "env_file": env_file, "commands": commands, "code": True}
+
+
+def run_setup(rel):
+    """The setup up uses: the one saved in the list (every PC), else the one found. "saved": which."""
+    rel = rel.strip("/")
+    saved = load().get("run", {}).get(rel)
+    return {**saved, "saved": True} if saved else {**detect_run(f"{ROOT}/{rel}"), "saved": False}
+
+
+def set_run_setup(rel, setup):
+    """Save the project's setup in the list (None: forget it, up finds one again). Returns a problem."""
+    rel, data = rel.strip("/"), load()
+    runs = data.setdefault("run", {})
+    if setup is None:
+        if runs.pop(rel, None) is None:
+            return ""
+    else:
+        runs[rel] = {"compose": list(setup.get("compose", [])), "env_file": setup.get("env_file", ""),
+                     "commands": [{"name": c["name"], "cmd": c["cmd"], "dir": c.get("dir", "")}
+                                  for c in setup.get("commands", []) if c.get("name") and c.get("cmd")],
+                     "code": bool(setup.get("code", True))}
+    save(data)
+    return commit(f"{rel}: run setup {'saved' if setup is not None else 'reset'}")
+
+
+def compose_cmd(rel, setup, *args):
+    path = f"{ROOT}/{rel}"
+    env = ["--env-file", f"{path}/{setup['env_file']}"] if setup.get("env_file") else []
+    return ["docker", "compose", *env, *[a for c in setup["compose"] for a in ("-f", f"{path}/{c}")], *args]
+
+
+def running(rel):
+    """{"compose": [running service names], "commands": [▶ terminal names]} of the project."""
+    rel = rel.strip("/")
+    setup = run_setup(rel)
+    out = {"compose": [], "commands": []}
+    if setup["compose"]:
+        try:
+            r = subprocess.run(compose_cmd(rel, setup, "ps", "--status", "running", "--services"),
+                               capture_output=True, text=True, timeout=15)
+            out["compose"] = r.stdout.split() if r.returncode == 0 else []
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    out["commands"] = sorted(_agentmux_lib_windows(f"{ROOT}/{rel}"))
+    return out
+
+
+def _agentmux_lib_windows(path):
+    """agentmux's ▶ terminals of the project (its tmux server; nothing started to look)."""
+    sys.path.insert(0, os.path.expanduser("~/.local/lib/agentmux"))
+    import lib as amlib
+    name = f"{amlib.session_base(path)}{amlib.SEP}terms"
+    rc, out = amlib.agents("list-windows", "-t", f"={name}", "-F", "#{window_name}")
+    return [n[2:] for n in out.splitlines() if n.startswith("▶ ")] if rc == 0 else []
+
+
+def running_all():
+    """{rel: {"compose": bool, "commands": [▶ names]}} of every project running something, in two calls
+    (docker compose ls, one tmux listing): the Projects panel's ▶ in its list."""
+    out = {}
+    rels = {f"{ROOT}/{e['path']}": e["path"] for e in load()["projects"] + load()["local_only"]}
+
+    def owner(path):
+        path = os.path.realpath(path)
+        while path.startswith(ROOT + "/"):
+            if path in rels:
+                return rels[path]
+            path = os.path.dirname(path)
+        return None
+    try:
+        r = subprocess.run(["docker", "compose", "ls", "--format", "json"], capture_output=True, text=True, timeout=10)
+        stacks = json.loads(r.stdout or "[]") if r.returncode == 0 else []
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        stacks = []
+    for st in stacks:
+        if st.get("Status", "").startswith("running"):
+            for f in st.get("ConfigFiles", "").split(","):
+                if (rel := owner(f)):
+                    out.setdefault(rel, {"compose": False, "commands": []})["compose"] = True
+    try:
+        r = subprocess.run(["tmux", "-L", "agents", "list-windows", "-a", "-F", "#{session_path}\t#{window_name}"],
+                           capture_output=True, text=True, timeout=5)
+        windows = [l.split("\t", 1) for l in r.stdout.splitlines() if "\t" in l] if r.returncode == 0 else []
+    except (OSError, subprocess.TimeoutExpired):
+        windows = []
+    for path, name in windows:
+        if name.startswith("▶ ") and (rel := owner(path)):
+            out.setdefault(rel, {"compose": False, "commands": []})["commands"].append(name[2:])
+    return out
+
+
+def up(rel, report=print):
+    """Start the project: compose up -d, its commands in agentmux terminals, VS Code. (ok, message)."""
+    rel = rel.strip("/")
+    path = f"{ROOT}/{rel}"
+    if not os.path.isdir(path):
+        return False, f"no folder {rel}"
+    setup = run_setup(rel)
+    if not setup["compose"] and not setup["commands"]:
+        return False, f"{rel}: nothing to start (no compose file, no dev script: Run setup in the Projects panel)"
+    done = []
+    if setup["compose"]:
+        report("docker compose up…")
+        r = subprocess.run(compose_cmd(rel, setup, "up", "-d"), capture_output=True, text=True)
+        if r.returncode:
+            return False, f"docker compose up failed: {last_line(r.stderr, 'error')}"
+        done.append("its services")
+    for c in setup["commands"]:
+        subprocess.run([AGENTMUX, "run", os.path.join(path, c.get("dir", "")).rstrip("/"), c["name"], c["cmd"]],
+                       capture_output=True, timeout=30)
+        done.append(c["name"])
+    if setup.get("code", True):
+        subprocess.Popen(["uwsm", "app", "--", "code", path], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return True, f"{rel}: started {', '.join(done)}"
+
+
+def down(rel, report=print):
+    """Stop the project: its ▶ terminals, then compose stop (containers kept). (ok, message)."""
+    rel = rel.strip("/")
+    path = f"{ROOT}/{rel}"
+    setup = run_setup(rel)
+    for c in setup["commands"]:
+        subprocess.run([AGENTMUX, "stop-run", os.path.join(path, c.get("dir", "")).rstrip("/")],
+                       capture_output=True, timeout=30)
+    subprocess.run([AGENTMUX, "stop-run", path], capture_output=True, timeout=30)
+    if setup["compose"]:
+        report("docker compose stop…")
+        r = subprocess.run(compose_cmd(rel, setup, "stop"), capture_output=True, text=True)
+        if r.returncode:
+            return False, f"docker compose stop failed: {last_line(r.stderr, 'error')}"
+    return True, f"{rel}: stopped"
+
+
 def mark(rel, status):
     """Set a project's status (one of STATUSES; "" or none clears it). In the list, so every PC has it.
     Returns a problem, or ""."""
@@ -1381,6 +1560,26 @@ def main():
     elif cmd == "init":
         ok, msg = init_list()
         print(msg) if ok else sys.exit(msg)
+    elif cmd in ("up", "down") and args:
+        ok, msg = (up if cmd == "up" else down)(args[0], report=lambda m: print(f"{DIM}{m}{RESET}"))
+        print(msg) if ok else sys.exit(msg)
+    elif cmd == "running":
+        rels = [a.strip("/") for a in args if a != "-j"] or [e["path"] for e in load()["projects"] + load()["local_only"]
+                                                             if run_setup(e["path"])["compose"] or run_setup(e["path"])["commands"]]
+        states = {r: running(r) for r in rels}
+        if "-j" in args:
+            print(json.dumps(states))
+        for r, st in ([] if "-j" in args else states.items()):
+            if st["compose"] or st["commands"]:
+                print(f"{GREEN}▶{RESET} {r}: " + ", ".join(st["commands"] + [f"{s} (docker)" for s in st["compose"]]))
+    elif cmd == "run-setup" and args:
+        if "--reset" in args:
+            problem = set_run_setup(args[0], None)
+        elif "--json" in args:
+            problem = set_run_setup(args[0], json.loads(args[args.index("--json") + 1]))
+        else:
+            problem = ""
+        print(json.dumps(run_setup(args[0]), indent=1) + (f"\n{AMBER}{problem}{RESET}" if problem else ""))
     else:
         sys.exit(__doc__)
 

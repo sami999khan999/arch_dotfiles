@@ -331,6 +331,17 @@ are in the list, so every PC has them, and follow a project that moves. On the r
 - **Buttons**: **VS Code** (Enter), **Terminal** (`t`), **Agent** (`a`, an agentmux thread there), **Fetch** (`f`),
   **Pull** (fast-forward only; off when there's nothing to pull or the branch has diverged), **Push**, **GitHub**
   (`g`); **Clone** for one that isn't here.
+- **Start / Stop** (`r`, or `projects up` / `projects down <path>`): the whole project at once. Start runs its
+  docker compose services (`up -d`), each dev command in an agentmux terminal of its own named `▶ dev` (the
+  command typed into a shell there: Ctrl+C stops it, ↑ Enter runs it again), switches agentmux to the
+  project with its terminals shown, and opens VS Code on it. Stop sends Ctrl+C to those terminals (closed
+  once stopped) and stops the services (the containers stay). A green ▶ in the list marks a project running
+  something (its services or a ▶ terminal; looked at every 10 s while the panel shows: one `docker compose
+  ls` and one tmux listing). **Run setup…** shows what Start starts: found by itself (compose files up to two
+  folders down, with the project's `.env` when the compose file's folder has none; `package.json`'s `dev`
+  script with its lockfile's runner, else a Makefile's `dev` target, else `manage.py runserver`), or edited
+  and saved in the list for both PCs (one command a line, `name: command` or `name @ folder: command`;
+  Reset goes back to what's found). `projects running` lists what runs.
 - **Graph** tab: the last 300 commits of every branch as coloured lanes (merges and forks drawn, ◯ is HEAD),
   with branch / remote / tag labels on their commits: a remote label is bright when the local branch of the
   same name is there too. The dropdown shows one branch's history instead.

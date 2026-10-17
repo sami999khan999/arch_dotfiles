@@ -24,6 +24,12 @@
   agentmux close-term [pane]   close a terminal of the column (the focused one; a split half, else the terminal)
   agentmux close-thread        close the selected row of the focused sidebar, else the shown thread (asks)
   agentmux close-project <dir> close a project: ends its threads and terminals, drops it from the list
+  agentmux run <dir> <name> <command>
+                               a project's dev command (projects up): a terminal named "▶ <name>" in its
+                               terminals, the command typed into its shell (Ctrl+C, ↑ and Enter run it again);
+                               agentmux switches to the project with its terminals shown. Already there: left alone
+  agentmux stop-run <dir> [name]
+                               Ctrl+C to those terminals (all the ▶ ones without a name), closed once it's stopped
   agentmux focus projects|agents|main|terms
   agentmux maximize [role]     the focused panel (or role's) takes the whole width; again: back
   agentmux click <range>       a status-bar button
@@ -713,6 +719,54 @@ def split_term(target=None):
     target = target or f"={lib.terms_session(project)}:"
     lib.agents("split-window", "-v", "-t", target, "-c", "#{pane_current_path}")
     lib.agents("select-layout", "-t", target, "even-vertical")
+
+
+RUN_MARK = "▶ "   # a terminal agentmux run made: its window's name, shown in the terminal list
+
+
+def run_windows(project):
+    """{name: pane id} of the project's ▶ terminals (none if its terminals session isn't there)."""
+    if not terms_alive(project):
+        return {}
+    rc, out = lib.agents("list-windows", "-t", f"={lib.session_base(project)}{lib.SEP}terms",
+                         "-F", "#{window_name}\t#{pane_id}")
+    return {n[len(RUN_MARK):]: p for n, p in (l.split("\t", 1) for l in out.splitlines() if "\t" in l)
+            if n.startswith(RUN_MARK)} if rc == 0 else {}
+
+
+def run_command(project, name, command):
+    """projects up: the command in a terminal of its own, typed into a shell (so it can be stopped and run
+    again there), then agentmux on the project with its terminals shown (when agentmux is open)."""
+    project = os.path.abspath(os.path.expanduser(project))
+    if name in run_windows(project):
+        return
+    session = lib.terms_session(project)
+    rc, pid = lib.agents("new-window", "-d", "-t", f"={session}:", "-n", RUN_MARK + name, "-c", project,
+                         "-P", "-F", "#{pane_id}")
+    if rc == 0:
+        lib.agents("send-keys", "-t", pid, command, "Enter")
+    set_terms_shown(project, True)
+    if pane("main") is not None:
+        switch_project(project)
+
+
+def stop_command(project, name=None):
+    """projects down: Ctrl+C to the ▶ terminals (or the one named), each closed once its shell is back at
+    its prompt (5 s at most, then closed anyway)."""
+    project = os.path.abspath(os.path.expanduser(project))
+    panes = {n: p for n, p in run_windows(project).items() if name in (None, n)}
+    for p in panes.values():
+        lib.agents("send-keys", "-t", p, "C-c")
+    deadline = time.time() + 5
+    while panes and time.time() < deadline:
+        time.sleep(0.25)
+        for n, p in list(panes.items()):
+            rc, cmd = lib.agents("display-message", "-p", "-t", p, "#{pane_current_command}")
+            if rc != 0 or cmd in ("fish", "bash", "zsh", "sh"):
+                lib.agents("kill-pane", "-t", p)
+                del panes[n]
+    for p in panes.values():
+        lib.agents("kill-pane", "-t", p)
 
 
 def next_term(step):
@@ -1757,6 +1811,8 @@ def main(argv):
         "hooks": install_hooks, "apply-keys": apply_keys, "focus-next": focus_next, "settings": settings,
         "speak": lambda: speak(args[0]), "paste": lambda: paste(args[0]), "account": lambda: account(args),
         "usage": lambda: usage(args),
+        "run": lambda: run_command(args[0], args[1], " ".join(args[2:])),
+        "stop-run": lambda: stop_command(args[0], args[1] if len(args) > 1 else None),
     }
     if cmd not in actions:
         sys.exit(__doc__)

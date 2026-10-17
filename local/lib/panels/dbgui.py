@@ -539,6 +539,9 @@ class Databases(View):
         if self.pager and self.pager.cid == cid:
             self.pager = None
         self.paint_tree()
+        # its page on the right, if that's what shows: Open again instead of Reload / Disconnect, no server line
+        if self.sel == (cid, None) and self.conn(cid) and self.stack.get_visible_child_name() == "browse":
+            self.picked((cid, ()))
 
     def refresh(self):
         now = time.time()

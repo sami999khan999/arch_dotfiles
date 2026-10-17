@@ -399,10 +399,12 @@ class LSend(View):
         glyph = G_MESSAGE if text is not None else G_DOWN if kind == "in" else G_UP
         g = label(glyph, "glyph", kind)
         g.set_valign(Gtk.Align.START)
-        who_line = label(details + "  ·  ", "dim", ellipsize=True)
+        who_line = label(details, "dim", ellipsize=True)
         who_line.set_hexpand(False)   # the state right after it; cut first so a long line can't widen the window
+        # the " · " a label of its own: GTK measures a label without its trailing spaces, so ending this one
+        # with them always cut it ("…") by their width
         main = box(True, 3, label(what, "what", ellipsize=True),
-                   box(False, 0, who_line, label(status, STATE_CLASS.get(state, "dim"))))
+                   box(False, 0, who_line, label("  ·  ", "dim"), label(status, STATE_CLASS.get(state, "dim"))))
         main.set_hexpand(True)
         if d.get("error"):
             main.append(label(d["error"], "red", wrap=True))
@@ -427,8 +429,9 @@ class LSend(View):
             actions.append(button("Cancel", lambda: self.request({"op": "cancel", "id": tid}), "flat"))
         if kind == "in" and state == "done" and d.get("saved"):
             first = d["saved"][0]
-            actions.append(button("Open", lambda: self.launch("xdg-open", first), "flat"))
-            actions.append(button("Show in Files", lambda: self.launch("python3", FILES, first), "flat"))
+            # then the popup goes: pinned above its backdrop, it would hide the viewer it opened
+            actions.append(button("Open", lambda: self.open_after(["xdg-open", first]), "flat"))
+            actions.append(button("Show in Files", lambda: self.open_after(["python3", FILES, first]), "flat"))
         if text is not None and state == "done":
             actions.append(button("Copy", lambda: self.copy(text), "flat"))
         if actions:
@@ -452,6 +455,10 @@ class LSend(View):
     def launch(self, *argv):
         subprocess.Popen(["uwsm", "app", "--", *argv], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def open_after(self, argv):
+        self.launch(*argv)
+        self.close()
 
     # ---- keys -----------------------------------------------------------------------------------------
     def key(self, keyval, state):

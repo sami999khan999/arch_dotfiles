@@ -718,10 +718,11 @@ class Account(Picker):
         self.say(f"Shown as {lib.account_label(h, a)}")
 
     def clicked(self, i):
-        """A click on an account's card only selects it (the list did): Enter, Ctrl+D or its buttons act.
-        + Add account still adds on a click."""
-        if self.items[i] and self.items[i][0] != "use":
-            self.choose(self.items[i])
+        """A click on an account's card puts the shown thread on it, as Enter does; it never makes it the
+        default (Make default, Ctrl+D do): with no thread of that agent shown, the click only selects it."""
+        item = self.items[i]
+        if item and (item[0] != "use" or (self.current and self.current[0] == item[1])):
+            self.choose(item)
 
     def choose(self, item):
         kind, h, a = item

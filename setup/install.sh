@@ -103,13 +103,15 @@ else
 fi
 
 # user timers, written by the tools themselves (idempotent, no questions): dotperf once a day, agentmux's
-# usage at midnight (the daily budget), stacks (idle Docker stacks) every 15 min where Docker is installed
+# usage at midnight (the daily budget), stacks (idle Docker stacks) every 15 min where Docker is installed;
+# and lsend, the LocalSend service (receives from the phone)
 head_ "background checks (systemd user timers)"
 if (( DRY )); then
-  say "would enable dotperf.timer, agentmux-usage.timer$(command -v docker >/dev/null && echo ' and stacks.timer')"
+  say "would enable dotperf.timer, agentmux-usage.timer$(command -v docker >/dev/null && echo ', stacks.timer'), lsend.service"
 else
   "$REPO/local/bin/dotperf" enable >/dev/null
   "$REPO/local/bin/agentmux" usage enable >/dev/null
+  "$REPO/local/bin/lsend" enable >/dev/null
   if command -v docker >/dev/null; then "$REPO/local/bin/stacks" enable >/dev/null; fi
   say "ok"
 fi
@@ -136,7 +138,7 @@ Once on a new PC, to make it the same as the others (MANUAL.md "Bootstrap a new 
   pkexec ~/dotfiles/system/greeter/install.sh   login screen (greetd + noctalia-greeter)
   pkexec ~/dotfiles/system/boot-splash.sh       loading screen at boot and shutdown
   pkexec ~/dotfiles/system/swap-setup.sh        SSD swapfile after zram
-  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, the data drive where it's attached
+  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, the data drive where it's attached
   codesync enable                               code backup (asks where the code is)
   sign in: VS Code Settings Sync, Chrome, claude / codex / opencode / agy
 EOF

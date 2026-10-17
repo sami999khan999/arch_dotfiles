@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; the data drive, where it's attached
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
 ```
@@ -606,6 +606,30 @@ those; a folder, its videos. A running player takes what's opened next.
 - Each file resumes where it was left (`~/.local/state/videos/watch_later`); one watched to the end starts
   over, and the next in the folder plays. The folder is watched (a finished download joins the list). It
   remembers the volume, mute and the playlist pane (`~/.local/state/videos`). mpv is still installed.
+
+## LocalSend (phone transfers)
+
+`Super + Ctrl + D` opens LocalSend: send files, folders or a message to the phone, and take what it sends.
+Our own (`local/lib/lsend/lsend.py` + the window `local/lib/panels/lsendgui.py`), speaking the LocalSend
+protocol: on the phone install the **LocalSend** app (Android, iPhone), be on the same Wi-Fi, and this PC
+shows up in it under its hostname; no LocalSend package on the PC.
+
+- **Send:** pick the device on the left (scan with `r` if it isn't there: open LocalSend on the phone
+  first), drop files or folders on the window, `Ctrl+O` files / `Ctrl+Shift+O` a folder, `Ctrl+V` pastes
+  files copied in Files or text; or type a message (a link, a code). `Enter` sends; the phone asks its user
+  to accept. `lsend send <file>…` opens the window with those picked.
+- **Receive:** send from the phone to this PC. The window opens (with a notification) and asks: `y` / Accept,
+  `n` / Decline; nothing is saved without it (unanswered for 90 s = declined). Files go to `~/Downloads`
+  (`name (2).ext` if taken; a folder keeps its folders); a message shows with Copy. Activity lists both
+  ways with progress, Cancel, Open, Show in Files.
+- **Safety:** HTTPS with this PC's own certificate (`~/.local/share/lsend`, made once, never in the repo);
+  only private-network addresses are answered; before sending, the device's certificate must match the
+  fingerprint it announced; an upload needs its session's token from the address that asked; received
+  names can't leave `~/Downloads`.
+- **The service:** `lsend.service` (a user service; `setup/install.sh` runs `lsend enable`) announces this
+  PC and receives; it waits on its sockets, no timers. `lsend status` shows this PC's name and the devices
+  seen. The firewall must let the phone in: `system/root-setup.sh` opens port 53317 (TCP + UDP) to private
+  networks only. Another name than the hostname: `{"alias": "…"}` in `~/.local/share/lsend/settings.json`.
 
 ## App hotkeys (AutoHotkey-style)
 

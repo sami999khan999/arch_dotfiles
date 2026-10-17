@@ -10,7 +10,18 @@ echo "== 1. Chrome: block on-device AI model re-download"
 install -Dm644 "$REPO/system/disable_ondevice_ai.json" /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
 echo "   wrote /etc/opt/chrome/policies/managed/disable_ondevice_ai.json"
 
-echo "== 2. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+echo "== 2. Firewall: LocalSend (lsend) from this network only"
+if command -v ufw >/dev/null; then
+  for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do
+    ufw allow proto tcp from "$net" to any port 53317 comment LocalSend >/dev/null
+    ufw allow proto udp from "$net" to any port 53317 comment LocalSend >/dev/null
+  done
+  echo "   port 53317 (tcp + udp) open to private networks"
+else
+  echo "   no ufw: skipped"
+fi
+
+echo "== 3. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
 uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
 if [ ! -e "/dev/disk/by-uuid/${uuid#UUID=}" ]; then
   echo "   that drive isn't in this PC: skipped"

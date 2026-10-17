@@ -138,6 +138,8 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.(ask|dba
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.sysagent)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- the Open / Save dialogs (pickergui.py, the portal's file picker): Files' window, a little smaller than the screen
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.picker)$" }, size = { "monitor_w*0.70", "monitor_h*0.78" } })
+-- the "Open with…" app chooser (openwithgui.py, the same service): a list of apps, not a page
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.picker)$", title = "^(Open with)$" }, size = { 560, 520 } })
 -- the image viewer (imagegui.py): most of the screen, the picture is what matters
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.images)$" }, size = { "monitor_w*0.80", "monitor_h*0.86" } })
 -- the video player (videogui.py): the same

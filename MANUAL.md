@@ -562,6 +562,12 @@ and chosen for Hyprland in `config/xdg-desktop-portal/hyprland-portals.conf` (GT
 missing). `GTK_USE_PORTAL` / `GDK_DEBUG=portals` (`config/uwsm/env`) send GTK apps' dialogs there too. On a
 PC where it's new, log out and in once (or `systemctl --user restart xdg-desktop-portal`).
 
+**Open with…** The app chooser (Images' / Videos' / Documents' `o`, a browser opening a download, any app
+asking the portal which app to use) is a panel too (`openwithgui.py`, shown by the same service as its
+AppChooser backend): the apps the portal offers for the file's type with their icons, the default marked in
+amber (two apps of one name show their ids). Type to filter, `↑` / `↓`, `Enter` or a double click opens it
+with that app; `Esc`, Cancel or a click outside it doesn't.
+
 ## Images
 
 Images (`local/lib/panels/imagegui.py`) is the image viewer, the default for pictures (`sami-images.desktop`

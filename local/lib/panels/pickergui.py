@@ -7,6 +7,7 @@
 # Each request is a window: Open (a file, files, a folder) or Save (a name, a folder; Save files: a folder),
 # the app's file types as a filter. Enter or a double click chooses, Esc or Close cancels. Rename, trash and
 # paste are off here: it picks, it doesn't change files. It remembers its own last folder (picker.json).
+# The same service is the AppChooser backend too: "Open with…" is an openwithgui.py window.
 import fnmatch, gc, os, sys
 
 # xdg-desktop-portal starts this backend at its own start-up and waits for it; GTK asking that portal for its
@@ -15,6 +16,7 @@ os.environ["GDK_DEBUG"] = ",".join(filter(None, (os.environ.get("GDK_DEBUG"), "n
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, Gio, GLib, Gtk, ViewHost, box, button, collect, dropdown, install_css, label
 import filesgui as fg
+from openwithgui import CSS as OPENWITH_CSS, OpenWith
 
 BUS = "org.freedesktop.impl.portal.desktop.sami"
 PATH = "/org/freedesktop/portal/desktop"
@@ -27,9 +29,20 @@ XML = """<node>
       <arg type="u" name="response" direction="out"/><arg type="a{{sv}}" name="results" direction="out"/>
     </method>""" for m in ("OpenFile", "SaveFile", "SaveFiles")) + """
   </interface>
+  <interface name="org.freedesktop.impl.portal.AppChooser">
+    <method name="ChooseApplication">
+      <arg type="o" name="handle" direction="in"/><arg type="s" name="app_id" direction="in"/>
+      <arg type="s" name="parent_window" direction="in"/><arg type="as" name="choices" direction="in"/>
+      <arg type="a{sv}" name="options" direction="in"/>
+      <arg type="u" name="response" direction="out"/><arg type="a{sv}" name="results" direction="out"/>
+    </method>
+    <method name="UpdateChoices">
+      <arg type="o" name="handle" direction="in"/><arg type="as" name="choices" direction="in"/>
+    </method>
+  </interface>
   <interface name="org.freedesktop.impl.portal.Request"><method name="Close"/></interface>
 </node>"""
-CHOOSER, REQUEST = Gio.DBusNodeInfo.new_for_xml(XML).interfaces
+CHOOSER, APPS, REQUEST = Gio.DBusNodeInfo.new_for_xml(XML).interfaces
 CSS = fg.CSS + """
 .pick-bar { border-top: 1px solid alpha(#3b4261, .7); padding-top: 10px; }
 dropdown.filter > button { min-width: 0; padding: 3px 10px; }
@@ -250,10 +263,10 @@ class Picker(fg.Files):
 class Dialog(ViewHost):
     """A picker's window, a popup like every panel's (gtkkit.ViewHost): the screen blurred behind it, a click
     there or a workspace switch cancels, as Esc and Close do."""
-    def __init__(self, view, app):
+    def __init__(self, view, app, size=(1100, 700)):
         self.view, self.app, view.host = view, app, self
         self.backdrop = self.make_backdrop() if view.backdrop else None
-        self.build_window(app, (1100, 700))
+        self.build_window(app, size)
         self.win.connect("close-request", lambda *_: view.cancelled() or False)
         # once it's gone, its folder listing and thumbnails go back to the system, not in a minute
         self.win.connect("unrealize", lambda *_: GLib.timeout_add_seconds(1, lambda: collect() and False))
@@ -268,7 +281,8 @@ class Service(Gtk.Application):
     def do_startup(self):
         Gtk.Application.do_startup(self)
         self.hold()   # a service: it stays for the next dialog
-        install_css(CSS)
+        install_css(CSS + OPENWITH_CSS)
+        self.choosers = {}   # an AppChooser request's handle → its OpenWith (UpdateChoices)
         Gio.bus_own_name(Gio.BusType.SESSION, BUS, Gio.BusNameOwnerFlags.REPLACE, self.on_bus, None,
                          lambda *_: self.quit())   # the name taken by another one: this one goes
 
@@ -277,30 +291,53 @@ class Service(Gtk.Application):
 
     def on_bus(self, conn, _name):
         conn.register_object_with_closures2(PATH, CHOOSER, self.call, None, None)
+        conn.register_object_with_closures2(PATH, APPS, self.call, None, None)
 
     def call(self, conn, _sender, _path, _iface, method, params, invocation):
-        handle, _app, _parent, title, options = params.unpack()
+        if method == "UpdateChoices":
+            handle, choices = params.unpack()
+            if handle in self.choosers:
+                self.choosers[handle].update(choices)
+            invocation.return_value(None)
+            return
+        if method == "ChooseApplication":
+            handle, _app, _parent, choices, options = params.unpack()
+        else:
+            handle, _app, _parent, title, options = params.unpack()
         state = {"replied": False, "view": None}
 
-        def done(code, uris, flt):
+        def reply(code, results):
             if state["replied"]:
                 return
             state["replied"] = True
             conn.unregister_object(request)
+            self.choosers.pop(handle, None)
+            invocation.return_value(GLib.Variant("(ua{sv})", (code, results)))
+
+        def done(code, uris, flt):   # a file picker's answer
             results = {}
             if code == 0:
                 results["uris"] = GLib.Variant("as", uris)
                 if flt:
                     results["current_filter"] = GLib.Variant("(sa(us))", flt)
-            invocation.return_value(GLib.Variant("(ua{sv})", (code, results)))
+            reply(code, results)
+
+        def chose(code, app_id):   # an app chooser's
+            reply(code, {"choice": GLib.Variant("s", app_id)} if code == 0 else {})
 
         def close(_c, _s, _p, _i, _m, _params, inv):   # the app gave up on the dialog
             if state["view"] and not state["view"].answered:
                 state["view"].answered = True
-                done(2, [], None)
+                reply(2, {})
                 state["view"].host.win.close()
             inv.return_value(None)
         request = conn.register_object_with_closures2(handle, REQUEST, close, None, None)
+        if method == "ChooseApplication":
+            view = OpenWith(choices, options, chose)
+            self.choosers[handle] = view
+            state["view"] = view
+            Dialog(view, self, (560, 520))
+            return
         mode = {"OpenFile": "open", "SaveFile": "save", "SaveFiles": "saves"}[method]
         view = Picker(mode, title, options, done)
         state["view"] = view

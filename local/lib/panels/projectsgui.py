@@ -407,8 +407,10 @@ class Projects(View):
 
     def build(self):
         self.search = Gtk.Entry(placeholder_text="/ search", hexpand=True)
-        self.search.connect("changed", lambda *_: self.paint_tree())
+        self.search.connect("changed", lambda *_: self.search_changed())
         self.search.connect("activate", lambda *_: self.focus_list())
+        self.search.set_icon_tooltip_text(Gtk.EntryIconPosition.SECONDARY, "clear (Esc)")
+        self.search.connect("icon-release", lambda e, _pos: (e.set_text(""), e.grab_focus()))
         down = Gtk.EventControllerKey()
         down.connect("key-pressed", lambda _c, k, _code, _s: k == Gdk.KEY_Down and self.focus_list())
         self.search.add_controller(down)
@@ -563,6 +565,12 @@ class Projects(View):
             self.focus_list()
         else:
             super().leave_text()
+
+    def search_changed(self):
+        """The cross at the search's right end, while there's something to clear."""
+        self.search.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY,
+                                            "edit-clear-symbolic" if self.search.get_text() else None)
+        self.paint_tree()
 
     def focus_list(self):
         row = self.tree.get_selected_row() or self.first_project() or self.tree.get_row_at_index(0)

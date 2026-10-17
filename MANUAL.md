@@ -585,6 +585,28 @@ GdkPixbuf / glycin reads: JPEG, PNG, GIF and WebP (animated too), SVG, AVIF, HEI
 - The folder is watched (a new screenshot shows up). It remembers the panes, the background, the sort
   and the slideshow's pace (`~/.local/state/images`). imv is still installed.
 
+## Videos
+
+Videos (`local/lib/panels/videogui.py`) is the video player, the default for video and music files
+(`sami-videos.desktop` in `config/mimeapps.list`): opening one in Files, `xdg-open`, a browser's download… plays
+it there, in the panels' look. mpv does the playing (`libmpv.py`: its renderer draws into the window, hardware
+decoding where the GPU has it). `videogui.py <file>` plays it, then the rest of its folder; several files, just
+those; a folder, its videos. A running player takes what's opened next.
+
+- **Play:** `Space` / `k` or a click play / pause, `←` / `→` 5 s, `Shift` 30 s, `j` / `l` 10 s, `0`–`9` jump to
+  that tenth, `Home` the start, `,` / `.` a frame back / on, drag the bar.
+- **Sound:** `↑` / `↓` or the wheel volume (to 150 %), `m` mute; `a` the next audio track.
+- **Show:** `f` / `F11` / a double-click fullscreen (the bar floats over the picture and hides with the pointer;
+  `Esc` leaves), `c` the next subtitles (or off), `[` / `]` slower / faster, `Backspace` normal speed, `r` loop
+  the file, `i` info (codecs, size, the decoder), `t` the playlist.
+- **Do:** `n` / `p` (`PgDn` / `PgUp`, the mouse's back / forward buttons) next / previous, `s` a screenshot to
+  `~/Pictures/Screenshots`, `Ctrl+Shift+C` copy the path, `e` show it in Files, `o` open with another app,
+  `Del` to the trash, `Ctrl+O` open, or drop files on it. Right-click for all of it, tracks and speeds
+  included. `Esc` / `q` closes.
+- Each file resumes where it was left (`~/.local/state/videos/watch_later`); one watched to the end starts
+  over, and the next in the folder plays. The folder is watched (a finished download joins the list). It
+  remembers the volume, mute and the playlist pane (`~/.local/state/videos`). mpv is still installed.
+
 ## App hotkeys (AutoHotkey-style)
 
 `config/hypr/apps.conf` maps keys to apps, one per line:
@@ -1112,7 +1134,7 @@ bind("SUPER + M", launch .. "mpv") -- open mpv
 
 - `local/share/applications/*.desktop` hide apps from Walker (`NoDisplay=true`).
   Delete one to bring that app back.
-- `config/mimeapps.list` sets default apps (Images for pictures, mpv for video).
+- `config/mimeapps.list` sets default apps (Images for pictures, Videos for video and music).
 
 ## Editing
 

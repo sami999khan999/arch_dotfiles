@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Videos
+Comment=Play videos and music, in the colour theme
+Exec=python3 /home/sami/.local/lib/panels/videogui.py %U
+Icon=video-player
+Categories=AudioVideo;Video;Player;
+MimeType=video/mp4;video/x-m4v;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/x-ms-wmv;video/x-flv;video/mpeg;video/mp2t;video/3gpp;video/ogg;video/x-ogm+ogg;video/dvd;audio/mpeg;audio/flac;audio/x-flac;audio/x-wav;audio/wav;audio/ogg;audio/opus;audio/mp4;audio/x-m4a;audio/aac;audio/x-ms-wma;audio/x-ape;
+Keywords=video;movie;music;player;mpv;
+StartupWMClass=panels.videos

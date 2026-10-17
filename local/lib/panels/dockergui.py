@@ -53,9 +53,11 @@ textview, textview text { background: transparent; color: #c0caf5; }
 .chip { padding: 3px 10px; color: #565f89; background: transparent; }
 .chip:hover { color: #a9b1d6; background: alpha(#c0caf5, .06); }
 .chip.on { color: #c0caf5; background: #292e42; }
-.pane-bar { padding: 0 20px 4px 20px; border-bottom: 1px solid alpha(#3b4261, .7); }
-.pane-bar .tab { padding: 6px 10px; }
-.pane-bar entry { min-height: 20px; padding: 2px 8px; }
+/* the lower pane's bar: tabs (their underline on its line) or a title, the filter centred in 40px */
+.pane-bar { padding: 0 20px; min-height: 40px; border-bottom: 1px solid alpha(#3b4261, .7); }
+.pane-bar .tab { padding: 10px 10px 9px 10px; }
+.pane-bar .section { padding: 10px 0; }
+.pane-bar entry { min-height: 20px; padding: 2px 8px; margin: 6px 0; }
 paned > separator { background: alpha(#3b4261, .7); min-width: 1px; min-height: 1px; }
 """
 
@@ -185,8 +187,8 @@ class Docker(View):
         self.state = label("", "dim", ellipsize=True)
         self.kv = Gtk.Grid(column_spacing=16, row_spacing=4)
         self.kv.set_margin_top(12)
-        self.actions = wrap_box(8, 8)   # wraps onto a second line in a narrow window
-        self.actions.set_margin_top(14)
+        self.actions = box(True, 6)   # set_actions: the main buttons, then a row of quieter ones
+        self.actions.set_margin_top(16)
         top = box(True, 0, self.heading, self.state, self.kv, self.actions)
         for edge in ("start", "end", "top"):
             getattr(top, f"set_margin_{edge}")(20)
@@ -209,6 +211,7 @@ class Docker(View):
         self.errors_btn = Gtk.ToggleButton(label="Errors", tooltip_text="Only errors and warnings")
         self.errors_btn.add_css_class("flat")
         self.errors_btn.set_focusable(False)
+        self.errors_btn.set_valign(Gtk.Align.CENTER)
         self.errors_btn.connect("toggled", lambda b: self.set_errors(b.get_active()))
         spacer = Gtk.Box(hexpand=True)
         pane_bar = box(False, 8, self.lower_title, pane_tabs, spacer, self.errors_btn, self.pane_filter,
@@ -626,9 +629,15 @@ class Docker(View):
             return
         self.actions_sig = sig
         clear(self.actions)
+        main = wrap_box(8, 8)   # wraps onto a second line in a narrow window
+        links, end = box(False, 2), box(False, 2)
         for b in make():
             b.set_focusable(False)   # Enter belongs to the list
-            self.actions.append(b)
+            (end if b.has_css_class("delete") else links if b.has_css_class("flat") else main).append(b)
+        self.actions.append(main)
+        if links.get_first_child() or end.get_first_child():
+            links.set_margin_start(-10)   # the links' text under the buttons' (flat ones pad 10px less)
+            self.actions.append(box(False, 0, links, Gtk.Box(hexpand=True), end))
 
     def set_text(self, segments, key=None, follow=False):
         """The lower pane: [(text, tag or None)], only the lines with the pane's filter in them. Only
@@ -924,7 +933,7 @@ class Docker(View):
         it, red, for 3 s; the second deletes."""
         sure = self.armed_on(e)
         return self.act_button("Click again to delete" if sure else text, lambda: self.remove(e),
-                               "danger" if sure else "flat", tooltip=tooltip, busy=busy)
+                               "danger", "armed" if sure else "flat", "delete", tooltip=tooltip, busy=busy)
 
     def armed_on(self, e):
         return bool(self.armed and self.armed[0] == e["ID"] and time.time() - self.armed[1] < 3)

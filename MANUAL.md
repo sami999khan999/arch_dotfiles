@@ -481,7 +481,8 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   The list is `~/.local/share/dbclient/connections.json` (hosts and users only: it stays on this PC,
   never in this repo); passwords, keys and connection strings are in the keyring (gnome-keyring).
 - **Projects**: the list is grouped by project (a connection's *Project* in its form; the rest are under
-  *Other*). Enter or a double-click on a group collapses it; its page on the right counts what's in it.
+  *Other*). The arrow at a group's left, Enter or a double-click collapses it; its page on the right counts
+  what's in it. `Esc` closes the connection form without saving (also from one of its fields).
 - **Docker**: the databases running in Docker (Postgres and its variants such as pgvector / PostGIS / Timescale,
   Redis / Valkey / KeyDB / Dragonfly, MongoDB, MinIO as S3) are added by themselves, named after their
   compose service, in a group named after the compose project, with the user, password and database
@@ -511,7 +512,8 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
 - **Diagram** (`d`, or *Diagram* on a Postgres connection, schema or table, or a SQLite file): the schema in
   [Liam ERD](https://liambx.com) inside the panel: the tables and the keys between them, laid out by Liam;
   drag, zoom, click a table for its columns, keys and indexes, *Show* switches names / keys / all fields,
-  *Export* saves it. The bar above it: the schema picker; **search** (`/`): only the tables whose name has it
+  *Export* saves it. While it shows, the window is solid (no blur behind it): see-through, every frame of a
+  pan or zoom was composited again over the blurred desktop, a third slower. The bar above it: the schema picker; **search** (`/`): only the tables whose name has it
   (just that one on an exact name); **Related** (`r`) adds the tables they join, by a key or by a column that
   only stores their id without one (`impersonated_by` → user: guessed from the name and the key's type, its
   key named `guessed: …`); *All tables*: the search cleared and every table back (also after Liam's *Open in main

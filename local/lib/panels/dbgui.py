@@ -33,7 +33,8 @@ from gi.repository import GObject
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 INDENT = 16
-GROUP_GLYPHS = ("\uf07b", "\uf07c")   # a group folded / unfolded (nf-fa-folder, folder_open)
+GROUP_GLYPH = "\uf07b"   # nf-fa-folder: a group of your own
+FOLD_GLYPHS = ("\uf054", "\uf078")   # a group's button: folded / open (nf-fa-chevron_right, chevron_down)
 DOCKER_GLYPH = "\uf308"   # nf-linux-docker: a group or connection Docker made
 SCAN_EVERY = 10   # seconds: the window coming on screen again looks in Docker at most this often
 GLYPHS = {"schema": "", "database": "", "folder": "", "bucket": "", "table": "",
@@ -48,6 +49,9 @@ CSS = """
 .db-tree > row.db-group-row { padding-top: 8px; margin-top: 6px; border-top: 1px solid alpha(#3b4261, .7); }
 .db-tree > row.db-group-row.first { margin-top: 0; border-top: none; }
 .db-group { color: #a9b1d6; font-weight: 700; }
+.db-fold { min-width: 16px; min-height: 0; padding: 0 2px; border: none; background: transparent; color: #565f89;
+           font-size: 8pt; }
+.db-fold:hover { color: #c0caf5; background: transparent; }
 entry.rename { font-size: 13pt; font-weight: 700; padding: 0 6px; min-height: 0; }
 .db-live { color: #9ece6a; }
 .db-err { color: #f7768e; }
@@ -65,6 +69,9 @@ columnview listview > row:selected { background: alpha(#292e42, .75); color: #c0
 columnview listview > row > cell { padding: 3px 8px; }
 .form-label { color: #a9b1d6; min-width: 160px; }
 .dg-bar { padding: 8px 20px; border-bottom: 1px solid alpha(#3b4261, .7); }   /* over Liam ERD */
+/* while the diagram shows the window is solid, no blur behind: see-through, every frame of a pan or zoom
+   was composited again over the blurred desktop (a third more per frame: ~45 ms instead of ~30) */
+window.panel.solid { background: #16161e; backdrop-filter: none; }
 .dg-toggle:checked { color: #6b8fe0; background: alpha(#292e42, .9); }
 .db-preview { border-left: 1px solid alpha(#3b4261, .7); padding-left: 14px; }
 
@@ -192,9 +199,8 @@ class Databases(View):
                                       lambda s: self.show_diagram(self.diagram_cid, s))
         self.diagram_cid = None
         self.stack.add_named(self.diagram, "diagram")
-        # the diagram's web view only lives while it shows (a WebKit process: ~150 MB)
-        self.stack.connect("notify::visible-child-name",
-                           lambda st, _p: st.get_visible_child_name() != "diagram" and self.diagram.drop())
+        # the diagram's web view only lives while it shows (a WebKit process: ~150 MB); the window is solid then
+        self.stack.connect("notify::visible-child-name", self.diagram_shown)
         self.paint_tree()
         self.show_empty()
         self.scan_docker()
@@ -340,10 +346,13 @@ class Databases(View):
         row = Gtk.ListBoxRow(css_classes=["db-group-row"] + (["first"] if first else []))
         row.key, row.group = None, project or ""
         docker = all(c.get("docker") for c in conns)
-        glyph = DOCKER_GLYPH if docker and project else GROUP_GLYPHS[project not in self.folded]
         up = sum(c.get("docker") in self.docker_up for c in conns)
         note = f"{up}/{len(conns)} running" if any(c.get("docker") for c in conns) else str(len(conns))
-        row.set_child(box(False, 8, label(glyph, "db-glyph"), label(project or "Other", "db-group", ellipsize=True),
+        fold = button(FOLD_GLYPHS[project not in self.folded], lambda: self.fold(row.group), "db-fold",
+                      tooltip="collapse / expand (Enter)")
+        fold.set_focusable(False)
+        row.set_child(box(False, 6, fold, label(DOCKER_GLYPH if docker and project else GROUP_GLYPH, "db-glyph"),
+                          label(project or "Other", "db-group", ellipsize=True),
                           label(note, "dim", xalign=1.0, ellipsize=True)))
         row.get_child().get_last_child().set_hexpand(True)
         self.tree.append(row)
@@ -372,7 +381,7 @@ class Databases(View):
         if conn:
             kind = db.KINDS[conn["kind"]]
             glyph = label(kind[1], "db-glyph")
-            name = label(conn["name"], "db-conn", ellipsize=True)
+            name = label(conn["name"], "db-conn")
             if conn.get("docker"):   # where Docker publishes it; dimmed while its container is stopped
                 port = conn.get("port") or conn.get("endpoint", "").rsplit(":", 1)[-1]
                 up = conn["docker"] in self.docker_up
@@ -733,6 +742,12 @@ class Databases(View):
             add(self.del_btn)
 
     # ---- the schema diagram: Liam ERD (dbliam.py) -------------------------------------------------
+    def diagram_shown(self, stack, _prop):
+        shown = stack.get_visible_child_name() == "diagram"
+        (self.window.add_css_class if shown else self.window.remove_css_class)("solid")
+        if not shown:
+            self.diagram.drop()
+
     @staticmethod
     def diagram_of(c, node):
         """(schema, table to centre on) for the diagram from this node, or None (no diagram for it)."""
@@ -1177,7 +1192,7 @@ class Databases(View):
             threading.Thread(target=go, daemon=True).start()
 
         buttons = box(False, 8, button("Save", save, "primary"), button("Test", test),
-                      button("Cancel", lambda: self.stack.set_visible_child_name("browse"), "flat"))
+                      button("Cancel", lambda: self.stack.set_visible_child_name("browse"), "flat", tooltip="Esc"))
         if c:
             self.forget_btn = button("Delete connection", lambda: self.forget(c), "danger", tooltip="click twice")
             buttons.append(Gtk.Box(hexpand=True))
@@ -1288,6 +1303,10 @@ class Databases(View):
         self.tree.grab_focus()
 
     def key(self, keyval, state):
+        if keyval == Gdk.KEY_Escape and self.stack.get_visible_child_name() == "form":   # also from a field
+            self.stack.set_visible_child_name("browse")
+            self.tree.grab_focus()
+            return True
         if self.typing():
             return False
         if self.stack.get_visible_child_name() == "diagram" and self.diagram.key_pressed(keyval):

@@ -36,6 +36,7 @@ CSS = """
 .disk levelbar.yellow block.filled { background: #e0af68; }
 .disk levelbar.red block.filled { background: #f7768e; }
 .item-where { color: #565f89; font-size: 9pt; }
+.item-disk { color: #a9b1d6; font-size: 9pt; font-weight: 700; }
 .item-where button, .sub-row .open { padding: 0 6px; min-height: 0; color: #6b8fe0; background: transparent; }
 .item-where button:hover, .sub-row .open:hover { color: #c0caf5; }
 .item { padding: 10px 0; border-bottom: 1px solid alpha(#3b4261, .7); }
@@ -78,6 +79,21 @@ def drive_of(mount):
                 bus = (disk.get("tran") or "").upper()
                 return " · ".join(x for x in ((disk.get("model") or "").strip(), part["name"], part.get("fstype") or "",
                                              f"{bus} {kind}".strip()) if x)
+    return ""
+
+
+def device_of(path):
+    """The partition a path is on (/dev/sdb1), whichever btrfs subvolume holds it; a folder you can't look
+    into (Docker's, root's) by its nearest parent you can."""
+    while path:
+        try:
+            out = subprocess.run(["findmnt", "-no", "SOURCE", "-T", path], capture_output=True, text=True,
+                                 timeout=5).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            out = ""
+        if out or path == "/":
+            return out.split("[")[0]
+        path = os.path.dirname(path)
     return ""
 
 
@@ -144,6 +160,8 @@ class Storage(View):
         self.armed = None        # (key, time): Clean pressed once
         self.pool = ThreadPoolExecutor(4)
         self.drives = {m: drive_of(m) for m, _ in DISKS}   # once: the disks don't change while it's open
+        devs = {device_of(m): name.split(" (")[0] for m, name in DISKS if os.path.ismount(m)}
+        self.disk_of = lambda p, cache={}: cache.setdefault(p, devs.get(device_of(p), ""))   # "SSD" / "HDD"
 
     def items(self):
         """(key, title, what it is, how it's cleaned, where it is on disk) in the order shown."""
@@ -165,7 +183,9 @@ class Storage(View):
 
     def where(self, paths):
         """The item's folders, each with Open (in Files) when you may read it: Docker's is root's."""
-        row = box(False, 6, label("\uf07b", "item-where"), classes=("item-where",))
+        disks = sorted({self.disk_of(p) for p in paths} - {""})
+        row = box(False, 6, *([label(f"on the {' and '.join(disks)}", "item-disk")] if disks else []),
+                  label("\uf07b", "item-where"), classes=("item-where",))
         for p in paths:
             row.append(label(p.replace(HOME, "~"), "item-where"))
             if os.access(p, os.R_OK | os.X_OK):

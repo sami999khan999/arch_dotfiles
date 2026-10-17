@@ -737,7 +737,7 @@ read snapper's root config).
 
 `Super + Ctrl + F` (`panels/storagegui.py`): the SSD and the HDD (which drive each is: its model, partition,
 filesystem and kind; used / free; the bar green, amber from 60 %, red from 85 %), then what can be freed, each with its size (measured when it opens; `F5` again), where it is
-on disk (**Open** shows the folder in Files; Docker's `/var/lib/docker` is root's, so only its path) and a
+on disk and on which drive ("on the SSD"; **Open** shows the folder in Files; Docker's `/var/lib/docker` is root's, so only its path) and a
 **Clean** button (twice within 3 s):
 - **Docker build cache** (`docker builder prune -af`), **images no container uses** (`docker image prune -af`;
   a stopped container's image stays), **stopped containers** (`docker container prune -f`). Volumes never:

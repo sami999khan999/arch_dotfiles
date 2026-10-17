@@ -47,7 +47,9 @@ CSS = """
 .list-pane { border-left: 1px solid alpha(#3b4261, .7); }
 .list-pane list > row { padding: 6px 14px; }
 .list-pane row.playing label { color: #6b8fe0; font-weight: 700; }
-.menu-btn { padding: 4px 14px; }
+.menu-btn { padding: 4px 14px 4px 6px; }
+.menu-tick { min-width: 22px; }
+.menu-btn label { font-family: "JetBrainsMono Nerd Font"; }
 popover.videos-menu > contents { padding: 4px; }
 window.panel.full { background: #16161e; }
 """
@@ -757,9 +759,7 @@ class Videos(View):
         rect.x, rect.y, rect.width, rect.height = int(x), int(y), 1, 1
         pop.set_pointing_to(rect)
         have = self.loaded is not None
-
-        def tick(on):
-            return "✓ " if on else "   "
+        # (text, do, key[, checked]): the check goes in a column of its own, so every label lines up
         items = [("Open…", self.open_dialog, "Ctrl+O")]
         if have:
             items += [None, ("Play" if self.props.get("pause") else "Pause", self.toggle_pause, "Space")]
@@ -769,22 +769,22 @@ class Videos(View):
             subs = [t for t in self.tracks if t.get("type") == "sub"]
             if subs:
                 off = not any(t.get("selected") for t in subs)
-                items += [None, (tick(off) + "Subtitles off", lambda: self.pick_track("sub", "no"), "")]
-                items += [(tick(t.get("selected")) + track_name(t), lambda t=t: self.pick_track("sub", t["id"]), "")
+                items += [None, ("Subtitles off", lambda: self.pick_track("sub", "no"), "", off)]
+                items += [(track_name(t), lambda t=t: self.pick_track("sub", t["id"]), "", bool(t.get("selected")))
                           for t in subs]
             audio = [t for t in self.tracks if t.get("type") == "audio"]
             if len(audio) > 1:
                 items.append(None)
-                items += [(tick(t.get("selected")) + track_name(t), lambda t=t: self.pick_track("audio", t["id"]), "")
+                items += [(track_name(t), lambda t=t: self.pick_track("audio", t["id"]), "", bool(t.get("selected")))
                           for t in audio]
             speed = self.props.get("speed") or 1
             items.append(None)
-            items += [(tick(abs(speed - s) < 1e-3) + f"Speed {s:g}×", lambda s=s: self.set_speed(s),
-                       "Backspace" if s == 1 else "") for s in SPEEDS]
-            items += [None, (tick(self.props.get("loop-file") in ("inf", "yes")) + "Loop this file", self.toggle_loop, "r"),
+            items += [(f"Speed {s:g}×", lambda s=s: self.set_speed(s), "Backspace" if s == 1 else "",
+                       abs(speed - s) < 1e-3) for s in SPEEDS]
+            items += [None, ("Loop this file", self.toggle_loop, "r", self.props.get("loop-file") in ("inf", "yes")),
                       ("Exit fullscreen" if self.full else "Fullscreen", self.fullscreen, "f"),
-                      (tick(self.state["list"]) + "Playlist", self.toggle_list, "t"),
-                      (tick(self.info_label.get_visible()) + "Info", self.toggle_info, "i"),
+                      ("Playlist", self.toggle_list, "t", bool(self.state["list"])),
+                      ("Info", self.toggle_info, "i", bool(self.info_label.get_visible())),
                       None, ("Screenshot", self.screenshot, "s"), ("Copy path", self.copy_path, "Ctrl+Shift+C"),
                       ("Show in Files", self.show_in_files, "e"), ("Open with…", self.open_with, "o"), None,
                       ("Move to trash", self.trash, "Del")]
@@ -796,18 +796,23 @@ class Videos(View):
                 sep.set_margin_bottom(3)
                 col.append(sep)
                 continue
-            text, fn, key = it
-            row = box(False, 24, label(text, *(("red",) if "trash" in text else ())), label(key, "dim"))
-            row.get_first_child().set_hexpand(True)
+            text, fn, key, on = (*it, False)[:4]
+            text_label = label(text, *(("red",) if "trash" in text else ()))
+            text_label.set_hexpand(True)
+            key_label = label(key, "dim")
+            key_label.set_margin_start(24)
+            row = box(False, 0, label("\u2713" if on else "", "menu-tick", "accent"), text_label, key_label)
             b = Gtk.Button(child=row)
             b.add_css_class("flat")
             b.add_css_class("menu-btn")
             b.connect("clicked", lambda _b, fn=fn: (pop.popdown(), fn()))
             col.append(b)
-        pop.set_child(scrolled(col) if len(items) > 24 else col)
-        if len(items) > 24:   # taller than a small window: it scrolls
-            pop.get_child().set_size_request(300, min(self.window.get_height() - 40, 640))
-            pop.get_child().set_propagate_natural_height(True)
+        # as tall as it needs, but never past the window (a popover is cut at its edge): then it scrolls
+        sc = scrolled(col)
+        sc.set_propagate_natural_height(True)
+        sc.set_propagate_natural_width(True)
+        sc.set_max_content_height(max(self.window.get_height() - 40, 120))
+        pop.set_child(sc)
         pop.connect("closed", lambda p: GLib.idle_add(lambda: p.unparent() and False))
         pop.popup()
 

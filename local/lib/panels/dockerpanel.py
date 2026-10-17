@@ -22,7 +22,8 @@ from panelkit import (Panel, run as show, suspend, FG, DIM, ACCENT, TRACK, GREEN
 
 HOME = os.path.expanduser("~")
 FORMAT = ('{{json .}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}'
-          '\t{{.Label "com.docker.compose.project.working_dir"}}')
+          '\t{{.Label "com.docker.compose.project.working_dir"}}'
+          '\t{{.Label "com.docker.compose.project.config_files"}}')
 PORT = re.compile(r"(?:[\d.]+|\[[^\]]*\]):(\d+(?:-\d+)?)->(\d+(?:-\d+)?)/(\w+)")
 DOCKERLOGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dockerlogs.py")
 SHELLS = {"bash", "sh", "ash", "zsh", "fish", "dash"}
@@ -149,9 +150,10 @@ class DockerPanel(Panel):
             return
         items = []
         for line in r.stdout.splitlines():
-            raw, project, service, workdir = (line.split("\t") + ["", "", ""])[:4]
+            raw, project, service, workdir, configs = (line.split("\t") + ["", "", "", ""])[:5]
             c = json.loads(raw)
-            c.update(project=project, service=service, workdir=workdir, short=self.short(c["Names"], project))
+            c.update(project=project, service=service, workdir=workdir, short=self.short(c["Names"], project),
+                     configs=[f for f in configs.split(",") if f])   # its compose files (compose up needs them)
             items.append(c)
         # compose projects A–Z, containers not in a project last
         items.sort(key=lambda c: (not c["project"], c["project"], c["short"]))

@@ -1130,20 +1130,32 @@ Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home
 
 `panels/dockergui.py`, workspace 9's app (a tiled window, class `sami.docker`). Tabs for
 Containers, Images, Volumes and Networks (`1`–`4`, `Tab`, `←→` or a click); the list on the left,
-the selected item's details, actions and logs on the right.
+the selected item's details, actions and a lower pane on the right (drag the divider between them).
+The header sums it up: how many run and are stopped, what the images and volumes take on disk.
 
+- **Find:** the search box over the list (`/`; `Esc` clears it) matches names, images, projects, ports,
+  subnets and a network's containers; the chips beside it (`f` cycles) show all, running or stopped
+  containers (in use / unused for the other tabs). A collapsed project shows its matches. A dot per row
+  says its state: green up, amber starting / restarting / paused, red unhealthy or failed, dim stopped.
 - Containers are grouped by compose project. A project is a row too: Stop all / Start all,
-  Restart all, Logs (all its containers in one stream), Fold (`Enter`) to hide its containers, and
-  **Delete all** (`d` twice: `docker compose -p NAME down`, its containers and network; volumes stay).
-- Container: `s` start/stop · `r` restart · `l` logs · `e` shell · `x` run a command · `o` open the
-  first port · `d` twice deletes it (stopped first if it runs). Logs are formatted by
-  `panels/dockerlogs.py` (local time, level, message, details dimmed); `l` follows them in `less` in a
-  floating terminal. **Shell** (`e`) opens the container's own shell straight away in a floating
-  terminal (bash, else ash, else sh); **Run…** (`x`) runs a command (presets, the last ones, "as root").
+  Restart all, **Pull & up** (`U`: newer images, then recreate what changed) and **Rebuild** (`B`: build
+  again, then recreate) from its compose files, Logs (all its containers in one stream), Folder (`F`, in
+  Files) / VS Code (`C`), Collapse (`Enter`) to hide its containers, and **Delete all** (`d` twice:
+  `docker compose -p NAME down`, its containers and network; volumes stay).
+- Container: `s` start/stop · `r` restart · `p` pause / resume · `l` logs · `e` shell · `x` run a command ·
+  `o` open the first port · `y` copy its ID · `d` twice deletes it (stopped first if it runs). The details
+  add its networks and IPs and its restart policy. The lower pane (`w` cycles, or a click) is its
+  **Logs** (formatted by `panels/dockerlogs.py`: local time, level, message, details dimmed; it follows
+  the end while you're there; **Errors** keeps the errors and warnings), **Env**, **Mounts** or the whole
+  **Inspect**; the pane's own filter (`Ctrl+F`) keeps the lines with that text. `l` follows the logs in
+  `less` in a floating terminal. **Shell** (`e`) opens the container's own shell straight away in a
+  floating terminal (bash, else ash, else sh); **Run…** (`x`) runs a command (presets, the last ones,
+  "as root").
 - **Delete stopped (N)** in the header (`D`, twice) deletes every stopped container at once; their
-  volumes and images stay.
-- Images: `u` pull. Images, volumes, networks: `d` twice deletes it (docker refuses if in use). A
-  first press turns the button red ("Click again to delete") for 3 s.
+  volumes and images stay. On Images it's **Delete dangling (N)**: the untagged images no container uses.
+- Images: `u` pull, `n` run it once in a terminal (`docker run --rm -it`), `y` copy its name. Images,
+  volumes, networks: `d` twice deletes it (docker refuses if in use). A first press turns the button red
+  ("Click again to delete") for 3 s.
 - `L` (or the lazydocker button) opens lazydocker in a floating terminal.
 - Light on Docker: it follows `docker events` instead of asking every second, waits while workspace 9
   isn't on screen, reads CPU / memory (`docker stats`) only on Containers and the volumes' sizes

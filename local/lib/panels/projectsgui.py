@@ -1692,8 +1692,18 @@ class Projects(View):
     def ask_run_setup(self):
         """Run setup: its own popup (runsetupgui.py): what Start starts, found or saved for both PCs."""
         p = self.current()
-        if p and p.kind != "missing":
-            self.launch("python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "runsetupgui.py"), p.rel)
+        if not p or p.kind == "missing":
+            return
+        proc = subprocess.Popen(["uwsm", "app", "--", "python3", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "runsetupgui.py"), p.rel], start_new_session=True, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True)
+
+        def follow():
+            # a line ("env") each time it makes a .env: the .env tab follows at once, not when it's shown next
+            for _ in proc.stdout:
+                GLib.idle_add(lambda: self.load_env(p.rel) and False)
+            proc.wait()
+        threading.Thread(target=follow, daemon=True).start()
 
     def busy_note(self, p):
         """A red line naming what runs in the project (moving or deleting it would break it), or None."""

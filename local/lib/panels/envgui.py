@@ -93,6 +93,7 @@ class EnvEditor:
         """The project's files (status: its env_status rows) and the examples with no .env beside them."""
         self.edits = {}
         page = box(True, 4)
+        page.set_margin_end(14)   # the eyes clear of the scrollbar (an overlay: it widens over them on hover)
         path = f"{pj.ROOT}/{rel}"
         first = True
         for st in status:

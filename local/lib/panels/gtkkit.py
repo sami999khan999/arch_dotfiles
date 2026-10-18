@@ -727,12 +727,17 @@ class ViewHost:
 
     def watch_shown(self):
         """A workspace app (the Control Center, Projects, Docker…) stays open on its workspace: while
-        that isn't on a screen, refresh() pauses (hidden_refresh() instead) and nobody sees the work."""
+        that isn't on a screen, refresh() pauses (hidden_refresh() instead) and nobody sees the work.
+        Nor while another window is in front of it on a monocle workspace (Docker and Dokploy share 9)."""
         self.shown, self.check_queued = True, False
         self.me = None   # this window as Hyprland lists it: its address, workspace, pinned
+        self.monocle = False   # it's tiled on a monocle workspace: a focus change may hide or show it
 
         def changed(e):
-            if e.startswith((b"movewindowv2>>", b"pin>>", b"openwindow>>", b"closewindow>>")):
+            if e.startswith(b"activewindowv2>>") and not self.monocle:
+                return   # only decides which window of a monocle workspace shows
+            if e.startswith((b"movewindowv2>>", b"pin>>", b"openwindow>>", b"closewindow>>",
+                             b"changefloatingmode>>")):
                 addr = "0x" + e.split(b">>", 1)[1].split(b",", 1)[0].decode(errors="replace")
                 if self.me is not None and addr != self.me["address"]:
                     return   # another window: where this one is didn't change
@@ -741,7 +746,8 @@ class ViewHost:
                 self.check_queued = True
                 GLib.idle_add(self.check_shown)
         hypr_events(self.win, (b"workspace", b"focusedmon", b"activespecial", b"movewindowv2>>",
-                               b"openwindow>>", b"closewindow>>", b"pin>>"), changed)
+                               b"openwindow>>", b"closewindow>>", b"pin>>", b"changefloatingmode>>",
+                               b"activewindowv2>>"), changed)
 
     def check_shown(self):
         import json
@@ -754,6 +760,11 @@ class ViewHost:
             me = self.me
             on = {m["activeWorkspace"]["id"] for m in mons} | {m["specialWorkspace"]["id"] for m in mons}
             shown = me is None or me["pinned"] or me["workspace"]["id"] in on   # unknown: as before
+            ws = shown and me and not me["floating"] and next(
+                (w for w in json.loads(hypr_socket("j/workspaces") or "[]") if w["id"] == me["workspace"]["id"]), None)
+            self.monocle = bool(ws) and ws.get("tiledLayout") == "monocle"
+            if self.monocle and ws["lastwindow"] != me["address"]:
+                shown = False   # behind the workspace's front window
         except (ValueError, KeyError, TypeError):
             shown = True
         if shown != self.shown:

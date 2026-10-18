@@ -730,9 +730,12 @@ database) and paru (`paru -Qua`) would update, the ones worth a look first in am
 (in use after a reboot; the LTS one stays bootable), the graphics stack and drivers, Hyprland (a new version
 can change the config's syntax: `hyprctl configerrors` after), the core (systemd, glibc), the boot loader,
 what the panels run on (GTK, PyGObject, VTE), tmux (`agentmux reload` after), waybar, Docker, and a Python
-version change (pip-installed packages stop loading). Above them, Arch's news since your last full upgrade
-(a manual intervention is announced there). **Update all** (`u`) runs `paru -Syu` in the terminal popup,
-where sudo asks for the password. Nothing checks in the background: it looks when it opens (`F5` again).
+version change (pip-installed packages stop loading), each warning once over the packages it's about. Above
+them, Arch's news since your last full upgrade (a manual intervention is announced there). **Update all**
+(`u`) runs `paru -Syu` in the terminal popup, where sudo asks for the password. It runs in a tmux session of
+its own (`tmux -L update`), so closing the popup doesn't stop it: `Super + Ctrl + U` while it runs opens it
+again where you left it (the wheel scrolls; Shift + drag selects text). Nothing checks in the background: it
+looks when it opens (`F5` again).
 
 **Snapshots**: snap-pac snapshots the system before and after every pacman run and grub-btrfs lists them in
 the boot menu. After a bad update: reboot, open GRUB's **Arch Linux snapshots** submenu, boot the one from

@@ -5,8 +5,9 @@
 #   Updates    the repo packages (checkupdates: a copy of the package lists, nothing locked) and the AUR
 #              ones (paru -Qua); the ones worth a look first, in amber with why (the kernel, the graphics
 #              stack, Hyprland, the core, Python's version…); Arch's news since the last full upgrade above
-#              (a manual intervention is announced there). Update all runs `paru -Syu` in the terminal
-#              popup (termgui.py), where sudo asks for the password.
+#              (a manual intervention is announced there). Update all runs `paru -Syu` in a tmux session of
+#              its own (`tmux -L update`), shown in the terminal popup (termgui.py) where sudo asks for the
+#              password: closing the popup only detaches it, and Super + Ctrl + U while it runs shows it again.
 #   Snapshots  snap-pac takes a snapshot of / before and after every pacman run, and grub-btrfs lists them
 #              in the boot menu: boot one from GRUB's “Arch Linux snapshots” submenu, then make it stay with
 #              btrfs-assistant (Restore). Listing them needs system/root-setup.sh's snapper step once.
@@ -17,11 +18,13 @@ import xml.etree.ElementTree as ET
 from urllib.request import urlopen
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
 
 TERM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termgui.py")
 NEWS = "https://archlinux.org/feeds/news/"
 PACMAN_LOG = "/var/log/pacman.log"
+# the update's own tmux server: no user config (a bare terminal, no status line), scrolling with the wheel
+TMUX = ["tmux", "-L", "update", "-f", "/dev/null"]
 # packages worth a look before updating: (name pattern, why)
 WATCH = [(r"linux(-cachyos)?(-lts)?(-headers)?", "the kernel: in use after a reboot (the LTS one stays bootable)"),
          (r"nvidia.*", "the graphics driver: reboot after"),
@@ -36,17 +39,17 @@ WATCH = [(r"linux(-cachyos)?(-lts)?(-headers)?", "the kernel: in use after a reb
          (r"docker|containerd", "Docker: the containers restart")]
 
 CSS = """
-.upd-list > row { padding: 4px 12px; }
-.upd-name { min-width: 240px; }
+.upd-page { padding: 14px 22px; }
 .upd-ver { color: #565f89; }
 .upd-new { color: #c0caf5; }
-.upd-why { color: #e0af68; }
+.upd-why { color: #e0af68; margin-top: 10px; }
+.upd-why.first { margin-top: 0; }
 .upd-aur { color: #bb9af7; }
-.news { padding: 8px 12px; border: 1px solid alpha(#3b4261, .7); }
+.news { padding: 8px 12px; border: 1px solid alpha(#e0af68, .7); }
 .news-title { color: #e0af68; font-weight: 700; }
-.section-head { color: #6b8fe0; font-weight: 700; margin: 12px 0 4px 0; }
 .snap-list > row { padding: 5px 12px; }
 .snap-num { color: #565f89; min-width: 50px; }
+.upd-foot { margin: 0 22px; padding: 12px 0 14px 0; border-top: 1px solid alpha(#3b4261, .7); }
 """
 
 
@@ -146,16 +149,14 @@ class Updates(View):
             b.set_focusable(False)
             self.tabs[key] = b
             bar.append(b)
-        self.stack = Gtk.Stack()
-        self.upd_page = box(True, 8)
-        self.snap_page = box(True, 8)
+        self.stack = Gtk.Stack(vexpand=True)
+        self.upd_page = box(True, 8, classes=("upd-page",))
+        self.snap_page = box(True, 8, classes=("upd-page",))
         self.stack.add_named(scrolled(self.upd_page), "updates")
         self.stack.add_named(scrolled(self.snap_page), "snapshots")
-        self.actions = box(False, 8)
-        self.actions.set_margin_top(10)
-        page = box(True, 10, bar, self.stack, self.actions)
-        for edge in ("top", "start", "end", "bottom"):
-            getattr(page, f"set_margin_{edge}")(16)
+        # the lists scroll; the buttons stay at the bottom
+        self.actions = box(False, 8, classes=("upd-foot",))
+        page = box(True, 0, bar, self.stack, self.actions)
         self.switch("updates")
         self.check()
         return page
@@ -192,6 +193,10 @@ class Updates(View):
     # ---- drawing -----------------------------------------------------------------------------------
     def paint_updates(self, updates, items, last):
         clear(self.upd_page)
+        self.upd_page.append(label(
+            "What an update would install. Nothing changes until Update all: it runs paru -Syu in a terminal "
+            "(sudo asks for your password there). The packages that need something from you afterwards come "
+            "first, under what to do; a snapshot before and after lets you undo it (Snapshots).", "dim", wrap=True))
         since = (datetime.datetime.now(datetime.timezone.utc) - last).days if last else None
         watch = [(u, why(*u[:3])) for u in updates]
         flagged = [(u, w) for u, w in watch if w]
@@ -207,23 +212,35 @@ class Updates(View):
         if not updates:
             self.upd_page.append(label("Everything is up to date." if updates == [] else "", "dim"))
             return
+        # both lists' columns line up: one size group per column
+        self.cols = [Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL) for _ in range(2)]
         if flagged:
-            self.upd_page.append(label("Worth a look", "section-head"))
-            self.upd_page.append(self.package_list(flagged))
-        rest = [(u, w) for u, w in watch if not w]
+            self.upd_page.append(rule_heading("Worth a look", f"{len(flagged)} · what to do after", spaced=True))
+            groups = {}
+            for u, w in flagged:   # one line of advice over all the packages it's about (the kernel's four)
+                groups.setdefault(w, []).append(u)
+            for i, (reason, us) in enumerate(groups.items()):
+                self.upd_page.append(label(reason, "upd-why", *(("first",) if i == 0 else ()), wrap=True))
+                self.upd_page.append(self.package_list(us))
+        rest = [u for u, w in watch if not w]
         if rest:
-            self.upd_page.append(label(f"The rest ({len(rest)})", "section-head"))
+            self.upd_page.append(rule_heading("The rest", f"{len(rest)} · nothing to do", spaced=True))
             self.upd_page.append(self.package_list(rest))
 
     def package_list(self, rows):
-        lst = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        lst.add_css_class("upd-list")
-        for (name, old, new, aur), reason in rows:
-            line = box(False, 12, label(name, "upd-name"), label(old, "upd-ver"), label("→", "upd-ver"),
-                       label(new, "upd-new"), *([label("AUR", "upd-aur")] if aur else []))
-            r = box(True, 1, line, *([label(reason, "upd-why", wrap=True)] if reason else []))
-            lst.append(Gtk.ListBoxRow(child=r, activatable=False))
-        return lst
+        """name, old → new (AUR), in columns."""
+        grid = Gtk.Grid(column_spacing=14, row_spacing=3)
+        for i, (name, old, new, aur) in enumerate(rows):
+            n, o = label(name, ellipsize=True), label(old, "upd-ver")
+            n.set_hexpand(False)
+            n.set_size_request(280, -1)
+            self.cols[0].add_widget(n)
+            self.cols[1].add_widget(o)
+            for c, w in enumerate((n, o, label("→", "upd-ver"), label(new, "upd-new"))):
+                grid.attach(w, c, i, 1, 1)
+            if aur:
+                grid.attach(label("AUR", "upd-aur"), 4, i, 1, 1)
+        return grid
 
     def paint_snapshots(self, rows, problem):
         clear(self.snap_page)
@@ -244,6 +261,9 @@ class Updates(View):
 
     def paint_actions(self):
         clear(self.actions)
+        self.actions.append(button("Check again", self.check, "flat", tooltip="F5"))
+        self.actions.append(label(""))
+        self.actions.get_last_child().set_hexpand(True)
         if self.tab == "updates":
             up = button("Update all", self.update_all, "primary", tooltip="u: paru -Syu in a terminal popup")
             up.set_sensitive(bool(self.updates))
@@ -251,22 +271,27 @@ class Updates(View):
         else:
             self.actions.append(button("Open btrfs-assistant", self.open_assistant, "primary",
                                        tooltip="browse and restore snapshots (asks for your password)"))
-        self.actions.append(button("Check again", self.check, "flat", tooltip="F5"))
 
     # ---- actions -----------------------------------------------------------------------------------
     def open(self, link):
         subprocess.Popen(["xdg-open", link], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def update_all(self):
-        """paru -Syu in the terminal popup (sudo asks there); this panel closes so it's the one on screen."""
-        if not self.updates:
+        """paru -Syu in its tmux session (sudo asks there), shown in the terminal popup; this panel closes so
+        it's the one on screen. Already running: just shows it."""
+        if not self.updates and not updating():
             return
-        script = ('printf "\\033[38;2;107;143;224mupdate\\033[0m \\033[2m%s\\033[0m\\n\\n" '
-                  '"snapshots before and after: Super + Ctrl + U → Snapshots"; paru -Syu; s=$?; '
-                  'printf "\\n\\033[2m── done (%s) · then: hyprctl configerrors, and reboot if the kernel or drivers '
-                  'changed · Enter to close ──\\033[0m" $s; read _')
-        subprocess.Popen(["uwsm", "app", "--", sys.executable, TERM, "update", "--", "sh", "-c", script],
-                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if not updating():
+            script = ('printf "\\033[38;2;107;143;224mupdate\\033[0m \\033[2m%s\\033[0m\\n\\n" '
+                      '"closing this window doesn\'t stop it: Super + Ctrl + U shows it again · snapshots before and '
+                      'after: Super + Ctrl + U → Snapshots"; paru -Syu; s=$?; '
+                      'printf "\\n\\033[2m── done (%s) · then: hyprctl configerrors, and reboot if the kernel or '
+                      'drivers changed · Enter to close ──\\033[0m" $s; read _')
+            subprocess.run(TMUX + ["new-session", "-d", "-s", "update", "-x", "140", "-y", "40", "sh", "-c", script,
+                                   ";", "set", "-g", "status", "off", ";", "set", "-g", "mouse", "on",
+                                   ";", "set", "-g", "history-limit", "20000", ";", "set", "-sg", "escape-time", "0",
+                                   ";", "set", "-g", "default-terminal", "tmux-256color"])
+        show_update()
         self.close()
 
     def open_assistant(self):
@@ -286,11 +311,25 @@ class Updates(View):
         return True
 
 
+def updating():
+    """An update started from here still runs (its tmux session is there, the popup closed or not)."""
+    return subprocess.run(TMUX + ["has-session", "-t", "update"], stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode == 0
+
+
+def show_update():
+    """The update's terminal popup, attached to its session where it was left."""
+    subprocess.Popen(["uwsm", "app", "--", sys.executable, TERM, "update", "--", *TMUX, "attach", "-t", "update"],
+                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def make():
     return Updates()
 
 
 def main():
+    if updating():   # Super + Ctrl + U during an update: back to it, not the list
+        return show_update()
     run(make(), "panels.updates", (900, 640))
 
 

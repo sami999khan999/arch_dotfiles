@@ -115,12 +115,12 @@ class EnvEditor:
         f, state = st["file"], st["state"]
         acts = []
         if state in ("changed here", "not synced"):
-            acts.append(button("Push", lambda: self.job(st["project"], pj.env_push, [st["key"]]), "primary"))
+            acts.append(self.act("Push", "Pushing…", st, pj.env_push, "primary"))
         if state in ("newer there", "only there"):
-            acts.append(button("Pull", lambda: self.job(st["project"], pj.env_pull, [st["key"]]), "primary"))
+            acts.append(self.act("Pull", "Pulling…", st, pj.env_pull, "primary"))
         if state == "both changed":
-            acts += [button("Keep this PC's", lambda: self.job(st["project"], pj.env_push, [st["key"]], True)),
-                     button("Take the other's", lambda: self.job(st["project"], pj.env_pull, [st["key"]], True))]
+            acts += [self.act("Keep this PC's", "Pushing…", st, pj.env_push, force=True),
+                     self.act("Take the other's", "Pulling…", st, pj.env_pull, force=True)]
         here = os.path.isfile(os.path.join(path, f))
         if here:
             acts.append(button("Save", lambda: self.save(st["project"], f), "flat", tooltip="Ctrl+S"))
@@ -180,8 +180,21 @@ class EnvEditor:
         self.say(f"made {target} from {example}: fill in its values")
         self.changed(rel)
 
-    def job(self, rel, fn, keys, force=False):
-        self.say("working…", seconds=60)
+    def act(self, text, busy, st, fn, *classes, force=False):
+        """A Push / Pull button: while it runs it says so (Pushing…), and the file's buttons can't be pressed."""
+        def go():
+            c = btn.get_parent().get_first_child()
+            while c:
+                if isinstance(c, Gtk.Button):
+                    c.set_sensitive(False)
+                c = c.get_next_sibling()
+            btn.set_label(busy)
+            self.job(st["project"], fn, [st["key"]], force, busy)
+        btn = button(text, go, *classes)
+        return btn
+
+    def job(self, rel, fn, keys, force=False, busy="working…"):
+        self.say(busy.lower(), seconds=60)
 
         def work():
             ok, msg = fn(keys=keys, force=force)

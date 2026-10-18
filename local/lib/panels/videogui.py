@@ -46,8 +46,15 @@ CSS = """
 .controls scale { padding: 8px 0; }
 .controls scale.vol { padding: 2px 0; }   /* its ticks above and below take the rest */
 .list-pane { border-left: 1px solid alpha(#3b4261, .7); }
-.list-pane list > row { padding: 6px 14px; }
-.list-pane row.playing label { color: #6b8fe0; font-weight: 700; }
+.list-head { padding: 10px 14px 8px 14px; border-bottom: 1px solid alpha(#3b4261, .7); }
+.list-pane list { background: transparent; }
+.list-pane list > row { padding: 6px 14px 6px 12px; border-left: 2px solid transparent; }
+.list-pane list > row.playing { background: alpha(#292e42, .6); border-left-color: #6b8fe0; }
+.list-pane .num { min-width: 22px; color: #565f89; }
+.list-pane .name { color: #a9b1d6; }
+.list-pane .meta { color: #565f89; font-size: 9pt; }
+.list-pane row:hover .name { color: #c0caf5; }
+.list-pane row.playing .num, .list-pane row.playing .name { color: #6b8fe0; font-weight: 700; }
 .menu-btn { padding: 4px 14px 4px 6px; }
 .menu-tick { min-width: 22px; }
 .menu-btn label { font-family: "JetBrainsMono Nerd Font"; }
@@ -172,7 +179,13 @@ class Videos(View):
 
         self.list_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.list_box.connect("row-activated", lambda _l, row: self.play(row.get_index()))
-        self.list_pane = scrolled(self.list_box)
+        self.row_nums = []          # each row's number (the playing one shows the play glyph instead)
+        self.list_count = label("", "dim")
+        self.list_scroll = scrolled(self.list_box)
+        head = box(False, 8, label("Playlist", "section", "flush"), self.list_count, classes=("list-head",))
+        self.list_count.set_hexpand(True)
+        self.list_count.set_xalign(1)
+        self.list_pane = box(True, 0, head, self.list_scroll)
         self.list_pane.set_size_request(280, -1)
         self.list_pane.set_hexpand(False)
         self.list_pane.add_css_class("list-pane")
@@ -335,20 +348,51 @@ class Videos(View):
         return self.files[self.index] if 0 <= self.index < len(self.files) else None
 
     def fill_list(self):
+        """A row per file: its number, its name without the extension, and under it the type and size."""
         clear(self.list_box)
+        self.row_nums = []
         for i, p in enumerate(self.files):
-            row = Gtk.ListBoxRow(child=label(os.path.basename(p), ellipsize=True))
-            row.set_tooltip_text(os.path.basename(p))
-            if i == self.index:
-                row.add_css_class("playing")
+            name = os.path.basename(p)
+            try:
+                size = os.path.getsize(p)
+                size = f"{size / 1e9:.2f} GB" if size >= 1e9 else f"{size / 1e6:.1f} MB"
+            except OSError:
+                size = ""
+            kind = G_MUSIC if ext(p) in AUDIO else G_MOVIE
+            meta = "  ·  ".join(x for x in (f"{kind}  {ext(p).upper()}", size) if x)
+            num = label("", "num", xalign=1)
+            num.set_valign(Gtk.Align.START)
+            self.row_nums.append(num)
+            text = box(True, 2, label(os.path.splitext(name)[0], "name", ellipsize=True), label(meta, "meta"))
+            row = Gtk.ListBoxRow(child=box(False, 10, num, text))
+            row.set_tooltip_text(name)
             self.list_box.append(row)
+        n = len(self.files)
+        self.list_count.set_text(f"{n} file" + ("s" if n != 1 else ""))
+        self.mark_playing()
         self.panes()
 
     def mark_playing(self):
         row, i = self.list_box.get_first_child(), 0
         while row is not None:
             (row.add_css_class if i == self.index else row.remove_css_class)("playing")
+            if i < len(self.row_nums):
+                self.row_nums[i].set_text(G_PLAY if i == self.index else str(i + 1))
             row, i = row.get_next_sibling(), i + 1
+        GLib.idle_add(self.show_playing)
+
+    def show_playing(self):
+        """Scroll the list just enough to show the playing row (once it's laid out)."""
+        row = self.list_box.get_row_at_index(self.index) if self.index >= 0 else None
+        ok, rect = row.compute_bounds(self.list_box) if row else (False, None)
+        if ok:
+            adj = self.list_scroll.get_vadjustment()
+            top, bottom = rect.get_y(), rect.get_y() + rect.get_height()
+            if top < adj.get_value():
+                adj.set_value(top)
+            elif bottom > adj.get_value() + adj.get_page_size():
+                adj.set_value(bottom - adj.get_page_size())
+        return False
 
     # ---- playing --------------------------------------------------------------------------------------
     def play(self, i):
@@ -500,6 +544,7 @@ class Videos(View):
             self.dragging = False
             self.picture = any(t.get("type") == "video" for t in self.tracks)
             self.area.queue_render()
+            self.arm_tick()   # pause was already off (play() set it before the file loaded): no change came
             if self.picture:
                 self.msg.set_visible(False)
             else:   # music: its name where the picture would be
@@ -510,6 +555,7 @@ class Videos(View):
                 self.fill_info()
         elif kind == libmpv.EV_END_FILE and data[0] == libmpv.END_ERROR:
             self.loaded, self.picture = None, False
+            self.arm_tick()
             self.area.queue_render()
             name = os.path.basename(self.current() or "")
             self.say_center(f"Can't play {name}")

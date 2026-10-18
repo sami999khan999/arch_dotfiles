@@ -637,7 +637,8 @@ those; a folder, its videos. A running player takes what's opened next.
 - **Sound:** `↑` / `↓` or the wheel volume (to 150 %), `m` mute; `a` the next audio track.
 - **Show:** `f` / `F11` / a double-click fullscreen (the bar floats over the picture and hides with the pointer;
   `Esc` leaves), `c` the next subtitles (or off), `[` / `]` slower / faster, `Backspace` normal speed, `r` loop
-  the file, `i` info (codecs, size, the decoder), `t` the playlist.
+  the file, `i` info (codecs, size, the decoder), `t` the playlist (numbered, each file's type and size,
+  the playing one marked and kept in view).
 - **Do:** `n` / `p` (`PgDn` / `PgUp`, the mouse's back / forward buttons) next / previous, `s` a screenshot to
   `~/Pictures/Screenshots`, `Ctrl+Shift+C` copy the path, `e` show it in Files, `o` open with another app,
   `Del` to the trash, `Ctrl+O` open, or drop files on it. Right-click for all of it, tracks and speeds

@@ -222,6 +222,8 @@ def sections(f):
     swaps = get(f, "Swap", default=[]) or []
     disks = [d for d in (get(f, "Disk", default=[]) or [])
              if d.get("mountpoint") == "/" or str(d.get("mountpoint", "")).startswith("/mnt/")]
+    # newer fastfetch gives a disk's free bytes, not its used ones
+    disk_used = lambda b: b["used"] if "used" in b else b.get("total", 0) - b.get("free", 0)
     ip = next((i.get("ipv4") for i in (get(f, "LocalIp", default=[]) or []) if i.get("ipv4")), None)
     # names without their noise: "Intel(R) Core(TM)", "-Regular", "[GTK2/3/4]"
     cpu_name = " ".join((cpu.get("cpu") or "").replace("(R)", "").replace("(TM)", "").split())
@@ -242,7 +244,7 @@ def sections(f):
                 ("\U000f0200", "network", ip)]
     levels = [("", "memory", mem.get("used"), mem.get("total")),
               ("\U000f04b9", "swap", sum(s.get("used", 0) for s in swaps), sum(s.get("total", 0) for s in swaps)),
-              *[("\U000f02ca", d["mountpoint"], d["bytes"]["used"], d["bytes"]["total"]) for d in disks]]
+              *[("\U000f02ca", d["mountpoint"], disk_used(d["bytes"]), d["bytes"].get("total")) for d in disks]]
     return [r for r in software if r[2]], [r for r in hardware if r[2]], [l for l in levels if l[3]]
 
 

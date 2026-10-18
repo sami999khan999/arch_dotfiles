@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+# dokployctl — Dokploy on / off / status; what it does is in local/lib/dokploy/dokployctl.py. Only a
+# launcher: docker.service runs it as it starts and stops (a module is compiled once, a script every run).
+import os, sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib/dokploy"))
+import dokployctl
+
+dokployctl.main(sys.argv[1:])

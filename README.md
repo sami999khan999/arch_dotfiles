@@ -72,7 +72,7 @@ Riced after [Omarchy](https://github.com/basecamp/omarchy), with tools of its ow
   </tr>
   <tr>
     <td align="center"><b>Control Center</b> &nbsp;<sub>workspace 10</sub><br><sub>Workspaces, system, shortcuts, audio and network.</sub></td>
-    <td align="center"><b>Docker</b> &nbsp;<sub>workspace 9</sub><br><sub>Compose projects, images, volumes and networks.</sub></td>
+    <td align="center"><b>Docker</b> &nbsp;<sub>workspace 9</sub><br><sub>Compose projects, images, volumes and networks; Dokploy in a window beside it.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/tokyo-night/system.png" alt="System"></td>

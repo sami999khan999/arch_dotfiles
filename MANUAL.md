@@ -27,7 +27,8 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; snapshots listable; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:3000), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
 ```
@@ -788,7 +789,7 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 | 6 | Data | the database client (see Databases above) |
 | 7 | Files | Files (`filesgui.py`; Dolphin opens here too) |
 | 8 | Discord | Discord |
-| 9 | Docker | the Docker panel (below) |
+| 9 | Docker | the Docker panel and the Dokploy window beside it (below) |
 | 10 (key 0) | Control | the Control Center (below) |
 
 ```
@@ -1228,8 +1229,11 @@ Code: `local/bin/agentmux`, `local/lib/agentmux/` (`lib.py`, `sidebar.py`, `home
 
 ### Docker panel (workspace 9)
 
-`panels/dockergui.py`, workspace 9's app (a tiled window, class `sami.docker`). Tabs for
-Containers, Images, Volumes and Networks (`1`–`4`, `Tab`, `←→` or a click); the list on the left,
+`panels/dockergui.py`, workspace 9's app (a tiled window, class `sami.docker`), opened together with the
+Dokploy window (below), its second window on 9: the header's **Dokploy** / **Docker** button brings the
+other one up (workspace 9 shown, that window in front; opened if it was closed), or `Super + X`, then `Q` / `W`. Only the one in front polls. Tabs for
+Containers, Images, Volumes and Networks (`1`–`4`, `Tab`, `←→` or a click); Dokploy's containers aren't
+on Containers (nor in its counts or Delete stopped), they're in the Dokploy window. The list on the left,
 the selected item's details, actions and a lower pane on the right. Both dividers drag: the one between the
 two sides, and the one between the details and the pane below (until it's dragged it sits under the details;
 dragged up, the details scroll).
@@ -1260,7 +1264,16 @@ The header sums it up: how many run and are stopped, what the images and volumes
 - Images: `u` pull, `n` run it once in a terminal (`docker run --rm -it`), `y` copy its name. Images,
   volumes, networks: `d` twice deletes it (docker refuses if in use). A first press turns the button red
   ("Click again to delete") for 3 s.
-- `L` (or the lazydocker button) opens lazydocker in the terminal popup.
+- `L` opens lazydocker in the terminal popup.
+- **Docker on / off:** the header's **Turn off Docker** (twice) stops `docker.service` and its socket, so no
+  `docker` command starts it again; every container stops, Dokploy goes off first. While it's off the panel
+  says so and **Start Docker** brings it back (with the containers set to restart). No password:
+  `system/root-setup.sh` lets the `docker` group start / stop those two units
+  (`system/docker/50-docker-switch.rules`).
+- **Closed to the network:** Docker opens published ports to everyone, ahead of ufw. `root-setup.sh`
+  installs `system/docker/docker-firewall.sh`, which docker.service runs as it starts: new connections from
+  the network into a container are dropped (`DOCKER-USER`). This PC still reaches every port on
+  `localhost`; containers still reach out (the internet, a Tailscale tunnel).
 - Light on Docker: it follows `docker events` instead of asking every second, waits while workspace 9
   isn't on screen, reads CPU / memory (`docker stats`) only on Containers and the volumes' sizes
   (`docker system df`, which measures every volume) only on Volumes. It used to keep dockerd at about half
@@ -1270,6 +1283,34 @@ The header sums it up: how many run and are stopped, what the images and volumes
   gone, gets a notification with a **Stop** button (`docker compose -p NAME stop`, as Stop all). It
   never stops one itself and asks once per idle stretch. `stacks` lists them (in use / idle for how
   long); `local/bin/stacks`, `setup/install.sh` enables the timer where Docker is installed.
+
+### Dokploy
+
+[Dokploy](https://dokploy.com) deploys apps (Git repos, Compose files, templates) into Docker, with a
+dashboard on <http://localhost:3000>. Installed once per PC with `pkexec system/dokploy-setup.sh` (its
+official installer: Swarm mode, its Postgres, the dashboard, Traefik on ports 80 / 443).
+
+- **Off unless started:** it never comes on by itself. `docker.service` runs `dokployctl down` as it stops
+  and again as it starts (`system/docker/docker.service.conf`, installed by `root-setup.sh`), so a reboot,
+  a crash or Docker switched off leaves it off. Start it from the Dokploy window or with `dokployctl up`;
+  it brings back the apps that were running when it went down.
+- `dokployctl status | up | down` (`local/lib/dokploy/dokployctl.py`): off = its Swarm services scaled to
+  0, Traefik and its apps stopped (`unless-stopped`, so Docker doesn't restart them); what was running is
+  kept in `~/.local/state/dokploy/stopped.json` for `up`.
+- **The Dokploy window** (`dockergui.py --dokploy`, class `sami.dokploy`, on workspace 9 beside Docker and
+  opened with it) is the Docker panel's window for Dokploy alone: the apps it deployed (the **Apps** tab),
+  with the same search, filter, logs, shell and panes. Its own containers (the dashboard, its Postgres,
+  Traefik) aren't listed: the header switches Dokploy, and with no apps yet the details show Dokploy itself. The header says on / off, what runs and how many apps, with **Stop / Start Dokploy** (Start
+  Docker while Docker is off) and **Open dashboard**. Dokploy's details: its state, version, services,
+  apps, CPU / memory, whether this PC keeps it off at boot and closed to the network, and **Start / Stop
+  Dokploy**, **Open dashboard**, **Logs**.
+- Dokploy's things are switched and deleted by Dokploy: its Swarm containers' Start / Stop is Dokploy's
+  switch, and an app it deployed has no Pull & up / Rebuild / Delete all here (redeploy or delete it in the
+  dashboard), or the panel and Dokploy would disagree.
+- **On the internet:** an app gets a public `https://NAME.<tailnet>.ts.net` address from a Tailscale
+  container beside it, with Funnel on (Tailscale's ACL: `tag:app` may Funnel and reach nothing else). The
+  auth key lives in `~/.local/share/dokploy/tailscale-authkey` (not in git); Dokploy gets it as the app's
+  `TS_AUTHKEY`. Nothing else of it is published: the network can't reach its ports (above).
 
 ### Control Center (workspace 10)
 

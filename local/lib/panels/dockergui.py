@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # dockergui.py — the Docker panel as a GTK window (Tokyo Night, plain). Workspace 9's app
 # (config/hypr/workspaces.conf); tiled, so running it again just brings it up.
+# `dockergui.py --dokploy` is the Dokploy window (class sami.dokploy), opened with it on workspace 9:
+# the same window for Dokploy's own containers and the apps it deployed, its on / off switch in the
+# header and what it's doing (dokployctl). The Docker window leaves those containers out.
 #
 #   tabs   Containers · Images · Volumes · Networks (1-4)
+#   header Docker itself on / off (systemctl, allowed without a password by system/root-setup.sh)
 #   left   a search box and a filter (all / running / stopped, in use / unused), then the tab's list:
 #          containers grouped by compose project, each project a row of its own (its − / + button,
 #          Enter or double-click collapses it), like Docker Desktop; a dot per row says its state
@@ -19,23 +23,29 @@ import json, os, re, shlex, subprocess, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dockerlogs
 import dockerpanel as dp
-from gtkkit import Gdk, GLib, Gtk, Pango, View, box, button, clear, label, recolor, run, scrolled, wrap_box
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, box, button, clear, hypr_socket, label, recolor, run, scrolled,
+                    wrap_box)
 
-TAB_NAMES = {"containers": "Containers", "images": "Images", "volumes": "Volumes", "networks": "Networks"}
+TAB_NAMES = {"containers": "Containers", "images": "Images", "volumes": "Volumes", "networks": "Networks",
+             "dokploy": "Apps"}   # the Dokploy window's one tab
 # the list's filter, per tab: (key, label); the first is everything
 FILTERS = {"containers": (("all", "All"), ("running", "Running"), ("stopped", "Stopped")),
            "images": (("all", "All"), ("used", "In use"), ("unused", "Unused")),
            "volumes": (("all", "All"), ("used", "In use"), ("unused", "Unused")),
            "networks": (("all", "All"), ("used", "In use"), ("unused", "Unused"))}
+FILTERS["dokploy"] = FILTERS["containers"]
 # the list's columns, per tab (the name first): (title, width), as cols() draws the rows
 COLUMNS = {"containers": (("CPU", -6), ("MEM", -6), ("PORT", -7), ("", -9)),
            "images": (("SIZE", -6), ("CREATED", -14)),
            "volumes": (("SIZE", -6), ("USED BY", 18)),
            "networks": (("DRIVER", 8), ("SUBNET", 16), ("#", -3))}
+COLUMNS["dokploy"] = COLUMNS["containers"]
 PANES = (("logs", "Logs"), ("env", "Env"), ("mounts", "Mounts"), ("inspect", "Inspect"))
 FILES = os.path.expanduser("~/.local/lib/panels/filesgui.py")
 TERM = os.path.join(os.path.dirname(os.path.abspath(__file__)), "termgui.py")
 DOT = "●"
+# what system/root-setup.sh installs for Docker: the network kept out, Dokploy off at boot
+GUARDS = ("/usr/local/lib/dotfiles/docker-firewall", "/etc/systemd/system/docker.service.d/dotfiles.conf")
 
 CSS = """
 /* each project (or group) starts with space and a thin line, so the groups read as blocks */
@@ -114,6 +124,7 @@ class Docker(View):
     icon = ""   # nf-linux-docker, as the terminal panel
     interval = 1.0
     css = CSS
+    tab_list = dp.TABS
     hints = [("1-4", "tabs"), ("/", "search"), ("f", "filter"), ("s", "start/stop"), ("r", "restart"), ("p", "pause"),
              ("l", "logs"), ("e", "shell"), ("x", "run…"), ("w", "pane"), ("y", "copy ID"), ("d", "delete"),
              ("Enter", "collapse"), ("L", "lazydocker")]
@@ -131,7 +142,8 @@ class Docker(View):
         self.folded = set()                      # compose projects shown as just their row
         self.armed = None                        # (ID, time): Remove was pressed once
         self.query = ""                          # the list's search
-        self.only = {t: "all" for t in dp.TABS}  # the list's filter, per tab
+        self.only = {t: "all" for t in dp.ALL_TABS}  # the list's filter, per tab
+        self.powering = ""                       # "starting…" / "stopping…" while Docker switches
         self.pane = "logs"                       # a container's lower pane
         self.pane_query, self.errors_only = "", False
         self.inspected = {}                      # (ID, State) → docker inspect, for Env / Mounts / Inspect
@@ -150,17 +162,30 @@ class Docker(View):
         subprocess.Popen(["uwsm", "app", "--", *argv], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def bring_up(self, cls, *args):
+        """The other window of workspace 9 (Docker / Dokploy) in front, its workspace shown; closed: open it."""
+        try:
+            win = next((c for c in json.loads(hypr_socket("j/clients") or "[]") if c["class"] == cls), None)
+        except ValueError:
+            win = None
+        if win:
+            hypr_socket(f'dispatch hl.dsp.focus({{ window = "address:{win["address"]}" }})')
+        else:
+            self.launch(sys.executable, os.path.abspath(__file__), *args)
+
     def header_extra(self):
         self.prune_btn = button("", self.prune, "flat", "danger")
         self.prune_btn.set_visible(False)
-        return [self.prune_btn, button("lazydocker", lambda: self.terminal(["lazydocker"], "lazydocker"), "flat",
-                       tooltip="Everything else (L)")]
+        self.power_btn = button("", self.power, "flat")
+        return [self.prune_btn, self.power_btn,
+                button("Dokploy", lambda: self.bring_up("sami.dokploy", "--dokploy"), "flat",
+                       tooltip="Its window, next to this one on workspace 9")]
 
     # ---- layout ----------------------------------------------------------------------------------
     def build(self):
         self.tabs = {}
         bar = box(False, 0, classes=("tabs",))
-        for i, t in enumerate(dp.TABS, 1):
+        for i, t in enumerate(self.tab_list, 1):
             b = button("", lambda t=t: self.switch(t), "tab", tooltip=f"{i}")
             self.tabs[t] = b
             bar.append(b)
@@ -291,6 +316,7 @@ class Docker(View):
             b.set_label(f"{TAB_NAMES[t]} {len(m.entries(t))}")
             (b.add_css_class if t == m.tab else b.remove_css_class)("on")
         self.paint_prune()
+        self.paint_power()
         self.paint_summary()
         self.paint_tools()
         self.paint_list()
@@ -300,10 +326,11 @@ class Docker(View):
         """The header's line: what's running, and what the images and volumes take on disk."""
         m = self.model
         if m.error:
-            self.set_subtitle("docker isn't answering")
+            self.set_subtitle("Docker is off" if m.docker_off else "docker isn't answering")
             return
-        up = sum(c["State"] == "running" for c in m.items)
-        bits = [f"{up} running · {len(m.items) - up} stopped"]
+        shown = m.entries("containers")
+        up = sum(c["State"] == "running" for c in shown)
+        bits = [f"{up} running · {len(shown) - up} stopped"]
         if m.images:
             bits.append(f"images {human(sum(size_bytes(i['size']) for i in m.images))}")
         if m.volumes and any(v["size"] for v in m.volumes):
@@ -322,6 +349,54 @@ class Docker(View):
             "Delete every stopped container, twice to confirm (D); their volumes and images stay"
             if m.tab == "containers" else "Delete every untagged image no container uses, twice to confirm (D)")
         self.prune_btn.set_visible(bool(what))
+
+    def paint_power(self):
+        """The header's Docker switch: Turn off (twice: every container stops) or Start Docker."""
+        m = self.model
+        sure = self.armed and self.armed[0] == "power" and time.time() - self.armed[1] < 3
+        text = self.powering or ("Start Docker" if m.docker_off else
+                                 "Click again: stop Docker" if sure else "Turn off Docker")
+        self.power_btn.set_label(text)
+        self.power_btn.set_sensitive(not self.powering)
+        self.power_btn.set_tooltip_text("Start Docker (and the containers set to restart)" if m.docker_off else
+                                        "Stop Docker and every container, twice to confirm; Dokploy goes off too")
+        for cls, on in (("danger", sure), ("primary", m.docker_off)):
+            (self.power_btn.add_css_class if on else self.power_btn.remove_css_class)(cls)
+
+    def power(self):
+        """Docker on or off: systemctl on docker.service and its socket (else a docker command would
+        start it again). Stopping runs `dokployctl down` first (docker.service's ExecStop)."""
+        m = self.model
+        on = m.docker_off
+        if self.powering:
+            return
+        if not on and not (self.armed and self.armed[0] == "power" and time.time() - self.armed[1] < 3):
+            return self.arm("power", "press again to stop Docker and every container")
+        self.armed = None
+        self.powering = "Starting…" if on else "Stopping…"
+        # one unit per call: polkit's rule sees which unit only then (systemd refuses a call with two). The
+        # socket goes first when stopping, or a docker command meanwhile starts the service right back
+        units = ["docker.socket", "docker.service"]
+
+        def work():
+            for unit in units:
+                r = subprocess.run(["systemctl", "start" if on else "stop", unit], capture_output=True, text=True)
+                if r.returncode:
+                    break
+
+            def done():
+                self.powering = ""
+                if r.returncode:
+                    self.say((r.stderr.strip().splitlines() or ["systemctl failed"])[-1], "bad")
+                else:
+                    self.say("Docker started" if on else "Docker stopped")
+                m.changed = True
+                m.refresh.set()
+                self.refresh()
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=work, daemon=True).start()
+        self.update()
 
     def paint_tools(self):
         """The filter chips and the column titles, for this tab (made again only when it changes)."""
@@ -345,7 +420,7 @@ class Docker(View):
         """The tab's filter, then the search: every word somewhere in the entry's name, image, project,
         ports (containers), ref (images), subnet and members (networks)."""
         m, only = self.model, self.only[self.model.tab]
-        if m.tab == "containers":
+        if m.tab in dp.CONTAINER_TABS:
             on = e["State"] == "running"
             hay = (e["short"], e["Names"], e["Image"], e["project"], e["Ports"], e["Status"])
         elif m.tab == "images":
@@ -367,7 +442,7 @@ class Docker(View):
         words = self.query.casefold().split()
         narrowed = bool(words) or self.only[m.tab] != "all"
         for title, note, group in m.groups():
-            project = m.tab == "containers" and group[0]["project"]
+            project = m.tab in dp.CONTAINER_TABS and group[0]["project"]
             named = project and words and all(w in project.casefold() for w in words)
             shown = [e for e in group if self.passes(e, [] if named else words)]
             if not shown:
@@ -400,9 +475,11 @@ class Docker(View):
         if not rows:
             clear(self.list)
             self.shown_rows = None
-            text = m.error or (f"nothing matches “{self.query}”" if self.query else
-                               "nothing here" if self.only[m.tab] == "all" else "none like that")
-            self.list.append(Gtk.ListBoxRow(child=label(text, "red" if m.error else "dim"), selectable=False))
+            text = "Docker is off" if m.docker_off else m.error or (
+                f"nothing matches “{self.query}”" if self.query else
+                "nothing here" if self.only[m.tab] == "all" else "none like that")
+            self.list.append(Gtk.ListBoxRow(child=label(text, "red" if m.error and not m.docker_off else "dim"),
+                                            selectable=False))
             return
         ids = [i for _, i, _ in rows if i]
         if m.sel[m.tab] not in ids:   # the selection was filtered out: the first that shows
@@ -449,7 +526,7 @@ class Docker(View):
         m = self.model
         if kind == "project":
             return (p, m.busy.get(eid), p in self.folded, tuple(c["State"] for c in m.items if c["project"] == p))
-        if kind == "entry" and m.tab == "containers":
+        if kind == "entry" and m.tab in dp.CONTAINER_TABS:
             st = m.stats.get(eid)
             shown = (f"{dp.percent(st['CPUPerc']):.1f}", dp.short_size(st["MemUsage"])) if st else None
             return (repr(p), m.busy.get(eid), shown)
@@ -478,7 +555,7 @@ class Docker(View):
             line.set_spacing(8)
             return line
         e = p
-        if m.tab == "containers":
+        if m.tab in dp.CONTAINER_TABS:
             return self.container_line(e)
         busy = (m.busy[e["ID"]], -30, ("accent",)) if e["ID"] in m.busy else None
         if m.tab == "images":
@@ -567,7 +644,7 @@ class Docker(View):
         key = (m.tab, e["ID"] if e else None)
         if key != self.detail_for:
             self.detail_for, self.actions_sig, self.text_key = key, None, None
-        container = bool(e) and m.tab == "containers" and not dp.is_project(e)
+        container = bool(e) and m.tab in dp.CONTAINER_TABS and not dp.is_project(e)
         self.pane_tabs_box.set_visible(container)
         self.lower_title.set_visible(not container)
         self.errors_btn.set_visible(container and self.pane == "logs")
@@ -575,10 +652,13 @@ class Docker(View):
             (b.add_css_class if k == self.pane else b.remove_css_class)("on")
         if not e:
             self.kv_rows([])
-            self.heading.set_text("Docker isn't answering" if m.error else "Nothing selected")
-            self.state.set_text(m.error)
+            self.heading.set_text("Docker is off" if m.docker_off else
+                                  "Docker isn't answering" if m.error else "Nothing selected")
+            self.state.set_text("Start it to see its containers, images and volumes" if m.docker_off else m.error)
             self.set_state_class("dim")
-            self.set_actions("none", lambda: [])
+            self.set_actions(("none", m.docker_off, self.powering), lambda: [
+                self.act_button(self.powering or "Start Docker", self.power, "primary", busy=bool(self.powering))]
+                if m.docker_off else [])
             self.lower_title.set_text("")
             self.set_text([])
             self.fit_split()
@@ -586,8 +666,8 @@ class Docker(View):
         if dp.is_project(e):
             self.project_detail(e)
         else:
-            {"containers": self.container_detail, "images": self.image_detail,
-             "volumes": self.volume_detail, "networks": self.network_detail}[m.tab](e)
+            {"containers": self.container_detail, "images": self.image_detail, "volumes": self.volume_detail,
+             "networks": self.network_detail, "dokploy": self.container_detail}[m.tab](e)
         self.fit_split()
 
     def fit_split(self):
@@ -698,11 +778,18 @@ class Docker(View):
             pairs.append(("Project", c["workdir"].replace(dp.HOME, "~")))
         self.kv_rows(pairs)
 
+        task = bool(c.get("swarm"))   # Swarm starts a stopped task again: it's Dokploy's switch, not ours
+
         def make():
-            buttons = [self.act_button("Stop" if running or paused else "Start", lambda: self.container_action("s", c),
-                                       "primary", tooltip="s", busy=busy),
-                       self.act_button("Restart", lambda: self.container_action("r", c), tooltip="r", busy=busy)]
-            if running or paused:
+            if task:
+                buttons = [self.act_button("Stop Dokploy" if running else "Start Dokploy",
+                                           lambda: self.model.dokploy_switch(not running), "primary", busy=busy,
+                                           tooltip="A Swarm service's container: Dokploy switches it")]
+            else:
+                buttons = [self.act_button("Stop" if running or paused else "Start", lambda: self.container_action("s", c),
+                                           "primary", tooltip="s", busy=busy),
+                           self.act_button("Restart", lambda: self.container_action("r", c), tooltip="r", busy=busy)]
+            if (running or paused) and not task:
                 buttons.append(self.act_button("Resume" if paused else "Pause", lambda: self.container_action("p", c),
                                                tooltip="Freeze its processes, or let them go on (p)", busy=busy))
             buttons.append(button("Logs", lambda: self.full_logs(c), tooltip="Full screen, following (l)"))
@@ -711,8 +798,9 @@ class Docker(View):
                             self.exec_button(c)]
             if pp:
                 buttons.append(button("Open port", lambda: self.container_action("o", c), tooltip="o"))
-            buttons += [button("Copy ID", lambda: self.copy(c["ID"], "ID"), "flat", tooltip="y"),
-                        self.remove_button(c, busy)]
+            buttons.append(button("Copy ID", lambda: self.copy(c["ID"], "ID"), "flat", tooltip="y"))
+            if not task:
+                buttons.append(self.remove_button(c, busy))
             return buttons
         self.set_actions((c["ID"], c["State"], busy, bool(pp), self.armed_on(c)), make)
         self.container_pane(c, info)
@@ -808,6 +896,8 @@ class Docker(View):
         return out or [("no errors or warnings", "dim")]
 
     def project_detail(self, p):
+        if p["project"] == dp.DOKPLOY:
+            return self.dokploy_detail(p)
         m = self.model
         group = p["containers"]
         up = [c for c in group if c["State"] == "running"]
@@ -826,11 +916,14 @@ class Docker(View):
         pp = [f"{h} {c['short']}" for c in up for h, _, _ in dp.ports(c["Ports"])]
         if pp:
             pairs.append(("Ports", "  ".join(pp)))
+        dokploy = group[0]["dokploy"] == "app"
+        if dokploy:
+            pairs.append(("Deployed by", "Dokploy: redeploy, update or delete it there"))
         self.kv_rows(pairs)
         folded = p["project"] in self.folded
-        has_files = bool(self.compose_files(p))
+        has_files = bool(self.compose_files(p)) and not dokploy
         here = bool(workdir) and os.path.isdir(workdir)
-        self.set_actions((p["ID"], bool(up), busy, folded, self.armed_on(p), has_files, here), lambda: [
+        self.set_actions((p["ID"], bool(up), busy, folded, self.armed_on(p), has_files, here, dokploy), lambda: [
             self.act_button("Stop all" if up else "Start all", lambda: self.project_action("s", p), "primary",
                             tooltip="s", busy=busy),
             self.act_button("Restart all", lambda: self.project_action("r", p), tooltip="r", busy=busy),
@@ -844,8 +937,9 @@ class Docker(View):
             self.act_button("VS Code", lambda: self.launch("code", workdir), "flat", busy=not here,
                             tooltip="Open its folder in VS Code (C)"),
             button("Expand" if folded else "Collapse", lambda: self.fold(p["ID"]), "flat", tooltip="Enter"),
-            self.remove_button(p, busy, "Delete all", "Stop and delete its containers and network, twice to "
-                               "confirm (d); volumes stay (start it again from the project: docker compose up)")])
+            *([] if dokploy else [self.remove_button(p, busy, "Delete all", "Stop and delete its containers and "
+                                  "network, twice to confirm (d); volumes stay (start it again from the project: "
+                                  "docker compose up)")])])
         self.lower_title.set_text("Containers")
         seg = []
         for c in group:
@@ -862,6 +956,71 @@ class Docker(View):
                 seg.append((" ".join(h for h, _, _ in pp), "accent"))
             seg.append(("\n", None))
         self.set_text(seg)
+
+    def dokploy_detail(self, p):
+        """Dokploy's group: on / off, where it is, what it runs, and whether this PC keeps it safe."""
+        m = self.model
+        core = p["containers"]
+        busy = p["ID"] in m.busy
+        svcs = {s["name"]: s for s in m.dokploy}
+        dash = svcs.get("dokploy")
+        on, ready = bool(dash and dash["desired"]), bool(dash and dash["running"])
+        router = next((c for c in core if c["Names"] == dp.dokployctl.TRAEFIK), None)
+        apps = {}
+        for c in m.items:
+            if c["dokploy"] == "app":
+                a = apps.setdefault(c["project"] or c["swarm"], [0, 0])
+                a[0] += c["State"] == "running"
+                a[1] += 1
+        self.heading.set_text("Dokploy")
+        self.state.set_text(m.busy[p["ID"]] if busy else "on" if ready else "starting…" if on else "off")
+        self.set_state_class("accent" if busy else "green" if ready else "amber" if on else "dim")
+        version = dash["image"].rpartition(":")[2].split("@")[0] if dash and ":" in dash["image"] else "—"
+        pairs = [("Dashboard", dp.dokployctl.URL + ("" if ready else "  (when it's on)")),
+                 ("Version", version),
+                 ("Services", "  ".join(f"{n} {s['running']}/{s['desired']}" for n, s in svcs.items() if s["core"]) or "—"),
+                 ("Router", f"Traefik {router['State'] if router else 'missing'} · ports 80, 443"),
+                 ("Apps", f"{len(apps)} deployed · {sum(1 for r, _ in apps.values() if r)} running" if apps else "none yet"),
+                 ("Data", dp.dokployctl.DATA)]
+        stats = [m.stats[c["ID"]] for c in core if c["ID"] in m.stats and c["State"] == "running"]
+        if stats:
+            pairs += [("CPU", f"{sum(dp.percent(s['CPUPerc']) for s in stats):.1f}%"),
+                      ("Memory", f"{sum(dp.percent(s['MemPerc']) for s in stats):.1f}% of RAM")]
+        safe = all(os.path.exists(f) for f in GUARDS)
+        pairs += [("At boot", "off: starts only from here (or dokployctl up)" if safe else
+                   "may start with Docker: run system/root-setup.sh"),
+                  ("Network", "closed: its ports answer this PC only, apps go out through Tailscale" if safe else
+                   "open to the LAN: run system/root-setup.sh")]
+        self.kv_rows(pairs)
+
+        def make():
+            return [self.act_button("Stop Dokploy" if on else "Start Dokploy", lambda: m.dokploy_switch(not on),
+                                    "primary", busy=busy, tooltip="Dokploy and its apps, on or off (s)"),
+                    self.act_button("Open dashboard", lambda: self.open_url(dp.dokployctl.URL), busy=not ready,
+                                    tooltip=dp.dokployctl.URL),
+                    self.act_button("Logs", self.dokploy_logs, busy=not on, tooltip="The dashboard's logs (l)"),
+                    button("Folder", lambda: self.launch("python3", FILES, dp.dokployctl.DATA), "flat",
+                           tooltip="Its data: /etc/dokploy"),
+                    button("Copy URL", lambda: self.copy(dp.dokployctl.URL, "URL"), "flat")]
+        self.set_actions((p["ID"], on, ready, busy), make)
+        self.lower_title.set_text("Its apps")
+        seg = []
+        for name, (running, total) in sorted(apps.items()):
+            seg += [(f"{DOT} ", "green" if running == total else "amber" if running else "dim"),
+                    (f"{fit(name, 30):<32}", None if running else "dim"),
+                    (f"app · {running}/{total} running\n", "dim")]
+        if not apps:
+            seg.append(("No apps yet: deploy one from the dashboard.\n", "dim"))
+        self.set_text(seg)
+
+    def open_url(self, url):
+        subprocess.Popen(["xdg-open", url], start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.say(f"opened {url}")
+
+    def dokploy_logs(self):
+        script = (f"docker service logs --follow --tail 200 dokploy 2>&1 | "
+                  f"less -R --mouse +F {shlex.quote('-PsDokploy logs · F follow · Ctrl+C stop following · / search · q close$')}")
+        self.terminal(["sh", "-c", script], "Dokploy logs")
 
     def compose_files(self, p):
         """The project's compose files that are still there (compose up needs them), or []."""
@@ -956,7 +1115,7 @@ class Docker(View):
         container uses."""
         m = self.model
         if m.tab == "containers":
-            return [c for c in m.items if c["State"] in ("exited", "created", "dead")]
+            return [c for c in m.entries("containers") if c["State"] in ("exited", "created", "dead")]
         if m.tab == "images":
             return [i for i in m.images if i["dangling"] and not i["used"]]
         return []
@@ -999,6 +1158,17 @@ class Docker(View):
         from its files, pulling newer images or building them again."""
         name, group = p["project"], p["containers"]
         running = [c for c in group if c["State"] == "running"]
+        if name == dp.DOKPLOY:
+            if k == "s":
+                on = bool(next((s for s in self.model.dokploy if s["name"] == "dokploy" and s["desired"]), None))
+                self.model.dokploy_switch(not on)
+            elif k == "l":
+                self.dokploy_logs()
+            self.update()
+            return
+        if k in ("U", "B", "d") and group[0]["dokploy"] == "app":
+            self.say(f"{name} is Dokploy's: redeploy or delete it from its dashboard")
+            return
         if k in ("U", "B"):
             files = self.compose_files(p)
             if not files:
@@ -1034,6 +1204,9 @@ class Docker(View):
         project's containers (compose down: volumes stay), the image, volume or network."""
         m = self.model
         project = dp.is_project(e)
+        if (e["containers"][0]["dokploy"] if project else e.get("dokploy") == "core"):
+            self.say("that's Dokploy's: stop Dokploy here, delete apps from its dashboard")
+            return
         name = e["project"] if project else {"containers": e.get("short"), "images": e.get("ref"),
                                              "volumes": e.get("short"), "networks": e.get("name")}.get(m.tab)
         if not name:
@@ -1134,7 +1307,7 @@ class Docker(View):
         if e["ID"] in m.busy:
             return
         if dp.is_project(e):
-            if k in ("s", "r", "U", "B"):
+            if k in ("s", "r", "U", "B") or (k == "l" and e["project"] == dp.DOKPLOY):
                 self.project_action(k, e)
             elif k == "l":
                 self.project_logs(e["project"])
@@ -1144,8 +1317,11 @@ class Docker(View):
                 self.launch(*(["python3", FILES] if k == "F" else ["code"]), e["containers"][0]["workdir"])
         elif k == "d":
             self.remove(e)
-        elif m.tab == "containers":
-            if k in ("s", "r", "o", "p"):
+        elif m.tab in dp.CONTAINER_TABS:
+            if k in ("s", "r", "p") and e.get("swarm"):
+                if k == "s":
+                    m.dokploy_switch(e["State"] != "running")
+            elif k in ("s", "r", "o", "p"):
                 self.container_action(k, e)
             elif k == "l":
                 self.full_logs(e)
@@ -1174,19 +1350,20 @@ class Docker(View):
             return False
         name = Gdk.keyval_name(keyval) or ""
         m = self.model
-        if name in ("1", "2", "3", "4"):
-            self.switch(dp.TABS[int(name) - 1])
+        tabs = self.tab_list
+        if name in ("1", "2", "3", "4") and int(name) <= len(tabs):
+            self.switch(tabs[int(name) - 1])
         elif name in ("Tab", "Right"):
-            self.switch(dp.TABS[(dp.TABS.index(m.tab) + 1) % 4])
+            self.switch(tabs[(tabs.index(m.tab) + 1) % len(tabs)])
         elif name in ("ISO_Left_Tab", "Left"):
-            self.switch(dp.TABS[(dp.TABS.index(m.tab) - 1) % 4])
+            self.switch(tabs[(tabs.index(m.tab) - 1) % len(tabs)])
         elif name in ("slash", "KP_Divide"):
             self.search.grab_focus()
         elif name == "Escape" and self.query:
             self.leave_search()
         elif name == "f":
             self.cycle_only()
-        elif name == "w" and m.tab == "containers":
+        elif name == "w" and m.tab in dp.CONTAINER_TABS:
             self.cycle_pane()
         elif name in ("j", "k"):
             self.move(1 if name == "j" else -1)
@@ -1203,12 +1380,91 @@ class Docker(View):
         return True
 
 
-def make():
-    return Docker()
+class Dokploy(Docker):
+    """The Dokploy window: Docker's, with only the apps Dokploy deployed, and Dokploy on / off in the header.
+    Its own containers (dashboard, Postgres, Traefik) aren't listed: the header switches Dokploy."""
+    title, subtitle = "Dokploy", "Dokploy and its apps"
+    icon = "\uf0ee"   # nf-fa-cloud_upload
+    tab_list = ["dokploy"]
+    hints = [h for h in Docker.hints if h[0] not in ("1-4", "L")]
+
+    def __init__(self):
+        super().__init__()
+        self.model.tab = "dokploy"
+
+    def header_extra(self):
+        self.prune_btn = button("", self.prune)   # nothing to sweep here: Dokploy deletes its own
+        self.power_btn = button("", self.power, "flat")
+        return [self.power_btn, button("Open dashboard", lambda: self.open_url(dp.dokployctl.URL), "flat",
+                                       tooltip=dp.dokployctl.URL),
+                button("Docker", lambda: self.bring_up("sami.docker"), "flat",
+                       tooltip="Its window, next to this one on workspace 9")]
+
+    def dokploy_state(self):
+        """(on, ready, busy label or "")."""
+        m = self.model
+        dash = next((s for s in m.dokploy if s["name"] == "dokploy"), None)
+        return bool(dash and dash["desired"]), bool(dash and dash["running"]), m.busy.get(dp.PROJECT + dp.DOKPLOY, "")
+
+    def apps(self):
+        return [c for c in self.model.entries("dokploy") if c["dokploy"] == "app"]
+
+    def layout(self):
+        """Without Dokploy's own group (its row and containers); with no apps, the details show Dokploy itself."""
+        return [r for r in super().layout() if r[1] != dp.PROJECT + dp.DOKPLOY
+                and not (r[0] == "entry" and r[2]["dokploy"] == "core")]
+
+    def update(self):
+        super().update()
+        self.tabs["dokploy"].set_label(f"Apps {len(self.apps())}")
+
+    def paint_prune(self):
+        self.prune_btn.set_visible(False)
+
+    def paint_power(self):
+        """Stop Dokploy / Start Dokploy; Start Docker while Docker is off (this window has nothing else to do)."""
+        m = self.model
+        if m.docker_off or m.error:
+            return super().paint_power()
+        on, _ready, busy = self.dokploy_state()
+        installed = any(s["name"] == "dokploy" for s in m.dokploy)
+        self.power_btn.set_label(busy.capitalize() or ("Stop Dokploy" if on else
+                                                         "Start Dokploy" if installed else "Not installed"))
+        self.power_btn.set_sensitive(installed and not busy)
+        self.power_btn.set_tooltip_text("Dokploy and its apps, on or off" if installed else
+                                        "Install it with system/dokploy-setup.sh")
+        self.power_btn.remove_css_class("danger")
+        (self.power_btn.add_css_class if installed and not on else self.power_btn.remove_css_class)("primary")
+
+    def power(self):
+        if self.model.docker_off or self.model.error:
+            return super().power()
+        on, _ready, busy = self.dokploy_state()
+        if not busy:
+            self.model.dokploy_switch(not on)
+            self.update()
+
+    def paint_summary(self):
+        """The header's line: on or off, then what runs."""
+        m = self.model
+        if m.error:
+            return super().paint_summary()
+        on, ready, busy = self.dokploy_state()
+        shown = self.apps()
+        up = sum(c["State"] == "running" for c in shown)
+        apps = {c["project"] or c["swarm"] for c in shown}
+        state = busy or ("on" if ready else "starting…" if on else "off")
+        self.set_subtitle("   ·   ".join([state, f"{up} running · {len(shown) - up} stopped",
+                                         f"{len(apps)} app{'' if len(apps) == 1 else 's'}"]))
+
+
+def make(dokploy=False):
+    return Dokploy() if dokploy else Docker()
 
 
 def main():
-    run(make(), "sami.docker", (1280, 720), toggle=False)
+    dokploy = "--dokploy" in sys.argv[1:]
+    run(make(dokploy), "sami.dokploy" if dokploy else "sami.docker", (1280, 720), toggle=False)
 
 
 if __name__ == "__main__":

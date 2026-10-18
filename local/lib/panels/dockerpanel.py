@@ -17,18 +17,24 @@ from collections import deque
 from itertools import zip_longest
 
 import dockerlogs
+sys.path.insert(0, os.path.expanduser("~/.local/lib/dokploy"))
+import dokployctl
 from panelkit import (Panel, run as show, suspend, FG, DIM, ACCENT, TRACK, GREEN, YELLOW, RED, CYAN,
                       BOLD, RESET, clip, fit, frame, card, header, section, hints, highlight, visible_len)
 
 HOME = os.path.expanduser("~")
 FORMAT = ('{{json .}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.service"}}'
           '\t{{.Label "com.docker.compose.project.working_dir"}}'
-          '\t{{.Label "com.docker.compose.project.config_files"}}')
+          '\t{{.Label "com.docker.compose.project.config_files"}}\t{{.Label "com.docker.swarm.service.name"}}')
 PORT = re.compile(r"(?:[\d.]+|\[[^\]]*\]):(\d+(?:-\d+)?)->(\d+(?:-\d+)?)/(\w+)")
 DOCKERLOGS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dockerlogs.py")
 SHELLS = {"bash", "sh", "ash", "zsh", "fish", "dash"}
 EXEC_PRESETS = ["env", "ps aux", "df -h", "cat /etc/os-release", "ls -la"]
-TABS = ["containers", "images", "volumes", "networks"]
+TABS = ["containers", "images", "volumes", "networks"]   # Containers leaves out Dokploy's (below)
+# the GUI's Dokploy window has its own: Dokploy's containers (its own and the apps it deployed), drawn like Containers
+ALL_TABS = TABS + ["dokploy"]
+CONTAINER_TABS = ("containers", "dokploy")
+DOKPLOY = "dokploy"   # the group Dokploy's own containers are shown in, like a compose project
 BUILTIN_NETWORKS = {"bridge", "host", "none"}
 PROJECT = "project:"  # a compose project's row in the containers list has the ID "project:<name>"
 
@@ -111,8 +117,10 @@ class DockerPanel(Panel):
         self.tab = "containers"
         self.items, self.error = [], ""                 # containers
         self.images, self.volumes, self.networks = [], [], []
-        self.sel = {t: None for t in TABS}              # selected ID per tab (survives refreshes)
-        self.scroll = {t: 0 for t in TABS}
+        self.sel = {t: None for t in ALL_TABS}          # selected ID per tab (survives refreshes)
+        self.scroll = {t: 0 for t in ALL_TABS}
+        self.docker_off = False                         # the daemon is stopped (not just failing)
+        self.dokploy = []                               # Dokploy's Swarm services (dokployctl.services)
         self.stats = {}
         self.logs, self.logs_for = [], None           # dockerlogs.Record list of the selected container
         self.prompt = None                              # the exec prompt while it's open
@@ -147,19 +155,42 @@ class DockerPanel(Panel):
             return
         if r.returncode:
             self.items, self.error = [], r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "docker failed"
+            # switched off (the panel's switch, or never started) rather than broken
+            self.docker_off = subprocess.run(["systemctl", "is-active", "-q", "docker.service"]).returncode != 0
+            self.dokploy = []
             return
-        items = []
+        self.docker_off = False
+        items, tasks = [], {}
         for line in r.stdout.splitlines():
-            raw, project, service, workdir, configs = (line.split("\t") + ["", "", "", ""])[:5]
+            raw, project, service, workdir, configs, swarm = (line.split("\t") + [""] * 5)[:6]
             c = json.loads(raw)
-            c.update(project=project, service=service, workdir=workdir, short=self.short(c["Names"], project),
+            # Dokploy: its own containers (Swarm tasks, Traefik) grouped as "dokploy"; the apps it
+            # deployed are compose projects under /etc/dokploy (or Swarm services of their own)
+            core = swarm in dokployctl.CORE or c["Names"] == dokployctl.TRAEFIK
+            app = workdir.startswith(dokployctl.DATA + "/") or bool(swarm and not core)
+            if core:
+                project = DOKPLOY
+            short = swarm or self.short(c["Names"], project)
+            c.update(project=project, service=service, workdir=workdir, short=short, swarm=swarm,
+                     dokploy="core" if core else "app" if app else "",
                      configs=[f for f in configs.split(",") if f])   # its compose files (compose up needs them)
+            if swarm:   # a service's newest task only: the old ones are history
+                old = tasks.get(swarm)
+                rank = lambda t: (t["State"] == "running", t["CreatedAt"])   # running first, then newest
+                if old and rank(old) >= rank(c):
+                    continue
+                if old:
+                    items.remove(old)
+                tasks[swarm] = c
             items.append(c)
+        self.dokploy = dokployctl.services() if self.tab == "dokploy" else []   # only its window asks
         # compose projects A–Z, containers not in a project last
         items.sort(key=lambda c: (not c["project"], c["project"], c["short"]))
         self.items, self.error = items, ""
-        projects = [PROJECT + p for p in dict.fromkeys(c["project"] for c in items) if p]
-        self.keep_selection("containers", projects + [c["ID"] for c in items])
+        for tab in CONTAINER_TABS:
+            shown = self.entries(tab)
+            self.keep_selection(tab, [PROJECT + p for p in dict.fromkeys(c["project"] for c in shown) if p] +
+                                [c["ID"] for c in shown])
 
     def keep_selection(self, tab, ids):
         if self.sel[tab] not in ids:
@@ -172,8 +203,8 @@ class DockerPanel(Panel):
         samples each time, so dockerd was always sampling."""
         while True:
             self.awake.wait()
-            if self.tab != "containers":
-                time.sleep(0.5)
+            if self.tab not in CONTAINER_TABS or self.error:   # docker off: nothing to stream
+                time.sleep(0.5 if not self.error else 3)
                 continue
             try:
                 p = subprocess.Popen(["docker", "stats", "--format", "{{json .}}"], stdout=subprocess.PIPE,
@@ -184,7 +215,7 @@ class DockerPanel(Panel):
 
             def guard():
                 while p.poll() is None:
-                    if not self.awake.is_set() or self.tab != "containers":
+                    if not self.awake.is_set() or self.tab not in CONTAINER_TABS:
                         p.terminate()
                         return
                     time.sleep(0.5)
@@ -320,7 +351,7 @@ class DockerPanel(Panel):
                 self.awake.wait()
             tab, sid = self.tab, self.sel[self.tab]
             try:
-                if tab == "containers" and sid and not sid.startswith(PROJECT):
+                if tab in CONTAINER_TABS and sid and not sid.startswith(PROJECT):
                     ended = logs and logs["proc"].poll() is not None
                     if not logs or logs["id"] != sid or (ended and time.time() - logs["at"] > 10):
                         self.stop_logs(logs)   # another container, or it ended a while ago (restarted?)
@@ -342,7 +373,7 @@ class DockerPanel(Panel):
                     self.history[sid] = layers
             except (OSError, subprocess.TimeoutExpired):
                 pass
-            if tab != "containers":
+            if tab not in CONTAINER_TABS:
                 logs = self.stop_logs(logs)
             # wake early when the tab or selection changes
             for _ in range(10):
@@ -351,12 +382,14 @@ class DockerPanel(Panel):
                     break
 
     def entries(self, tab=None):
-        return {"containers": self.items, "images": self.images, "volumes": self.volumes,
-                "networks": self.networks}[tab or self.tab]
+        tab = tab or self.tab
+        if tab in CONTAINER_TABS:   # Dokploy's containers are only in its own tab (its own window, in the GUI)
+            return [c for c in self.items if bool(c["dokploy"]) == (tab == "dokploy")]
+        return {"images": self.images, "volumes": self.volumes, "networks": self.networks}[tab]
 
     def current(self):
         sid = self.sel[self.tab]
-        if self.tab == "containers" and sid and sid.startswith(PROJECT):
+        if self.tab in CONTAINER_TABS and sid and sid.startswith(PROJECT):
             return self.project(sid[len(PROJECT):])
         return next((e for e in self.entries() if e["ID"] == sid), None)
 
@@ -414,8 +447,10 @@ class DockerPanel(Panel):
     def groups(self):
         """[(section title, right-hand note, [entries])] for the current tab."""
         e = self.entries()
-        if self.tab == "containers":
+        if self.tab in CONTAINER_TABS:
             out = []
+            if self.tab == "dokploy":   # Dokploy itself first, then its apps
+                e = sorted(e, key=lambda c: c["project"] != DOKPLOY)
             for p in dict.fromkeys(c["project"] for c in e):
                 g = [c for c in e if c["project"] == p]
                 out.append((p or "standalone", f"{sum(c['State'] == 'running' for c in g)}/{len(g)} up", g))
@@ -569,8 +604,9 @@ class DockerPanel(Panel):
         L, R = self.left(lw, body_top, room), self.right(rw, room)
         body = self.tab_bar(width, pad) + [""]
         body += [clip(l or "", lw) + " " * gap + (r or "") for l, r in zip_longest(L, R)]
-        up = sum(c["State"] == "running" for c in self.items)
-        sub = f"{up} running · {len(self.items) - up} stopped"
+        shown = self.entries("containers")
+        up = sum(c["State"] == "running" for c in shown)
+        sub = f"{up} running · {len(shown) - up} stopped"
         head = header("\uf308", "Docker", sub, width)
         if self.prompt:
             foot = self.prompt_line(width)
@@ -711,6 +747,10 @@ class DockerPanel(Panel):
         """The project row, like Docker Desktop's: stop if anything runs, else start everything."""
         name, group = p["project"], p["containers"]
         running = [c for c in group if c["State"] == "running"]
+        if name == DOKPLOY:   # not a compose project: Dokploy on / off
+            if k == "s":
+                self.dokploy_switch(not running)
+            return
         if k == "s":
             doing, verb, done, rows = ("stopping…", "stop", "stopped", running) if running else \
                 ("starting…", "start", "started", group)
@@ -721,6 +761,24 @@ class DockerPanel(Panel):
         # only the rows that will change say so; the project row says what's happening
         labels = {c["ID"]: doing for c in rows} | {p["ID"]: doing}
         self.act(labels, doing, ["compose", "-p", name, verb], f"{name}: {done}")
+
+    def dokploy_switch(self, on):
+        """Dokploy on or off (dokployctl), in the background; its rows say what's happening meanwhile."""
+        doing = "starting…" if on else "stopping…"
+        labels = {c["ID"]: doing for c in self.items if c["dokploy"]} | {PROJECT + DOKPLOY: doing}
+        self.busy.update(labels)
+
+        def work():
+            try:
+                self.say(dokployctl.up() if on else dokployctl.down())
+            except (OSError, subprocess.TimeoutExpired) as e:
+                self.say(str(e), RED)
+            finally:
+                for i in labels:
+                    self.busy.pop(i, None)
+                self.changed = True
+                self.refresh.set()
+        threading.Thread(target=work, daemon=True).start()
 
     # ---- full-screen logs ------------------------------------------------------------------------
     def full_logs(self, c):

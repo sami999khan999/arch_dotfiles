@@ -30,7 +30,25 @@ else
   echo "   no snapper root config: skipped"
 fi
 
-echo "== 4. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+echo "== 4. Docker: containers unreachable from the network, an on/off switch, Dokploy off at boot"
+if command -v docker >/dev/null; then
+  owner=$(stat -c %U "$REPO")
+  install -Dm755 "$REPO/system/docker/docker-firewall.sh" /usr/local/lib/dotfiles/docker-firewall
+  install -Dm644 "$REPO/system/docker/50-docker-switch.rules" /etc/polkit-1/rules.d/50-docker-switch.rules
+  mkdir -p /etc/systemd/system/docker.service.d
+  sed -e "s|@USER@|$owner|g" -e "s|@HOME@|$(getent passwd "$owner" | cut -d: -f6)|g" \
+    "$REPO/system/docker/docker.service.conf" > /etc/systemd/system/docker.service.d/dotfiles.conf
+  systemctl daemon-reload
+  # now too, not only from Docker's next start
+  if systemctl -q is-active docker.service; then /usr/local/lib/dotfiles/docker-firewall; fi
+  echo "   new connections from the network into containers dropped (DOCKER-USER)"
+  echo "   $owner (group docker) may start / stop Docker without a password: the Docker panel's switch"
+  echo "   docker.service runs 'dokployctl down' as it starts and stops"
+else
+  echo "   no docker: skipped"
+fi
+
+echo "== 5. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
 uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
 if [ ! -e "/dev/disk/by-uuid/${uuid#UUID=}" ]; then
   echo "   that drive isn't in this PC: skipped"

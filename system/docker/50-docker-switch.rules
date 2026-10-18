@@ -1,0 +1,11 @@
+// The Docker panel's on / off switch: members of the docker group (who control Docker anyway) may
+// start and stop docker.service and docker.socket without a password. Installed by system/root-setup.sh
+// into /etc/polkit-1/rules.d/.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        ["docker.service", "docker.socket"].indexOf(action.lookup("unit")) >= 0 &&
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0 &&
+        subject.isInGroup("docker")) {
+        return polkit.Result.YES;
+    }
+});

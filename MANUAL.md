@@ -1300,7 +1300,11 @@ official installer: Swarm mode, its Postgres, the dashboard, Traefik on ports 80
 - **The Dokploy window** (`dockergui.py --dokploy`, class `sami.dokploy`, on workspace 9 beside Docker and
   opened with it) is the Docker panel's window for Dokploy alone: the apps it deployed (the **Apps** tab),
   with the same search, filter, logs, shell and panes. Its own containers (the dashboard, its Postgres,
-  Traefik) aren't listed: the header switches Dokploy, and with no apps yet the details show Dokploy itself. The header says on / off, what runs and how many apps, with **Stop / Start Dokploy** (Start
+  Traefik) aren't listed: the header switches Dokploy. While Dokploy is off (and when the window opens) the
+  details show Dokploy itself, with **Start Dokploy** and its apps below, until you pick an app (a click or
+  `↓`); while Docker is off they say so, with **Start Docker**. An app scaled to 0 while Dokploy is off has no
+  container after a reboot: its Swarm service is listed in its place (stopped, its logs from the service).
+  The header says on / off, what runs and how many apps, with **Stop / Start Dokploy** (Start
   Docker while Docker is off) and **Open dashboard**. Dokploy's details: its state, version, services,
   apps, CPU / memory, whether this PC keeps it off at boot and closed to the network, and **Start / Stop
   Dokploy**, **Open dashboard**, **Logs**.

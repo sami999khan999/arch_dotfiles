@@ -1389,6 +1389,7 @@ class Dokploy(Docker):
     hints = [h for h in Docker.hints if h[0] not in ("1-4", "L")]
 
     def __init__(self):
+        self.overview, self.was_on = True, None   # the details show Dokploy itself (see paint_detail)
         super().__init__()
         self.model.tab = "dokploy"
 
@@ -1410,13 +1411,71 @@ class Dokploy(Docker):
         return [c for c in self.model.entries("dokploy") if c["dokploy"] == "app"]
 
     def layout(self):
-        """Without Dokploy's own group (its row and containers); with no apps, the details show Dokploy itself."""
+        """Without Dokploy's own group (its row and containers): the overview shows Dokploy itself."""
         return [r for r in super().layout() if r[1] != dp.PROJECT + dp.DOKPLOY
                 and not (r[0] == "entry" and r[2]["dokploy"] == "core")]
 
     def update(self):
+        on = self.dokploy_state()[0] and not self.model.docker_off
+        if on != self.was_on:
+            self.was_on = on
+            self.overview = self.overview or not on   # gone off: Dokploy and its Start button again
         super().update()
         self.tabs["dokploy"].set_label(f"Apps {len(self.apps())}")
+
+    def on_select(self, list_, row):
+        if not getattr(self, "building", False) and row is not None and row.eid:
+            self.overview = False   # an app picked: its details
+        super().on_select(list_, row)
+
+    def move(self, step):
+        if self.overview and self.list.get_selected_row() is None:   # ↓ from the overview: the first app
+            self.overview = False
+            return self.update()
+        self.overview = False
+        super().move(step)
+
+    def paint_list(self):
+        super().paint_list()
+        if self.overview:   # nothing highlighted: the details are Dokploy's, not an app's
+            self.building = True
+            self.list.unselect_all()
+            self.building = False
+
+    def paint_detail(self):
+        """While Dokploy (or Docker) is off, or nothing is picked, the details are Dokploy's: what it is,
+        its apps and the button that starts it (Docker first, when that's off)."""
+        m = self.model
+        if m.docker_off:
+            return self.docker_off_detail()
+        if not self.overview or m.error:
+            return super().paint_detail()
+        if self.detail_for != ("overview",):
+            self.detail_for, self.actions_sig, self.text_key = ("overview",), None, None
+        self.pane_tabs_box.set_visible(False)
+        self.lower_title.set_visible(True)
+        self.errors_btn.set_visible(False)
+        self.dokploy_detail(m.project(dp.DOKPLOY) or dict(ID=dp.PROJECT + dp.DOKPLOY, project=dp.DOKPLOY,
+                                                          containers=[]))
+        self.fit_split()
+
+    def docker_off_detail(self):
+        if self.detail_for != ("docker-off",):
+            self.detail_for, self.actions_sig, self.text_key = ("docker-off",), None, None
+        self.pane_tabs_box.set_visible(False)
+        self.lower_title.set_visible(True)
+        self.errors_btn.set_visible(False)
+        self.heading.set_text("Docker is off")
+        self.state.set_text("Dokploy runs in Docker: start Docker, then Dokploy")
+        self.set_state_class("dim")
+        self.kv_rows([("Dashboard", dp.dokployctl.URL + "  (when it's on)"), ("Data", dp.dokployctl.DATA),
+                      ("At boot", "off: Docker starts, Dokploy only from here (or dokployctl up)")])
+        self.set_actions(("docker-off", self.powering), lambda: [
+            self.act_button(self.powering or "Start Docker", self.power, "primary", busy=bool(self.powering),
+                            tooltip="Docker first; Start Dokploy is here once it's up")])
+        self.lower_title.set_text("Its apps")
+        self.set_text([("Start Docker to see them.\n", "dim")])
+        self.fit_split()
 
     def paint_prune(self):
         self.prune_btn.set_visible(False)

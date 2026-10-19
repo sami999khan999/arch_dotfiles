@@ -3,15 +3,17 @@
 #   videogui.py <file>…   plays it, then the other videos in its folder; several files: just those
 #   videogui.py <folder>  the videos in that folder
 # mpv plays (libmpv.py: its OpenGL renderer draws into the window), in the panels' look: a control bar
-# (play, seek, volume, speed, subtitles, playlist, fullscreen), a playlist pane, an info overlay and a
-# right-click menu with all of it. The running player takes what's opened next. Each file resumes where
+# (play, seek, volume, speed, subtitles, live captions, playlist, fullscreen), a playlist pane, an info overlay
+# and a right-click menu with all of it. Live captions: whisper.cpp hears the sound as it plays (captions.py). The running player takes what's opened next. Each file resumes where
 # it was left (mpv's watch-later files, ~/.local/state/videos/watch_later); a finished one starts over.
-# The folder is watched (a new download joins the list). Remembered: the volume, mute, the playlist pane.
+# The folder is watched (a new download joins the list). Remembered: the volume, mute, the playlist pane,
+# live captions (on, in English).
 import gc, json, os, re, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, Gio, GLib, Gtk, PanelApp, View, box, button, clear, collect, label, recolor, scrolled
 import libmpv
+from captions import Captions
 
 HOME = os.path.expanduser("~")
 STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or f"{HOME}/.local/state", "videos")
@@ -30,10 +32,14 @@ G_MOVIE, G_MUSIC = "\U000f0381", "\U000f0387"
 G_PLAY, G_PAUSE, G_NEXT, G_PREV = "\U000f040a", "\U000f03e4", "\U000f04ad", "\U000f04ae"
 G_VOL_HIGH, G_VOL_MID, G_VOL_LOW, G_VOL_OFF = "\U000f057e", "\U000f0580", "\U000f057f", "\U000f0581"
 G_FULL, G_FULL_EXIT, G_SUBS, G_LIST, G_LOOP = "\U000f0293", "\U000f0294", "\U000f0a16", "\U000f0411", "\U000f0456"
+G_CC = "\U000f015e"
 CSS = """
 .video-msg { color: #565f89; font-size: 13pt; }
 .osd { background: alpha(#16161e, .85); color: #c0caf5; padding: 6px 12px; margin: 14px;
        border: 1px solid alpha(#3b4261, .7); }
+.caption { background: alpha(#16161e, .8); color: #c0caf5; font-size: 16pt; padding: 4px 12px;
+           margin: 0 40px 24px 40px; }
+window.panel.full .caption { font-size: 22pt; margin-bottom: 80px; }   /* above the floating controls */
 .video-info { background: alpha(#16161e, .85); color: #a9b1d6; padding: 10px 14px; margin: 14px;
               border: 1px solid alpha(#3b4261, .7); }
 .controls { border-top: 1px solid alpha(#3b4261, .7); padding: 4px 12px; background: #16161e; }
@@ -94,7 +100,8 @@ class Videos(View):
     interval = 0
     css = CSS
     hints = [("Space", "play / pause"), ("←/→", f"{SEEK_SMALL} s"), ("↑/↓", "volume"),
-             ("n/p", "next / previous"), ("f", "fullscreen"), ("c", "subtitles"), ("t", "playlist"),
+             ("n/p", "next / previous"), ("f", "fullscreen"), ("c", "subtitles"), ("Shift+C", "live captions"),
+             ("t", "playlist"),
              ("i", "info"), ("Right-click", "more")]
 
     def __init__(self):
@@ -108,7 +115,8 @@ class Videos(View):
         self.picture = False        # it has a video track (or cover art) to draw
         self.tick_timer = self.click_timer = self.hide_timer = self.osd_timer = 0
         self.dragging = False
-        self.state = {"volume": 100, "mute": False, "list": False}
+        self.last_pos = 0.0
+        self.state = {"volume": 100, "mute": False, "list": False, "captions": False, "captions_en": False}
         try:
             with open(STATE) as f:
                 self.state.update(json.load(f))
@@ -159,8 +167,15 @@ class Videos(View):
         self.info_label.set_valign(Gtk.Align.START)
         self.info_label.set_can_target(False)
         self.info_label.set_visible(False)
+        self.caption = label("", "caption", xalign=0.5, wrap=True)
+        self.caption.set_justify(Gtk.Justification.CENTER)
+        self.caption.set_halign(Gtk.Align.CENTER)
+        self.caption.set_valign(Gtk.Align.END)
+        self.caption.set_can_target(False)
+        self.caption.set_visible(False)
+        self.captions = Captions(self.captions_status, self.show_caption)
         self.overlay = Gtk.Overlay(child=self.area)
-        for w in (self.msg, self.osd_label, self.info_label):
+        for w in (self.msg, self.caption, self.osd_label, self.info_label):
             self.overlay.add_overlay(w)
 
         clicks = Gtk.GestureClick(button=0)
@@ -231,10 +246,11 @@ class Videos(View):
         self.speed_label = label("", "speed")
         self.b_loop = ctl(G_LOOP, self.toggle_loop, "Loop this file (r)")
         self.b_subs = ctl(G_SUBS, lambda: self.cycle_track("sub"), "Subtitles (c)")
+        self.b_cc = ctl(G_CC, self.toggle_captions, "Live captions (Shift+C)")
         self.b_list = ctl(G_LIST, self.toggle_list, "Playlist (t)")
         self.b_full = ctl(G_FULL, self.fullscreen, "Fullscreen (f)")
         bar = box(False, 6, self.b_prev, self.b_play, self.b_next, self.pos_label, self.seek, self.dur_label,
-                  self.b_vol, self.vol, self.speed_label, self.b_loop, self.b_subs, self.b_list, self.b_full,
+                  self.b_vol, self.vol, self.speed_label, self.b_loop, self.b_subs, self.b_cc, self.b_list, self.b_full,
                   classes=("controls",))
         bar.set_valign(Gtk.Align.END)
         return bar
@@ -242,6 +258,7 @@ class Videos(View):
     def panes(self):
         self.list_pane.set_visible(self.state["list"] and not self.full and len(self.files) > 1)
         (self.b_list.add_css_class if self.state["list"] else self.b_list.remove_css_class)("on")
+        (self.b_cc.add_css_class if self.state["captions"] else self.b_cc.remove_css_class)("on")
         many = len(self.files) > 1
         self.b_prev.set_visible(many)
         self.b_next.set_visible(many)
@@ -492,6 +509,8 @@ class Videos(View):
         except libmpv.MpvError:
             return
         self.tracks = self.player.get_json("track-list", [])
+        if kind == "audio":
+            self.caption_file()
         on = next((t for t in self.tracks if t.get("type") == kind and t.get("selected")), None)
         what = "subtitles" if kind == "sub" else "audio"
         if not any(t.get("type") == kind for t in self.tracks):
@@ -501,6 +520,54 @@ class Videos(View):
 
     def pick_track(self, kind, tid):
         self.player.set("sid" if kind == "sub" else "aid", tid)
+        if kind == "audio":
+            self.tracks = self.player.get_json("track-list", [])
+            self.caption_file()
+
+    # ---- live captions --------------------------------------------------------------------------------
+    def toggle_captions(self):
+        self.state["captions"] = not self.state["captions"]
+        self.save_state()
+        self.panes()
+        if self.state["captions"]:
+            self.captions.start()
+            self.caption_file()
+        else:
+            self.captions.stop()
+            self.osd("live captions off")
+        self.show_caption()
+
+    def toggle_captions_en(self):
+        self.state["captions_en"] = not self.state["captions_en"]
+        self.save_state()
+        self.caption_file()   # heard again, in the other language
+        self.show_caption()
+        self.osd("live captions in English" if self.state["captions_en"] else "live captions as spoken")
+
+    def caption_file(self):
+        """Tell the captions what's playing: the file, the audio track picked (by its index in the file)."""
+        if not self.state["captions"] or not self.loaded:
+            return
+        audio = next((t for t in self.tracks if t.get("type") == "audio" and t.get("selected")), None)
+        stream = audio.get("ff-index") if audio and not audio.get("external") else None
+        self.captions.set_file(self.loaded, stream, self.props.get("duration"), self.state["captions_en"],
+                               self.last_pos)
+
+    def captions_status(self, text, failed=False):
+        if failed:   # it went off by itself (not installed, no network for the model…)
+            self.state["captions"] = False
+            self.captions.stop()
+            self.panes()
+            self.show_caption()
+            self.say(text, "bad")
+        else:
+            self.osd(text)
+
+    def show_caption(self):
+        text = self.captions.text_at(self.last_pos) if self.state["captions"] and self.loaded else ""
+        if text != self.caption.get_text():
+            self.caption.set_text(text)
+        self.caption.set_visible(bool(text))
 
     def screenshot(self):
         if not self.loaded:
@@ -518,6 +585,7 @@ class Videos(View):
         elif name == "duration":
             self.seek.set_range(0, max(value or 0, 1))
             self.dur_label.set_text(clock(value))
+            self.captions.duration = value or 0   # often known only after the file has loaded
         elif name in ("volume", "mute"):
             vol, mute = self.props.get("volume") or 0, self.props.get("mute")
             self.b_vol.set_label(G_VOL_OFF if mute or vol == 0 else G_VOL_LOW if vol < 34
@@ -553,6 +621,9 @@ class Videos(View):
             self.view_changed()
             if self.info_label.get_visible():
                 self.fill_info()
+            if self.state["captions"]:
+                self.captions.start()   # remembered on: hearing starts with the first file
+                self.caption_file()
         elif kind == libmpv.EV_END_FILE and data[0] == libmpv.END_ERROR:
             self.loaded, self.picture = None, False
             self.arm_tick()
@@ -596,6 +667,10 @@ class Videos(View):
             pos = float(self.player.get("time-pos") or 0)
         except ValueError:
             pos = 0
+        self.last_pos = pos
+        if self.state["captions"]:
+            self.captions.playhead(pos)
+            self.show_caption()
         self.pos_label.set_text(clock(pos))
         if not self.dragging:
             self.seek.set_value(pos)
@@ -839,6 +914,9 @@ class Videos(View):
                 items += [None, ("Subtitles off", lambda: self.pick_track("sub", "no"), "", off)]
                 items += [(track_name(t), lambda t=t: self.pick_track("sub", t["id"]), "", bool(t.get("selected")))
                           for t in subs]
+            items += [None, ("Live captions", self.toggle_captions, "Shift+C", bool(self.state["captions"]))]
+            if self.state["captions"]:
+                items.append(("Captions in English", self.toggle_captions_en, "", bool(self.state["captions_en"])))
             audio = [t for t in self.tracks if t.get("type") == "audio"]
             if len(audio) > 1:
                 items.append(None)
@@ -930,6 +1008,8 @@ class Videos(View):
             self.set_speed(1.0)
         elif k == Gdk.KEY_f or keyval == Gdk.KEY_F11:
             self.fullscreen()
+        elif k == Gdk.KEY_c and shift:
+            self.toggle_captions()
         elif k == Gdk.KEY_c:
             self.cycle_track("sub")
         elif k == Gdk.KEY_a:
@@ -958,6 +1038,7 @@ class Videos(View):
         """The app is closing: remember the place, the volume; then mpv goes."""
         self.leave_file()
         self.save_state()
+        self.captions.stop()
         if self.player.render_ctx:   # quit with the window still up: mpv waits for its renderer to go first
             self.area.make_current()
             self.player.render_free()

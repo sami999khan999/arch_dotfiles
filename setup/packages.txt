@@ -229,6 +229,7 @@ waybar
 webkitgtk-6.0
 wget
 which
+whisper-cpp
 wiremix
 wireplumber
 wl-clipboard

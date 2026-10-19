@@ -28,7 +28,7 @@ pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
 pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
-pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:3000), off at boot
+pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
 ```
@@ -640,13 +640,22 @@ those; a folder, its videos. A running player takes what's opened next.
   `Esc` leaves), `c` the next subtitles (or off), `[` / `]` slower / faster, `Backspace` normal speed, `r` loop
   the file, `i` info (codecs, size, the decoder), `t` the playlist (numbered, each file's type and size,
   the playing one marked and kept in view).
+- **Live captions:** `Shift+C` (or the CC button) writes what's said at the bottom of the picture, for any
+  file, as it plays: whisper.cpp (`whisper-server`, package `whisper-cpp`) hears the sound up to a minute ahead
+  of the playhead, so the lines come in time; a seek starts it again there. Only the speech is heard (a voice
+  finder skips music and quiet, where whisper made lines up), in one language per file: yours (the locale) until
+  what's heard is clearly another, then that one. A line whisper doubts, or a bare tag like `(music)`, isn't
+  shown — speech in a language the model can't follow shows nothing rather than nonsense. Right-click →
+  Captions in English translates. It runs only while captions are on (on 3 of the 4 cores, at low priority);
+  the models (whisper's multilingual base, ~150 MB, and silero, ~1 MB) are downloaded the first time, to
+  `~/.local/share/videos` (`captions.py`).
 - **Do:** `n` / `p` (`PgDn` / `PgUp`, the mouse's back / forward buttons) next / previous, `s` a screenshot to
   `~/Pictures/Screenshots`, `Ctrl+Shift+C` copy the path, `e` show it in Files, `o` open with another app,
   `Del` to the trash, `Ctrl+O` open, or drop files on it. Right-click for all of it, tracks and speeds
   included. `Esc` / `q` closes.
 - Each file resumes where it was left (`~/.local/state/videos/watch_later`); one watched to the end starts
   over, and the next in the folder plays. The folder is watched (a finished download joins the list). It
-  remembers the volume, mute and the playlist pane (`~/.local/state/videos`). mpv is still installed.
+  remembers the volume, mute, the playlist pane and live captions (`~/.local/state/videos`). mpv is still installed.
 
 ## Documents
 
@@ -1288,8 +1297,9 @@ The header sums it up: how many run and are stopped, what the images and volumes
 ### Dokploy
 
 [Dokploy](https://dokploy.com) deploys apps (Git repos, Compose files, templates) into Docker, with a
-dashboard on <http://localhost:3000>. Installed once per PC with `pkexec system/dokploy-setup.sh` (its
-official installer: Swarm mode, its Postgres, the dashboard, Traefik on ports 80 / 443).
+dashboard on <http://localhost:23300>. Installed once per PC with `pkexec system/dokploy-setup.sh` (its
+official installer: Swarm mode, its Postgres, the dashboard, Traefik on ports 80 / 443; then the dashboard
+moved off the installer's port 3000, which dev servers want).
 
 - **Off unless started:** it never comes on by itself. `docker.service` runs `dokployctl down` as it stops
   and again as it starts (`system/docker/docker.service.conf`, installed by `root-setup.sh`), so a reboot,

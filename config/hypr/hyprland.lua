@@ -19,6 +19,7 @@ require("modules.apps")
 require("modules.codepair")   -- before wsgroups: it sets PAIR_WS
 require("modules.wsgroups")
 require("modules.wallblur")   -- the wallpaper blurs behind windows (scripts/wallpaper.sh)
+require("modules.barhide")   -- the bar hidden on some workspaces (Settings → Bar)
 require("modules.misc")
 require("modules.monitors")
 require("modules.windowrules")

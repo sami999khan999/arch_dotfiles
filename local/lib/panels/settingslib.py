@@ -76,6 +76,8 @@ def remember(section, key, value, local=False):
     part = data.setdefault(section, {})
     if value is None:
         part.pop(key, None)
+        if not part:
+            data.pop(section)
     else:
         part[key] = value
     save(path, data)
@@ -228,6 +230,8 @@ def generate():
         parts.append("\n".join(lines) + "\n")
     if shared.get("remaps"):
         parts.append(remap_lua(shared["remaps"]))
+    if any(bar_hide_get()):
+        parts.append(bar_hide_lua())
     write(LUA, "\n".join(parts))
 
     local = store(local=True)
@@ -758,6 +762,29 @@ def bar_set_stats(shown):
     pad = indent.group(1) if indent else "      "
     items = ",".join(f'\n{pad}"{s}"' for s in STATS if s in shown)
     _bar_write(text[:m.start(2)] + items + text[m.end(2):])
+
+
+# settings.json "bar": {"hide_all": true, "hide_on": [3, 5]} -> BAR_HIDE in settings.lua, which
+# modules/barhide.lua follows: the bar hidden everywhere, or on those workspaces
+def bar_hide_get():
+    b = store().get("bar", {})
+    return bool(b.get("hide_all")), sorted(b.get("hide_on", []))
+
+
+def bar_hide_lua():
+    hide_all, on = bar_hide_get()
+    spaces = "".join(f"[{n}] = true, " for n in on)
+    return f"BAR_HIDE = {{ all = {lua_value(hide_all)}, workspaces = {{ {spaces}}} }}\n"
+
+
+def bar_hide_set(hide_all=None, on=None):
+    """Either or both; applied at once (the running Hyprland), and in settings.lua for later."""
+    if hide_all is not None:
+        remember("bar", "hide_all", hide_all or None)
+    if on is not None:
+        remember("bar", "hide_on", sorted(on) or None)
+    generate()
+    return hypr_eval(bar_hide_lua() + "barApply(true)")
 
 
 # ---- default apps ------------------------------------------------------------------------------

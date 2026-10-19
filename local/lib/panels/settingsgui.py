@@ -39,7 +39,8 @@ class Settings(View):
     .wall.current { border-color: #6b8fe0; }
     .wall:hover { background: alpha(#c0caf5, .06); }
     .banner { background: alpha(#e0af68, .14); padding: 10px 14px; margin: 8px 0; }
-    .power button.on { background: #6b8fe0; color: #16161e; font-weight: 700; }
+    .power button.on, .bar-hide button.on { background: #6b8fe0; color: #16161e; font-weight: 700; }
+    .bar-hide button { min-width: 44px; }
     .about-key { color: #565f89; min-width: 110px; }
     .ws-icon { color: #6b8fe0; font-size: 13pt; min-width: 26px; }
     .ws-editor { background: alpha(#000000, .18); padding: 12px 14px; margin: 2px 0 8px 0; }
@@ -770,6 +771,32 @@ class Settings(View):
                                       lambda v: (S.bar_set_position(v), self.done("waybar/config.jsonc")))))
         p.append(setting_row("Height", "In pixels",
                              spin(20, 44, 1, b["height"], lambda v: (S.bar_set_height(v), self.done("waybar/config.jsonc")))))
+        self.heading(p, "Hide the bar")
+        import wsgui
+        groups = wsgui.load_wsgroups().groups()
+        hide_all, hidden = S.bar_hide_get()
+        pick, btns = box(False, 4, classes=("bar-hide",)), {}
+
+        def every(on):
+            pick.set_sensitive(not on)
+            self.done("settings.json", S.bar_hide_set(hide_all=on))
+
+        def flip_ws(n):
+            (hidden.remove if n in hidden else hidden.append)(n)
+            (btns[n].add_css_class if n in hidden else btns[n].remove_css_class)("on")
+            self.done("settings.json", S.bar_hide_set(on=hidden))
+        p.append(setting_row("On every workspace", "Super + Shift + Space still shows or hides it by hand",
+                             switch(hide_all, every)))
+        for n in range(1, 11):
+            g = groups.get(n) or {}
+            btns[n] = button(f"{g.get('icon', '')} {n % 10}".strip(), lambda n=n: flip_ws(n),
+                             tooltip=f"Workspace {n % 10}" + (f" · {g['name']}" if g else ""))
+            if n in hidden:
+                btns[n].add_css_class("on")
+            pick.append(btns[n])
+        pick.set_sensitive(not hide_all)
+        p.append(setting_row("Only on some workspaces", "Highlighted: the bar is hidden there"))
+        p.append(box(False, 0, pick, classes=("setting",)))
         self.heading(p, "System stats on the bar")
         shown = list(b["stats"])
         has_battery = any(os.path.exists(f"/sys/class/power_supply/{d}/capacity")

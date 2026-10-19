@@ -129,7 +129,7 @@ class Videos(View):
             "vo": "libmpv", "hwdec": "auto-safe", "idle": "yes", "keep-open": "yes", "terminal": "no",
             "input-default-bindings": "no", "input-vo-keyboard": "no", "osc": "no", "osd-level": "0",
             "ytdl": "no", "sub-auto": "fuzzy", "audio-file-auto": "fuzzy",
-            "background-color": recolor("#16161e"),   # around the picture, as the panels' background
+            "background-color": "#000000",   # the bars around the picture: black, as in any player (not themed)
             "watch-later-dir": os.path.join(STATE_DIR, "watch_later"),
             "watch-later-options": "start,aid,sid,sub-delay,audio-delay",
             "screenshot-directory": SHOTS, "screenshot-template": "%F-%wH.%wM.%wS",

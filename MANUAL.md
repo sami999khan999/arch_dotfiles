@@ -1266,8 +1266,9 @@ The header sums it up: how many run and are stopped, what the images and volumes
   ("Click again to delete") for 3 s.
 - `L` opens lazydocker in the terminal popup.
 - **Docker on / off:** the header's **Turn off Docker** (twice) stops `docker.service` and its socket, so no
-  `docker` command starts it again; every container stops, Dokploy goes off first. While it's off the panel
-  says so and **Start Docker** brings it back (with the containers set to restart). No password:
+  `docker` command starts it again; every container stops, Dokploy goes off first. While it's off the window is
+  only a card in the middle ("Docker is off", its service, data folder, whether it starts at boot) and
+  **Start Docker** (`Enter`) brings it back (with the containers set to restart). No password:
   `system/root-setup.sh` lets the `docker` group start / stop those two units
   (`system/docker/50-docker-switch.rules`).
 - **Closed to the network:** Docker opens published ports to everyone, ahead of ufw. `root-setup.sh`

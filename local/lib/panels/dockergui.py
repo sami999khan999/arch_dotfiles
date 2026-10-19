@@ -69,6 +69,8 @@ textview, textview text { background: transparent; color: #c0caf5; }
 .pane-bar .section { padding: 10px 0; }
 .pane-bar entry { min-height: 20px; padding: 2px 8px; margin: 6px 0; }
 paned > separator { background: alpha(#3b4261, .7); min-width: 1px; min-height: 1px; }
+.off-icon { font-size: 44px; color: #565f89; }
+.off-card .heading { font-size: 18px; }
 """
 
 
@@ -128,6 +130,8 @@ class Docker(View):
     hints = [("1-4", "tabs"), ("/", "search"), ("f", "filter"), ("s", "start/stop"), ("r", "restart"), ("p", "pause"),
              ("l", "logs"), ("e", "shell"), ("x", "run…"), ("w", "pane"), ("y", "copy ID"), ("d", "delete"),
              ("Enter", "collapse"), ("L", "lazydocker")]
+    list_hints = hints
+    off_hints = [("Enter", "start")]   # the card's (see build)
 
     def __init__(self):
         super().__init__()
@@ -135,6 +139,7 @@ class Docker(View):
         self.model.say = self.model_say          # its messages go to our status line
         self.model.external = self.terminal      # its "full screen" programs open in a terminal
         self.ticking = False
+        self.boot = None                         # Docker at boot, for the card while it's off
         self.shown_rows = None                   # [(kind, id)] the list was last built from
         self.detail_for = None                   # what the right side shows: (tab, id)
         self.actions_sig = None
@@ -182,7 +187,7 @@ class Docker(View):
                        tooltip="Its window, next to this one on workspace 9")]
 
     # ---- layout ----------------------------------------------------------------------------------
-    def build(self):
+    def build_main(self):
         self.tabs = {}
         bar = box(False, 0, classes=("tabs",))
         for i, t in enumerate(self.tab_list, 1):
@@ -275,6 +280,73 @@ class Docker(View):
         GLib.idle_add(lambda: self.list.grab_focus() and False)
         return box(True, 0, bar, paned)
 
+    def build(self):
+        """The tabs, list and details while there's something to show; while Docker (or Dokploy, in its
+        window) is off, only a card in the middle: what's off, a few details, the button that starts it."""
+        main = self.build_main()
+        self.off_icon = label(self.icon, "off-icon", xalign=0.5)
+        self.off_heading = label("", "heading", xalign=0.5)
+        self.off_state = label("", "dim", xalign=0.5)
+        self.off_kv = Gtk.Grid(column_spacing=16, row_spacing=4, halign=Gtk.Align.CENTER)
+        self.off_kv.set_margin_top(18)
+        self.off_btn = button("", self.power, "primary")
+        self.off_btn.set_halign(Gtk.Align.CENTER)
+        self.off_btn.set_margin_top(22)
+        card = box(True, 4, self.off_icon, self.off_heading, self.off_state, self.off_kv, self.off_btn,
+                   classes=("off-card",))
+        card.set_halign(Gtk.Align.CENTER)
+        card.set_valign(Gtk.Align.CENTER)
+        self.off_keys = None
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)
+        self.stack.add_named(main, "main")
+        self.stack.add_named(card, "off")
+        self.update()
+        return self.stack
+
+    def card(self):
+        """(heading, line, [(key, value)], button, working) while the card shows, else None."""
+        if not self.model.docker_off:
+            self.boot = None
+            return None
+        if self.boot is None:   # once each time it goes off: is-enabled isn't asked every second
+            r = subprocess.run(["systemctl", "is-enabled", "docker.service", "docker.socket"],
+                               capture_output=True, text=True)
+            service, sock = (r.stdout.split() + ["", ""])[:2]
+            self.boot = ("starts at boot" if service == "enabled" else
+                         "starts with the first docker command (its socket)" if sock == "enabled" else
+                         "off: starts only from here")
+        return ("Docker is off", "Its containers, images and volumes show once it's on",
+                [("Service", "docker.service"), ("Data", "/var/lib/docker"), ("At boot", self.boot),
+                 ("Dokploy", "stays off: start it from its window")],
+                self.powering or "Start Docker", bool(self.powering))
+
+    def paint_off(self):
+        card = self.card()
+        self.stack.set_visible_child_name("off" if card else "main")
+        hints = self.off_hints if card else self.list_hints
+        if hints is not self.hints:   # the list's keys only while there's a list
+            self.hints = hints
+            if self.host and not self.host.status_timer:   # not over a message: that shows them after
+                self.host.show_hints()
+        if not card:
+            return
+        heading, state, pairs, text, working = card
+        self.off_heading.set_text(heading)
+        self.off_state.set_text(state)
+        keys = [k for k, _ in pairs]
+        if keys != self.off_keys:   # the rows made again only when they change, as in kv_rows
+            self.off_keys = keys
+            clear(self.off_kv)
+            self.off_vals = []
+            for i, k in enumerate(keys):
+                self.off_kv.attach(label(k, "kv-key"), 0, i, 1, 1)
+                self.off_vals.append(label("", ellipsize=True))
+                self.off_kv.attach(self.off_vals[-1], 1, i, 1, 1)
+        for lab, (_, v) in zip(self.off_vals, pairs):
+            lab.set_text(v)
+        self.off_btn.set_label(text)
+        self.off_btn.set_sensitive(not working)
+
     def leave_text(self):
         self.list.grab_focus()
 
@@ -321,6 +393,8 @@ class Docker(View):
         self.paint_tools()
         self.paint_list()
         self.paint_detail()
+        if hasattr(self, "stack"):   # not during build_main()
+            self.paint_off()
 
     def paint_summary(self):
         """The header's line: what's running, and what the images and volumes take on disk."""
@@ -1342,6 +1416,12 @@ class Docker(View):
         self.update()
 
     def key(self, keyval, state):
+        """While the card shows: Enter (or s) starts what's off; the list's keys have nothing to act on."""
+        if self.stack.get_visible_child_name() == "off":
+            if Gdk.keyval_name(keyval) in ("Return", "KP_Enter", "s") and self.off_btn.get_sensitive():
+                self.power()
+                return True
+            return False
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         if ctrl and keyval in (Gdk.KEY_f, Gdk.KEY_F):
             self.pane_filter.grab_focus()
@@ -1387,85 +1467,23 @@ class Dokploy(Docker):
     icon = "\uf0ee"   # nf-fa-cloud_upload
     tab_list = ["dokploy"]
     hints = list_hints = [h for h in Docker.hints if h[0] not in ("1-4", "L")]
-    off_hints = [("Enter", "start")]
-    css = CSS + """
-.off-icon { font-size: 44px; color: #565f89; }
-.off-card .heading { font-size: 18px; }
-"""
 
-    def build(self):
-        """Docker's list and details while Dokploy is on; while it (or Docker) is off, only a card in the
-        middle: what's off, a few details, the button that starts it."""
-        main = super().build()
-        self.off_icon = label(self.icon, "off-icon", xalign=0.5)
-        self.off_heading = label("", "heading", xalign=0.5)
-        self.off_state = label("", "dim", xalign=0.5)
-        self.off_kv = Gtk.Grid(column_spacing=16, row_spacing=4, halign=Gtk.Align.CENTER)
-        self.off_kv.set_margin_top(18)
-        self.off_btn = button("", self.power, "primary")
-        self.off_btn.set_halign(Gtk.Align.CENTER)
-        self.off_btn.set_margin_top(22)
-        card = box(True, 4, self.off_icon, self.off_heading, self.off_state, self.off_kv, self.off_btn,
-                   classes=("off-card",))
-        card.set_halign(Gtk.Align.CENTER)
-        card.set_valign(Gtk.Align.CENTER)
-        self.off_keys = None
-        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)
-        self.stack.add_named(main, "main")
-        self.stack.add_named(card, "off")
-        self.update()
-        return self.stack
-
-    def paint_off(self):
-        """The card while Dokploy or Docker is off (and while it starts from there); the list once it's on."""
+    def card(self):
+        """Docker's card while Docker is off; Dokploy's while Dokploy is (and while it starts from there)."""
         m = self.model
         on, _ready, busy = self.dokploy_state()
-        installed = any(s["name"] == "dokploy" for s in m.dokploy)
-        off = m.docker_off or (installed and not on and busy != "stopping…")
-        self.stack.set_visible_child_name("off" if off else "main")
-        hints = self.off_hints if off else self.list_hints
-        if hints is not self.hints:   # the list's keys only while there's a list
-            self.hints = hints
-            if self.host and not self.host.status_timer:   # not over a message: that shows them after
-                self.host.show_hints()
-        if not off:
-            return
+        boot = ("At boot", "off: starts only from here (or dokployctl up)")
         if m.docker_off:
-            heading, state = "Docker is off", "Dokploy runs in Docker: start Docker, then Dokploy"
-            pairs = [("Dashboard", dp.dokployctl.URL), ("Data", dp.dokployctl.DATA)]
-            text, working = self.powering or "Start Docker", bool(self.powering)
-        else:
-            apps = sorted({c["project"] or c["swarm"] for c in self.apps()})
-            heading, state = "Dokploy is off", "Its dashboard and apps start together"
-            pairs = [("Dashboard", dp.dokployctl.URL), ("Version", dp.dokployctl.version(m.dokploy) or "—"),
-                     ("Apps", ", ".join(apps) if apps else "none yet"), ("Data", dp.dokployctl.DATA)]
-            text, working = busy.capitalize() or "Start Dokploy", bool(busy)
-        pairs.append(("At boot", "off: starts only from here (or dokployctl up)"))
-        self.off_heading.set_text(heading)
-        self.off_state.set_text(state)
-        keys = [k for k, _ in pairs]
-        if keys != self.off_keys:   # the rows made again only when they change, as in kv_rows
-            self.off_keys = keys
-            clear(self.off_kv)
-            self.off_vals = []
-            for i, k in enumerate(keys):
-                self.off_kv.attach(label(k, "kv-key"), 0, i, 1, 1)
-                self.off_vals.append(label("", ellipsize=True))
-                self.off_kv.attach(self.off_vals[-1], 1, i, 1, 1)
-        for lab, (_, v) in zip(self.off_vals, pairs):
-            lab.set_text(v)
-        self.off_btn.set_label(text)
-        self.off_btn.set_sensitive(not working)
-
-    def key(self, keyval, state):
-        """While the card shows: Enter (or s) starts what's off; the list's keys have nothing to act on."""
-        if self.stack.get_visible_child_name() == "off":
-            if Gdk.keyval_name(keyval) in ("Return", "KP_Enter", "s") and self.off_btn.get_sensitive():
-                self.power()
-                return True
-            return False
-        return super().key(keyval, state)
-
+            return ("Docker is off", "Dokploy runs in Docker: start Docker, then Dokploy",
+                    [("Dashboard", dp.dokployctl.URL), ("Data", dp.dokployctl.DATA), boot],
+                    self.powering or "Start Docker", bool(self.powering))
+        if not any(s["name"] == "dokploy" for s in m.dokploy) or on or busy == "stopping…":
+            return None
+        apps = sorted({c["project"] or c["swarm"] for c in self.apps()})
+        return ("Dokploy is off", "Its dashboard and apps start together",
+                [("Dashboard", dp.dokployctl.URL), ("Version", dp.dokployctl.version(m.dokploy) or "—"),
+                 ("Apps", ", ".join(apps) if apps else "none yet"), ("Data", dp.dokployctl.DATA), boot],
+                busy.capitalize() or "Start Dokploy", bool(busy))
     def header_extra(self):
         self.prune_btn = button("", self.prune)   # nothing to sweep here: Dokploy deletes its own
         self.power_btn = button("", self.power, "flat")
@@ -1491,8 +1509,6 @@ class Dokploy(Docker):
     def update(self):
         super().update()
         self.tabs["dokploy"].set_label(f"Apps {len(self.apps())}")
-        if hasattr(self, "stack"):   # not during build()
-            self.paint_off()
 
     def paint_prune(self):
         self.prune_btn.set_visible(False)

@@ -131,7 +131,7 @@ class Docker(View):
 
     def __init__(self):
         super().__init__()
-        self.model = dp.DockerPanel()            # polls docker in its own threads
+        self.model = dp.DockerPanel(self.tab_list[0])   # polls docker in its own threads
         self.model.say = self.model_say          # its messages go to our status line
         self.model.external = self.terminal      # its "full screen" programs open in a terminal
         self.ticking = False
@@ -1391,7 +1391,6 @@ class Dokploy(Docker):
     def __init__(self):
         self.overview, self.was_on = True, None   # the details show Dokploy itself (see paint_detail)
         super().__init__()
-        self.model.tab = "dokploy"
 
     def header_extra(self):
         self.prune_btn = button("", self.prune)   # nothing to sweep here: Dokploy deletes its own

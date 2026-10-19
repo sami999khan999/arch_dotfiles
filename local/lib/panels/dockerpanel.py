@@ -119,8 +119,8 @@ def kv_rows(pairs, w, key_w=11):
 class DockerPanel(Panel):
     interval = 1.0
 
-    def __init__(self):
-        self.tab = "containers"
+    def __init__(self, tab="containers"):
+        self.tab = tab   # before the first tick: only the Dokploy tab reads Dokploy's services
         self.items, self.error = [], ""                 # containers
         self.images, self.volumes, self.networks = [], [], []
         self.sel = {t: None for t in ALL_TABS}          # selected ID per tab (survives refreshes)

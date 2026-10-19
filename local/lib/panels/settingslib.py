@@ -943,5 +943,15 @@ if __name__ == "__main__":
         if mon:
             err = ws_monitor_set(ws, mon)
             sys.exit(err)
+    elif sys.argv[1:2] == ["bar-hide"] and len(sys.argv) == 3 and sys.argv[2].isdigit():
+        # Super + Ctrl + Shift + Space: the bar hidden on this workspace, or shown again
+        ws, (hide_all, on) = int(sys.argv[2]), bar_hide_get()
+        if hide_all:
+            sh("notify-send", "-t", "2500", "Bar", "Hidden on every workspace: Settings → Top bar")
+            sys.exit()
+        hidden = ws not in on
+        err = bar_hide_set(on=on + [ws] if hidden else [n for n in on if n != ws])
+        sh("notify-send", "-t", "1500", "Bar", f"{'Hidden' if hidden else 'Shown'} on workspace {ws % 10}")
+        sys.exit(err)
     else:
-        sys.exit("usage: settingslib.py restore | pin-workspace N")
+        sys.exit("usage: settingslib.py restore | pin-workspace N | bar-hide N")

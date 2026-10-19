@@ -795,7 +795,7 @@ class Settings(View):
                 btns[n].add_css_class("on")
             pick.append(btns[n])
         pick.set_sensitive(not hide_all)
-        p.append(setting_row("Only on some workspaces", "Highlighted: the bar is hidden there"))
+        p.append(setting_row("Only on some workspaces", "Highlighted: the bar is hidden there. Super + Ctrl + Shift + Space: the one you're on"))
         p.append(box(False, 0, pick, classes=("setting",)))
         self.heading(p, "System stats on the bar")
         shown = list(b["stats"])

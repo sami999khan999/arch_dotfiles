@@ -168,8 +168,9 @@ it crashes it comes back by itself within a second. Restart it with `systemctl -
 **Hiding the bar:** Settings → Power & bar → Top bar → Hide the bar hides it on every workspace, or only
 on the workspaces you pick (the row of ten buttons; highlighted = hidden there). Windows take the space it
 leaves. It follows the focused workspace, so with two screens both bars follow the one you're on (waybar
-has one switch for all its bars). `Super + Shift + Space` still shows or hides it by hand, until you switch
-to a workspace that wants it the other way. Saved in `settings.json` (`bar`), applied by `modules/barhide.lua`.
+has one switch for all its bars). `Super + Ctrl + Shift + Space` adds or removes the workspace you're on (the
+same setting). `Super + Shift + Space` still shows or hides it by hand, until you switch to a workspace that
+wants it the other way. Saved in `settings.json` (`bar`), applied by `modules/barhide.lua`.
 
 Noctalia is still installed but no longer autostarted.
 

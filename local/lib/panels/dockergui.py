@@ -1386,11 +1386,85 @@ class Dokploy(Docker):
     title, subtitle = "Dokploy", "Dokploy and its apps"
     icon = "\uf0ee"   # nf-fa-cloud_upload
     tab_list = ["dokploy"]
-    hints = [h for h in Docker.hints if h[0] not in ("1-4", "L")]
+    hints = list_hints = [h for h in Docker.hints if h[0] not in ("1-4", "L")]
+    off_hints = [("Enter", "start")]
+    css = CSS + """
+.off-icon { font-size: 44px; color: #565f89; }
+.off-card .heading { font-size: 18px; }
+"""
 
-    def __init__(self):
-        self.overview, self.was_on = True, None   # the details show Dokploy itself (see paint_detail)
-        super().__init__()
+    def build(self):
+        """Docker's list and details while Dokploy is on; while it (or Docker) is off, only a card in the
+        middle: what's off, a few details, the button that starts it."""
+        main = super().build()
+        self.off_icon = label(self.icon, "off-icon", xalign=0.5)
+        self.off_heading = label("", "heading", xalign=0.5)
+        self.off_state = label("", "dim", xalign=0.5)
+        self.off_kv = Gtk.Grid(column_spacing=16, row_spacing=4, halign=Gtk.Align.CENTER)
+        self.off_kv.set_margin_top(18)
+        self.off_btn = button("", self.power, "primary")
+        self.off_btn.set_halign(Gtk.Align.CENTER)
+        self.off_btn.set_margin_top(22)
+        card = box(True, 4, self.off_icon, self.off_heading, self.off_state, self.off_kv, self.off_btn,
+                   classes=("off-card",))
+        card.set_halign(Gtk.Align.CENTER)
+        card.set_valign(Gtk.Align.CENTER)
+        self.off_keys = None
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, vexpand=True)
+        self.stack.add_named(main, "main")
+        self.stack.add_named(card, "off")
+        self.update()
+        return self.stack
+
+    def paint_off(self):
+        """The card while Dokploy or Docker is off (and while it starts from there); the list once it's on."""
+        m = self.model
+        on, _ready, busy = self.dokploy_state()
+        installed = any(s["name"] == "dokploy" for s in m.dokploy)
+        off = m.docker_off or (installed and not on and busy != "stopping…")
+        self.stack.set_visible_child_name("off" if off else "main")
+        hints = self.off_hints if off else self.list_hints
+        if hints is not self.hints:   # the list's keys only while there's a list
+            self.hints = hints
+            if self.host and not self.host.status_timer:   # not over a message: that shows them after
+                self.host.show_hints()
+        if not off:
+            return
+        if m.docker_off:
+            heading, state = "Docker is off", "Dokploy runs in Docker: start Docker, then Dokploy"
+            pairs = [("Dashboard", dp.dokployctl.URL), ("Data", dp.dokployctl.DATA)]
+            text, working = self.powering or "Start Docker", bool(self.powering)
+        else:
+            apps = sorted({c["project"] or c["swarm"] for c in self.apps()})
+            heading, state = "Dokploy is off", "Its dashboard and apps start together"
+            pairs = [("Dashboard", dp.dokployctl.URL), ("Version", dp.dokployctl.version(m.dokploy) or "—"),
+                     ("Apps", ", ".join(apps) if apps else "none yet"), ("Data", dp.dokployctl.DATA)]
+            text, working = busy.capitalize() or "Start Dokploy", bool(busy)
+        pairs.append(("At boot", "off: starts only from here (or dokployctl up)"))
+        self.off_heading.set_text(heading)
+        self.off_state.set_text(state)
+        keys = [k for k, _ in pairs]
+        if keys != self.off_keys:   # the rows made again only when they change, as in kv_rows
+            self.off_keys = keys
+            clear(self.off_kv)
+            self.off_vals = []
+            for i, k in enumerate(keys):
+                self.off_kv.attach(label(k, "kv-key"), 0, i, 1, 1)
+                self.off_vals.append(label("", ellipsize=True))
+                self.off_kv.attach(self.off_vals[-1], 1, i, 1, 1)
+        for lab, (_, v) in zip(self.off_vals, pairs):
+            lab.set_text(v)
+        self.off_btn.set_label(text)
+        self.off_btn.set_sensitive(not working)
+
+    def key(self, keyval, state):
+        """While the card shows: Enter (or s) starts what's off; the list's keys have nothing to act on."""
+        if self.stack.get_visible_child_name() == "off":
+            if Gdk.keyval_name(keyval) in ("Return", "KP_Enter", "s") and self.off_btn.get_sensitive():
+                self.power()
+                return True
+            return False
+        return super().key(keyval, state)
 
     def header_extra(self):
         self.prune_btn = button("", self.prune)   # nothing to sweep here: Dokploy deletes its own
@@ -1410,71 +1484,15 @@ class Dokploy(Docker):
         return [c for c in self.model.entries("dokploy") if c["dokploy"] == "app"]
 
     def layout(self):
-        """Without Dokploy's own group (its row and containers): the overview shows Dokploy itself."""
+        """Without Dokploy's own group (its row and containers); with no apps, the details show Dokploy itself."""
         return [r for r in super().layout() if r[1] != dp.PROJECT + dp.DOKPLOY
                 and not (r[0] == "entry" and r[2]["dokploy"] == "core")]
 
     def update(self):
-        on = self.dokploy_state()[0] and not self.model.docker_off
-        if on != self.was_on:
-            self.was_on = on
-            self.overview = self.overview or not on   # gone off: Dokploy and its Start button again
         super().update()
         self.tabs["dokploy"].set_label(f"Apps {len(self.apps())}")
-
-    def on_select(self, list_, row):
-        if not getattr(self, "building", False) and row is not None and row.eid:
-            self.overview = False   # an app picked: its details
-        super().on_select(list_, row)
-
-    def move(self, step):
-        if self.overview and self.list.get_selected_row() is None:   # ↓ from the overview: the first app
-            self.overview = False
-            return self.update()
-        self.overview = False
-        super().move(step)
-
-    def paint_list(self):
-        super().paint_list()
-        if self.overview:   # nothing highlighted: the details are Dokploy's, not an app's
-            self.building = True
-            self.list.unselect_all()
-            self.building = False
-
-    def paint_detail(self):
-        """While Dokploy (or Docker) is off, or nothing is picked, the details are Dokploy's: what it is,
-        its apps and the button that starts it (Docker first, when that's off)."""
-        m = self.model
-        if m.docker_off:
-            return self.docker_off_detail()
-        if not self.overview or m.error:
-            return super().paint_detail()
-        if self.detail_for != ("overview",):
-            self.detail_for, self.actions_sig, self.text_key = ("overview",), None, None
-        self.pane_tabs_box.set_visible(False)
-        self.lower_title.set_visible(True)
-        self.errors_btn.set_visible(False)
-        self.dokploy_detail(m.project(dp.DOKPLOY) or dict(ID=dp.PROJECT + dp.DOKPLOY, project=dp.DOKPLOY,
-                                                          containers=[]))
-        self.fit_split()
-
-    def docker_off_detail(self):
-        if self.detail_for != ("docker-off",):
-            self.detail_for, self.actions_sig, self.text_key = ("docker-off",), None, None
-        self.pane_tabs_box.set_visible(False)
-        self.lower_title.set_visible(True)
-        self.errors_btn.set_visible(False)
-        self.heading.set_text("Docker is off")
-        self.state.set_text("Dokploy runs in Docker: start Docker, then Dokploy")
-        self.set_state_class("dim")
-        self.kv_rows([("Dashboard", dp.dokployctl.URL + "  (when it's on)"), ("Data", dp.dokployctl.DATA),
-                      ("At boot", "off: Docker starts, Dokploy only from here (or dokployctl up)")])
-        self.set_actions(("docker-off", self.powering), lambda: [
-            self.act_button(self.powering or "Start Docker", self.power, "primary", busy=bool(self.powering),
-                            tooltip="Docker first; Start Dokploy is here once it's up")])
-        self.lower_title.set_text("Its apps")
-        self.set_text([("Start Docker to see them.\n", "dim")])
-        self.fit_split()
+        if hasattr(self, "stack"):   # not during build()
+            self.paint_off()
 
     def paint_prune(self):
         self.prune_btn.set_visible(False)

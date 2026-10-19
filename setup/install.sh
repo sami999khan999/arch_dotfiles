@@ -104,14 +104,15 @@ fi
 
 # user timers, written by the tools themselves (idempotent, no questions): dotperf once a day, agentmux's
 # usage at midnight (the daily budget), stacks (idle Docker stacks) every 15 min where Docker is installed;
-# and lsend, the LocalSend service (receives from the phone)
+# lsend, the LocalSend service (receives from the phone); downloads, the download manager (and its Chrome extension)
 head_ "background checks (systemd user timers)"
 if (( DRY )); then
-  say "would enable dotperf.timer, agentmux-usage.timer$(command -v docker >/dev/null && echo ', stacks.timer'), lsend.service"
+  say "would enable dotperf.timer, agentmux-usage.timer$(command -v docker >/dev/null && echo ', stacks.timer'), lsend.service, downloads.service"
 else
   "$REPO/local/bin/dotperf" enable >/dev/null
   "$REPO/local/bin/agentmux" usage enable >/dev/null
   "$REPO/local/bin/lsend" enable >/dev/null
+  "$REPO/local/bin/downloads" enable >/dev/null
   if command -v docker >/dev/null; then "$REPO/local/bin/stacks" enable >/dev/null; fi
   say "ok"
 fi

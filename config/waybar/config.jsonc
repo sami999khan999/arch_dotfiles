@@ -22,6 +22,7 @@
     "custom/wsgroups",
     "custom/window",
     "custom/divider",
+    "custom/downloads",
     "custom/codesync",
     "custom/sysagent",
     "custom/keys",
@@ -61,6 +62,15 @@
   "custom/divider": {
     "format": "\u200b",
     "tooltip": false
+  },
+  // the download manager: only while something downloads (its %), or finished / failed until the panel is
+  // opened; the service writes the JSON and signals each change, nothing runs while idle
+  "custom/downloads": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/downloads-bar.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 12,
+    "on-click": "~/.local/lib/panels/downloadsgui.py"
   },
   "custom/codesync": {
     "exec": "~/.local/bin/codesync bar",

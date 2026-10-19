@@ -3,6 +3,7 @@ alacritty
 alsa-firmware
 alsa-plugins
 alsa-utils
+aria2
 awesome-terminal-fonts
 awww
 base

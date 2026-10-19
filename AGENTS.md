@@ -46,13 +46,14 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `local/bin/projects`, `local/lib/panels/projectsgui.py` | the project list: every repo in `~/code` and its remotes, in `~/code/.projects/projects.json` (a **private** repo, never in this one); `projects clone` gets them all back; the panel is Super + Ctrl + P |
 | `local/lib/panels/sysagent*.py` | the System agent (Super + Ctrl + S): an AI chat about this PC, strictly read-only — opencode in a sandbox with no files, whose only tools are the panel's read-only MCP gate, which reads in a second sandbox (read-only filesystem, no network, no sockets, own PIDs, secrets covered). Never give it a tool that writes |
 | `local/bin/lsend`, `local/lib/lsend/lsend.py`, `local/lib/panels/lsendgui.py` | LocalSend with the phone (Super + Ctrl + D): our own implementation of the LocalSend protocol — `lsend.service` (announces, receives over HTTPS, asks before saving) and the window, talking over `$XDG_RUNTIME_DIR/lsend.sock`. Port 53317 opened to private networks by `system/root-setup.sh` |
+| `local/bin/downloads`, `local/lib/downloads/`, `local/lib/panels/downloadsgui.py` | the download manager (Super + Ctrl + J, the bar's download icon): `downloads.service` runs aria2 (8 connections per file: 16 was no faster, and got banned by a server) and talks to the window over `$XDG_RUNTIME_DIR/downloads.sock`; Chrome's downloads come through our extension (`chrome/`, packed per PC by `downloads enable`, force-installed by `system/root-setup.sh` from `127.0.0.1:53319`) and its native host (`native-host.py`). A change to the extension needs its manifest `version` raised |
 | `local/bin/dokployctl`, `local/lib/dokploy/dokployctl.py`, `system/dokploy-setup.sh`, `system/docker/` | Dokploy on / off / status (off = Swarm services at 0, its containers stopped); its window is `dockergui.py --dokploy` (class `sami.dokploy`), beside Docker on workspace 9. Never on by itself: docker.service runs `dokployctl down` as it starts and stops (`system/docker/docker.service.conf`). `system/docker/` also closes containers to the network (`DOCKER-USER`) and lets the docker group switch Docker (the Docker panel's header) |
 | `config/codesync/` | backup ignore list, shared timing (`settings.json`), per-PC `machine.json` |
 | `local/bin/` | `wsgroups` (a launcher for `local/lib/hypr/wsgroups.py`), `codesync`, `dotsync`, `stacks` (offers to stop idle Docker stacks; `stacks.timer`), `dotperf` (what the desktop costs at idle vs this PC's baseline; daily timer, and after `dotsync`) |
 | `local/lib/panels/usage.py` | CPU by what caused it, from cgroups (each app, service, container, tmux pane): System → Apps, the bar's busy warning (`scripts/loadwatch.py`), agentmux's thread CPU, dotperf |
 | `local/lib/hypr/hyprsock.py` | ask Hyprland over its socket (`query("clients")`, `request("dispatch …")`), not by starting `hyprctl`: the bar's scripts, `wsgroups` and `gtkkit.hypr_socket` use it; `follow()` is the event socket for a daemon (reconnects with a pause). `waybarsig.send(n)` signals waybar by pid, not with `pkill` |
 | `setup/` | `install.sh` (links + `--packages`), `setup-dev.sh`, `packages*.txt`, `vscode-extensions.txt` |
-| `system/` | root-only bits, run once per PC with `pkexec` (`install.sh` lists them): `root-setup.sh` (Chrome policy; the firewall for LocalSend; Docker closed to the network, its switch, Dokploy off at boot; this PC's data-drive fstab line, only where that drive is attached), `swap-setup.sh` (SSD swapfile after zram, on the root btrfs), `boot-splash.sh` (quiet boot), `greeter/install.sh` (greetd + noctalia-greeter, `greetd.toml`) |
+| `system/` | root-only bits, run once per PC with `pkexec` (`install.sh` lists them): `root-setup.sh` (Chrome policy, the download manager's extension; the firewall for LocalSend; Docker closed to the network, its switch, Dokploy off at boot; this PC's data-drive fstab line, only where that drive is attached), `swap-setup.sh` (SSD swapfile after zram, on the root btrfs), `boot-splash.sh` (quiet boot), `greeter/install.sh` (greetd + noctalia-greeter, `greetd.toml`) |
 
 ## Apply and verify every change
 
@@ -111,7 +112,8 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
 - `mpris` tooltips are plain text (markup shows raw).
 - waybar/GTK prefers ellipsizing a label over moving the centre island, so the window title is
   truncated in `scripts/wintitle.py`, not with `max-length`.
-- waybar signals in use: `RTMIN+8` workspace buttons, `+9` idle, `+10` notifications, `+11` codesync.
+- waybar signals in use: `RTMIN+8` workspace buttons, `+9` idle, `+10` notifications, `+11` codesync,
+  `+12` downloads.
 - **Nothing polls while unseen.** A workspace app (Control Center, Projects, Docker…) stays open on its
   workspace: gtkkit pauses its `refresh()` while that workspace isn't on a screen and calls
   `shown_changed(True)` the moment it is; a card whose graph keeps a history samples in

@@ -9,6 +9,18 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 echo "== 1. Chrome: block on-device AI model re-download"
 install -Dm644 "$REPO/system/disable_ondevice_ai.json" /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
 echo "   wrote /etc/opt/chrome/policies/managed/disable_ondevice_ai.json"
+# the download manager's extension (local/lib/downloads/chrome), force-installed from the downloads service on
+# localhost. Its id is this PC's own: `downloads enable` (setup/install.sh) packs it with a key made here
+owner=$(stat -c %U "$REPO")
+id_file="$(getent passwd "$owner" | cut -d: -f6)/.local/share/downloads/chrome/id"
+id=$(tr -dc a-p < "$id_file" 2>/dev/null || true)
+if [ ${#id} -eq 32 ]; then
+  printf '{ "ExtensionInstallForcelist": ["%s;http://127.0.0.1:53319/update.xml"] }\n' "$id" \
+    > /etc/opt/chrome/policies/managed/downloads.json
+  echo "   wrote /etc/opt/chrome/policies/managed/downloads.json (the download manager's extension, $id)"
+else
+  echo "   the download manager's extension isn't packed yet: run setup/install.sh, then this again"
+fi
 
 echo "== 2. Firewall: LocalSend (lsend) from this network only"
 if command -v ufw >/dev/null; then

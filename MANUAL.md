@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy; LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy (and the download manager's extension); LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
 pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
@@ -704,6 +704,37 @@ shows up in it under its hostname; no LocalSend package on the PC.
   PC and receives; it waits on its sockets, no timers. `lsend status` shows this PC's name and the devices
   seen. The firewall must let the phone in: `system/root-setup.sh` opens port 53317 (TCP + UDP) to private
   networks only. Another name than the hostname: `{"alias": "…"}` in `~/.local/share/lsend/settings.json`.
+
+## Downloads (download manager)
+
+`Super + Ctrl + J` (or the download icon in the bar) opens Downloads: what's downloading and what has, with
+each one's progress, speed, time left and connections. Chrome's downloads come here by themselves; a link
+pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…` from a terminal).
+
+- **Faster:** aria2 does the downloading — 8 connections per file (pieces from 2 MB; a server that allows only
+  one still works), 5 downloads at once, the rest queued. 8 fills a 100 Mbit line (kernel.org: 45 s with one
+  connection, 13 s with 8); 16 was no faster and got this PC banned by a server that counts connections. Magnet and torrent links work too
+  (no seeding afterwards). Everything goes to `~/Downloads`; a name already there gets `.1`.
+- **The bar:** an icon appears while something downloads, with the overall %; green when it's finished,
+  red when one failed, until the panel is opened. The tooltip has the count and the speed.
+- **The panel:** Pause / Resume / Cancel (the partial file goes too) per download, Pause all / Resume all
+  (`Space`); finished ones get Open, Show in Files; a failed or cancelled one Retry (same cookies, same
+  referrer). A notification says when each finishes or fails. Unfinished downloads resume after a restart
+  or a reboot (aria2's session in `~/.local/state/downloads`).
+- **Chrome:** an extension of ours (`local/lib/downloads/chrome/`) hands each download to the manager — the
+  link, the name Chrome would give it, the page it came from and the site's cookies (so logged-in downloads
+  work) — over native messaging (`native-host.py`), then cancels Chrome's own. If the manager isn't running,
+  Chrome keeps the download. `blob:` / `data:` downloads (made inside the page) stay in Chrome. A download
+  that only works once (a one-time link) may fail in the manager: Retry won't help there, use the browser's
+  Save as from the page.
+- **Setup:** `downloads enable` (run by `setup/install.sh`) starts `downloads.service`, packs the extension
+  with this PC's own key (`~/.local/share/downloads/chrome`, never in the repo) and registers the native
+  host. `system/root-setup.sh` then force-installs the extension by Chrome policy, from the service on
+  `127.0.0.1:53319` (localhost only); Chrome shows it as installed by your organisation. A change to the
+  extension needs its `version` raised in `manifest.json`, then `downloads enable`.
+- **The service:** reads aria2's state once a second only while something downloads; idle, it waits. It
+  writes the bar's JSON (`$XDG_RUNTIME_DIR/downloads-bar.json`) and signals waybar (`RTMIN+12`) only when
+  what the bar shows changes. `downloads status` lists what's there.
 
 ## Ports
 

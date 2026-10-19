@@ -40,7 +40,7 @@ window#waybar {
 #custom-clock, #custom-wsgroups, #custom-sysagent, #custom-keys, #custom-settings,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps,
 #custom-idle-indicator, #custom-notifications, #custom-load,
-#custom-window, #mpris, #custom-power, #custom-codesync, #custom-visualizer {
+#custom-window, #mpris, #custom-power, #custom-codesync, #custom-downloads, #custom-visualizer {
   padding: 0 10px;
   margin: 0;      /* full bar height, no gaps: dividers and hover blocks meet exactly */
   color: @subtext;
@@ -49,7 +49,7 @@ window#waybar {
 
 #custom-clock:hover, #custom-wsgroups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
-#memory:hover, #temperature:hover, #custom-fps:hover, #mpris:hover, #custom-codesync:hover,
+#memory:hover, #temperature:hover, #custom-fps:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover,
 #custom-visualizer:hover, #custom-load:hover {
   background: @overlay;
   color: @text;
@@ -115,6 +115,13 @@ window#waybar {
 #custom-codesync.restore { color: #e0af68; }
 #custom-codesync.error,
 #custom-codesync.off     { color: @alert; }
+
+/* downloads: blue with its % while downloading, amber paused; green / red once finished / failed, until the
+   panel is opened */
+#custom-downloads { color: @accent; }
+#custom-downloads.done { color: #9ece6a; }
+#custom-downloads.paused { color: #e0af68; }
+#custom-downloads.failed { color: @alert; }
 
 #wsbuttons {
   margin: 0;

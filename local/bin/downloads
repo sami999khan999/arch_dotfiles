@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+# downloads — the download manager: a launcher for local/lib/downloads/downloads.py (see there)
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.local/lib/downloads"))
+from downloads import main
+sys.exit(main(sys.argv))

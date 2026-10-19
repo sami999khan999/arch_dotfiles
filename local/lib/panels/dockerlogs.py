@@ -6,6 +6,7 @@
 #
 # dockerpanel.py uses it for its log pane, and runs it for the full-screen log view:
 #   dockerlogs.py --follow CONTAINER [--width N]   follow the container's logs, formatted
+#   dockerlogs.py --follow SERVICE --service …     a Swarm service's (an app of Dokploy's scaled to 0)
 #   docker logs --timestamps X 2>&1 | dockerlogs.py   format a stream
 import datetime, json, re, subprocess, sys
 
@@ -205,7 +206,8 @@ def main(argv):
     try:
         if "--follow" in argv:
             cid = argv[argv.index("--follow") + 1]
-            p = subprocess.Popen(["docker", "logs", "--follow", "--timestamps", "--tail", "5000", cid],
+            cmd = ["service", "logs", "--raw"] if "--service" in argv else ["logs"]   # dockerpanel.logs_cmd
+            p = subprocess.Popen(["docker", *cmd, "--follow", "--timestamps", "--tail", "5000", cid],
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             stream((l.decode(errors="replace") for l in p.stdout), sys.stdout, width)
         else:

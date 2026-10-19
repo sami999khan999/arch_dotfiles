@@ -88,6 +88,12 @@ def label(labels, key):
     return m.group(1) if m else ""
 
 
+def logs_cmd(service):
+    """`docker logs` for a container; for a Swarm service, the logs its tasks left (--raw: without the
+    task prefix, so the timestamps lead like a container's)."""
+    return ["service", "logs", "--raw"] if service else ["logs"]
+
+
 def status(c):
     """(colour, dot, words) for a container."""
     state, health = c["State"], c.get("HealthStatus", "none")
@@ -184,6 +190,13 @@ class DockerPanel(Panel):
                 tasks[swarm] = c
             items.append(c)
         self.dokploy = dokployctl.services() if self.tab == "dokploy" else []   # only its window asks
+        for s in self.dokploy:
+            # an app scaled to 0 (Dokploy off) has no container once Docker restarts: the service stands in
+            if not s["core"] and s["name"] not in tasks:
+                items.append(dict(ID=s["id"], Names=s["name"], Image=s["image"], State="stopped", Ports="",
+                                  Status="no container: Dokploy is off (its apps start with it)", CreatedAt="",
+                                  project="", service="", workdir="", short=s["name"], swarm=s["name"],
+                                  dokploy="app", configs=[], is_service=True))
         # compose projects A–Z, containers not in a project last
         items.sort(key=lambda c: (not c["project"], c["project"], c["short"]))
         self.items, self.error = items, ""
@@ -321,7 +334,8 @@ class DockerPanel(Panel):
     def follow_logs(self, sid):
         """`docker logs --follow` for one container: its last 300 lines, then new ones as they come (a
         reader thread). Re-reading the last 300 every 2 s rewrote the view even when nothing was new."""
-        p = subprocess.Popen(["docker", "logs", "--follow", "--timestamps", "--tail", "300", sid],
+        service = any(c["ID"] == sid and c.get("is_service") for c in self.items)
+        p = subprocess.Popen(["docker", *logs_cmd(service), "--follow", "--timestamps", "--tail", "300", sid],
                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         f = {"id": sid, "proc": p, "lines": deque(maxlen=300), "lock": threading.Lock(), "new": False,
              "at": time.time()}

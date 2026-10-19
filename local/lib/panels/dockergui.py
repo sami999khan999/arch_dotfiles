@@ -1204,7 +1204,7 @@ class Docker(View):
         project's containers (compose down: volumes stay), the image, volume or network."""
         m = self.model
         project = dp.is_project(e)
-        if (e["containers"][0]["dokploy"] if project else e.get("dokploy") == "core"):
+        if (e["containers"][0]["dokploy"] if project else e.get("dokploy") == "core" or e.get("is_service")):
             self.say("that's Dokploy's: stop Dokploy here, delete apps from its dashboard")
             return
         name = e["project"] if project else {"containers": e.get("short"), "images": e.get("ref"),
@@ -1281,7 +1281,7 @@ class Docker(View):
         gone, however less ends (q, or the popup closed: a hang-up)."""
         script = (f'f=$(mktemp); trap \'kill -- -$p 2>/dev/null; rm -f "$f"\' EXIT; trap exit HUP TERM; '
                   f'setsid {shlex.quote(sys.executable)} {shlex.quote(dp.DOCKERLOGS)} --follow '
-                  f'{shlex.quote(c["ID"])} --width "$(tput cols)" >"$f" 2>/dev/null & p=$!; sleep 0.4; '
+                  f'{shlex.quote(c["ID"])}{" --service" if c.get("is_service") else ""} --width "$(tput cols)" >"$f" 2>/dev/null & p=$!; sleep 0.4; '
                   f'less -R --mouse +F {shlex.quote("-Ps" + c["Names"] + " logs · F follow · Ctrl+C stop following · / search · q close$")} "$f"')
         self.terminal(["sh", "-c", script], f"{c['short']} logs")
 

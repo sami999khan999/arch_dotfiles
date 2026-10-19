@@ -31,11 +31,11 @@ def lines(r):
 
 
 def services():
-    """Swarm services: [{name, mode, running, desired, image, core}]. [] without Swarm (no Dokploy)."""
+    """Swarm services: [{id, name, mode, running, desired, image, core}]. [] without Swarm (no Dokploy)."""
     out = []
     for s in lines(docker("service", "ls", "--format", "{{json .}}", timeout=10)):
         running, _, desired = s.get("Replicas", "0/0").partition("/")
-        out.append(dict(name=s["Name"], mode=s.get("Mode", ""), image=s.get("Image", ""), core=s["Name"] in CORE,
+        out.append(dict(id=s["ID"], name=s["Name"], mode=s.get("Mode", ""), image=s.get("Image", ""), core=s["Name"] in CORE,
                         running=int(running or 0), desired=int(desired.split()[0] or 0) if desired else 0))
     return out
 

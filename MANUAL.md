@@ -726,7 +726,7 @@ pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…
   red when one failed, until the panel is opened. The tooltip has the count and the speed.
 - **The panel:** Pause / Resume / Cancel (the partial file goes too) per download, Pause all / Resume all
   (`Space`); finished ones get Open, Show in Files; a failed or cancelled one Retry (same cookies, same
-  referrer). A notification says when each finishes or fails. Unfinished downloads resume after a restart
+  referrer). Unlike the other popups it has no blurred backdrop: the page and the bar stay in view behind it. A notification says when each finishes or fails. Unfinished downloads resume after a restart
   or a reboot (aria2's session in `~/.local/state/downloads`).
 - **Chrome:** an extension of ours (`local/lib/downloads/chrome/`) hands each download to the manager — the
   link, the name Chrome would give it, the page it came from and the site's cookies (so logged-in downloads

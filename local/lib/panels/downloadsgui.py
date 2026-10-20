@@ -169,7 +169,6 @@ class Row:
 class Downloads(View):
     title, icon = "Downloads", G_DOWN
     interval = 0
-    backdrop = False   # no blurred backdrop: you watch the page (or the bar) behind it while things download
     css = CSS
     hints = [("Ctrl+V", "download a copied link"), ("Ctrl+L", "type a link"), ("Space", "pause / resume all"),
              ("Esc", "close")]

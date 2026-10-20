@@ -110,9 +110,10 @@ hl.window_rule({ match = { tag = "floating-window" }, float = true, center = tru
 -- the code sync panel (waybar sync icon): two columns of details
 hl.window_rule({ match = { tag = "floating-window", title = "^(syncpanel\\.py)$" }, size = { 1180, 640 } })
 -- GUI panels (local/lib/panels, GTK): sized here, not by the app, so they open the same every time.
--- No pop-in: windowsIn's 410 ms zoom came on top of the panel's own start and made a click feel ~1 s
--- slow; a panel is there, whole, on its first frame (its backdrop still fades in behind it)
-hl.window_rule({ match = { class = "^(panels\\..*)$", title = "negative:^(panels-backdrop)$" }, no_anim = true })
+-- A light pop-in: windowsIn's zoom from 87 % came on top of the panel's own start and made a click feel
+-- ~1 s slow; none at all just blinked it in. From 95 % the zoom is small enough to be done at a glance,
+-- and the fade (fadeIn, 173 ms) goes with the backdrop's
+hl.window_rule({ match = { class = "^(panels\\..*)$", title = "negative:^(panels-backdrop)$" }, animation = "popin 95%" })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.workspaces)$" }, size = { 900, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.system)$" }, size = { 980, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.audio)$" }, size = { 900, 520 } })
@@ -176,7 +177,8 @@ hl.window_rule({
     move        = { 0, 0 },
     border_size = 0,
     no_shadow   = true,
-    animation   = "popin 100%",   -- fades in and out with the popup, no zoom
+    animation   = "popin 100%",
+    no_blur     = true,
     opacity     = "1.0 override 1.0 override",
 })
 

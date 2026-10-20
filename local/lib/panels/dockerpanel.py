@@ -190,11 +190,13 @@ class DockerPanel(Panel):
                 tasks[swarm] = c
             items.append(c)
         self.dokploy = dokployctl.services() if self.tab == "dokploy" else []   # only its window asks
+        stopped = dokployctl.load().get("apps", {}) if self.dokploy else {}   # stopped on their own
         for s in self.dokploy:
-            # an app scaled to 0 (Dokploy off) has no container once Docker restarts: the service stands in
+            # an app scaled to 0 (stopped, or Dokploy off) may have no container left: the service stands in
             if not s["core"] and s["name"] not in tasks:
                 items.append(dict(ID=s["id"], Names=s["name"], Image=s["image"], State="stopped", Ports="",
-                                  Status="no container: Dokploy is off (its apps start with it)", CreatedAt="",
+                                  Status="stopped: Start runs it again" if s["name"] in stopped else
+                                  "no container: Dokploy is off (its apps start with it)", CreatedAt="",
                                   project="", service="", workdir="", short=s["name"], swarm=s["name"],
                                   dokploy="app", configs=[], is_service=True))
         # compose projects A–Z, containers not in a project last
@@ -785,6 +787,24 @@ class DockerPanel(Panel):
         def work():
             try:
                 self.say(dokployctl.up() if on else dokployctl.down())
+            except (OSError, subprocess.TimeoutExpired) as e:
+                self.say(str(e), RED)
+            finally:
+                for i in labels:
+                    self.busy.pop(i, None)
+                self.changed = True
+                self.refresh.set()
+        threading.Thread(target=work, daemon=True).start()
+
+    def dokploy_app(self, c, verb):
+        """stop / start / restart an app Dokploy deployed as a Swarm service (dokployctl), in the background."""
+        labels = {c["ID"]: {"stop": "stopping…", "start": "starting…"}.get(verb, "restarting…")}
+        self.busy.update(labels)
+
+        def work():
+            try:
+                msg, ok = dokployctl.app(c["swarm"], verb)
+                self.say(msg, ACCENT if ok else RED)
             except (OSError, subprocess.TimeoutExpired) as e:
                 self.say(str(e), RED)
             finally:

@@ -5,6 +5,7 @@
 #   dokployctl status [--json]   on or off, its version, its services, the apps it deployed
 #   dokployctl up                start Dokploy and the apps that were running when it went down
 #   dokployctl down [--boot]     stop them all; nothing of it starts with Docker again until `up`
+#   dokployctl stop|start|restart <app>   one app deployed as a Swarm service (Dokploy stays as it is)
 #
 # Dokploy is Swarm services (dokploy, dokploy-postgres…), a Traefik container and the apps it deployed
 # (compose projects under /etc/dokploy, or more Swarm services). Off = the services scaled to 0 and the
@@ -137,8 +138,31 @@ def up():
     names = set(state.get("containers", []))
     start = [TRAEFIK] + [c["name"] for c in app_containers() if c["name"] in names and c["state"] != "running"]
     docker("start", *start, timeout=120)
-    save({})
+    save({"apps": state.get("apps", {})})   # an app stopped on its own stays stopped
     return f"Dokploy on: {len(scale)} services, {len(start)} containers starting · {URL}"
+
+
+def app(name, verb):
+    """One app's Swarm service: stop = scaled to 0 (a stopped task would only be started again by Swarm),
+    start = back to the replicas it had, restart = new tasks. `down` / `up` leave a stopped one stopped."""
+    svc = next((s for s in services() if s["name"] == name and not s["core"]), None)
+    if not svc:
+        return f"{name} isn't an app of Dokploy's", False
+    state = load()
+    if verb == "stop":
+        if not svc["desired"]:
+            return f"{name} is already stopped", True
+        state["apps"] = state.get("apps", {}) | {name: svc["desired"]}
+        args = ["service", "scale", "--detach", f"{name}=0"]
+    elif verb == "start":
+        args = ["service", "scale", "--detach", f"{name}={state.get('apps', {}).pop(name, 0) or 1}"]
+    else:
+        args = ["service", "update", "--force", "--detach", name]
+    r = docker(*args)
+    if r.returncode:
+        return r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "docker service failed", False
+    save(state)
+    return f"{name}: {verb}{'ped' if verb == 'stop' else 'ed'}", True
 
 
 def main(argv):
@@ -163,8 +187,12 @@ def main(argv):
         for a in st["apps"]:
             if a["name"] not in {s["name"] for s in st["services"]}:
                 print(f"  app   {a['name']:<28} {a['running']}/{a['total']}")
+    elif cmd in ("stop", "start", "restart") and len(argv) == 2:
+        msg, ok = app(argv[1], cmd)
+        print(msg, file=sys.stdout if ok else sys.stderr)
+        sys.exit(0 if ok else 1)
     else:
-        print("usage: dokployctl status [--json] | up | down [--boot]", file=sys.stderr)
+        print("usage: dokployctl status [--json] | up | down [--boot] | stop|start|restart <app>", file=sys.stderr)
         sys.exit(2)
 
 

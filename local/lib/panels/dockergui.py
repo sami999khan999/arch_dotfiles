@@ -852,13 +852,20 @@ class Docker(View):
             pairs.append(("Project", c["workdir"].replace(dp.HOME, "~")))
         self.kv_rows(pairs)
 
-        task = bool(c.get("swarm"))   # Swarm starts a stopped task again: it's Dokploy's switch, not ours
+        # Swarm starts a stopped task again: an app's service is scaled instead, Dokploy's own is its switch
+        task = bool(c.get("swarm"))
 
         def make():
-            if task:
+            if task and c["dokploy"] == "core":
                 buttons = [self.act_button("Stop Dokploy" if running else "Start Dokploy",
                                            lambda: self.model.dokploy_switch(not running), "primary", busy=busy,
-                                           tooltip="A Swarm service's container: Dokploy switches it")]
+                                           tooltip="Dokploy's own service: Dokploy and its apps, on or off")]
+            elif task:
+                buttons = [self.act_button("Stop" if running else "Start",
+                                           lambda: self.model.dokploy_app(c, "stop" if running else "start"),
+                                           "primary", busy=busy, tooltip="Its service scaled to 0, or back (s)"),
+                           self.act_button("Restart", lambda: self.model.dokploy_app(c, "restart"), busy=busy,
+                                           tooltip="A new container for its service (r)")]
             else:
                 buttons = [self.act_button("Stop" if running or paused else "Start", lambda: self.container_action("s", c),
                                            "primary", tooltip="s", busy=busy),
@@ -1393,8 +1400,11 @@ class Docker(View):
             self.remove(e)
         elif m.tab in dp.CONTAINER_TABS:
             if k in ("s", "r", "p") and e.get("swarm"):
-                if k == "s":
-                    m.dokploy_switch(e["State"] != "running")
+                if e["dokploy"] == "core":
+                    if k == "s":
+                        m.dokploy_switch(e["State"] != "running")
+                elif k in ("s", "r") and e["ID"] not in m.busy:
+                    m.dokploy_app(e, "restart" if k == "r" else "stop" if e["State"] == "running" else "start")
             elif k in ("s", "r", "o", "p"):
                 self.container_action(k, e)
             elif k == "l":

@@ -1347,7 +1347,9 @@ moved off the installer's port 3000, which dev servers want).
   it brings back the apps that were running when it went down.
 - `dokployctl status | up | down` (`local/lib/dokploy/dokployctl.py`): off = its Swarm services scaled to
   0, Traefik and its apps stopped (`unless-stopped`, so Docker doesn't restart them); what was running is
-  kept in `~/.local/state/dokploy/stopped.json` for `up`.
+  kept in `~/.local/state/dokploy/stopped.json` for `up`. `dokployctl stop | start | restart <app>` does one
+  app deployed as a Swarm service: stopped = scaled to 0 (its replicas remembered for Start), and `up`
+  leaves an app stopped this way stopped.
 - **The Dokploy window** (`dockergui.py --dokploy`, class `sami.dokploy`, on workspace 9 beside Docker and
   opened with it) is the Docker panel's window for Dokploy alone: the apps it deployed (the **Apps** tab),
   with the same search, filter, logs, shell and panes. Its own containers (the dashboard, its Postgres,
@@ -1359,8 +1361,10 @@ moved off the installer's port 3000, which dev servers want).
   Docker while Docker is off) and **Open dashboard**. Dokploy's details: its state, version, services,
   apps, CPU / memory, whether this PC keeps it off at boot and closed to the network, and **Start / Stop
   Dokploy**, **Open dashboard**, **Logs**.
-- Dokploy's things are switched and deleted by Dokploy: its Swarm containers' Start / Stop is Dokploy's
-  switch, and an app it deployed has no Pull & up / Rebuild / Delete all here (redeploy or delete it in the
+- Dokploy's things are switched and deleted by Dokploy: its own Swarm containers' Start / Stop is Dokploy's
+  switch. An app's **Stop / Start** (`s`) scales its Swarm service to 0 and back and **Restart** (`r`) gives
+  it a new container (`dokployctl stop | start | restart`): a plain `docker stop` would only be undone by
+  Swarm. Dokploy and the other apps stay as they are. An app it deployed has no Pull & up / Rebuild / Delete all here (redeploy or delete it in the
   dashboard), or the panel and Dokploy would disagree.
 - **On the internet:** an app gets a public `https://NAME.<tailnet>.ts.net` address from a Tailscale
   container beside it, with Funnel on (Tailscale's ACL: `tag:app` may Funnel and reach nothing else). The

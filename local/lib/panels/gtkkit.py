@@ -40,6 +40,10 @@ CSS = """
    never from boxes or icons. Section labels are small spaced capitals; key numbers are large and light. */
 window.panel { background: alpha(#16161e, .85); color: #c0caf5; font-family: "JetBrainsMono Nerd Font"; font-size: 10pt; }
 window.panel * { border-radius: 0; }
+/* no fades: GTK's theme eases every hover / focus over 200–300 ms, so the highlight trailed the pointer, and
+   each hover was ~15 frames to composite instead of one, every one re-blurring what's behind the panel
+   (on this PC's Intel GPU, shared with Chrome, enough to halve the frame rate) */
+window.panel, window.panel * { transition: none; }
 window.backdrop { background: transparent; }   /* behind a popup: Backdrop draws it */
 /* Hyprland's blur behind every panel window and the backdrop. GTK 4.24 takes part in the Wayland blur
    protocol (ext-background-effect) and asks for no blur unless the window has a backdrop-filter: without

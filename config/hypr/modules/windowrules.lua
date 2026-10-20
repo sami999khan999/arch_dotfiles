@@ -178,7 +178,6 @@ hl.window_rule({
     border_size = 0,
     no_shadow   = true,
     animation   = "popin 100%",
-    no_blur     = true,
     opacity     = "1.0 override 1.0 override",
 })
 

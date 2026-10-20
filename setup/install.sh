@@ -140,7 +140,7 @@ Once on a new PC, to make it the same as the others (MANUAL.md "Bootstrap a new 
   pkexec ~/dotfiles/system/boot-splash.sh       loading screen at boot and shutdown
   pkexec ~/dotfiles/system/swap-setup.sh        SSD swapfile after zram
   pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, snapshots listable, Docker closed to the network + its on/off switch, the data drive where it's attached
-  pkexec ~/dotfiles/system/dokploy-setup.sh     Dokploy (deploy dashboard on localhost:3000), off at boot
+  pkexec ~/dotfiles/system/dokploy-setup.sh     Dokploy (deploy dashboard on localhost:23300), off at boot
   codesync enable                               code backup (asks where the code is)
   sign in: VS Code Settings Sync, Chrome, claude / codex / opencode / agy
 EOF

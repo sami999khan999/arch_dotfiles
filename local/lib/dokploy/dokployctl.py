@@ -16,7 +16,9 @@ import json, os, subprocess, sys
 DATA = "/etc/dokploy"
 CORE = ("dokploy", "dokploy-postgres", "dokploy-redis")   # Dokploy's own services, not apps
 TRAEFIK = "dokploy-traefik"
-URL = "http://localhost:3000"
+# the dashboard's port: off the installer's 3000, which dev servers want (system/dokploy-setup.sh moves it)
+PORT = 23300
+URL = f"http://localhost:{PORT}"
 # what `down` stopped, so `up` starts exactly that again
 STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "dokploy",
                      "stopped.json")

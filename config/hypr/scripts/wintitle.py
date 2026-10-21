@@ -14,7 +14,7 @@ in $XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
 """
 import json, os, re, signal, sys, time
 
-MAX = 30  # max width of the title, in characters (longer ones end in …)
+MAX = 22  # max width of the title, in characters (longer ones end in …)
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 LOAD_STATE = os.path.join(RUN, "loadwatch.json")
 CLOCK_STATE = os.path.join(RUN, "waybar-clock.json")

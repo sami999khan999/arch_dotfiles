@@ -8,13 +8,14 @@ import os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, GLib, Gtk, View, box, label, run
 
-# (key, name, icon, command, asks first)
+# (key, name, icon, command, asks first); Log out, Restart and Shutdown close every app first (session-end.py)
+END = os.path.expanduser("~/.config/hypr/scripts/session-end.py")
 ACTIONS = [
     ("l", "Lock", "", ["loginctl", "lock-session"], False),
     ("s", "Suspend", "\U000f0904", ["systemctl", "suspend"], False),
-    ("o", "Log out", "\U000f0343", ["uwsm", "stop"], True),
-    ("r", "Restart", "\U000f0709", ["systemctl", "reboot"], True),
-    ("p", "Shutdown", "\U000f0425", ["systemctl", "poweroff"], True),
+    ("o", "Log out", "\U000f0343", [END, "logout"], True),
+    ("r", "Restart", "\U000f0709", [END, "reboot"], True),
+    ("p", "Shutdown", "\U000f0425", [END, "poweroff"], True),
 ]
 CSS = """
 button.tile { background: alpha(#c0caf5, .04); border: 1px solid alpha(#3b4261, .7); padding: 16px 0 12px 0;

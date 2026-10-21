@@ -4,7 +4,8 @@
   },
   "claude": {
     "main": "claude 3",
-    "account": "claude 2"
+    "account": "claude 1",
+    "account-2": "claude 2"
   },
   "codex": {
     "main": "codex 1"

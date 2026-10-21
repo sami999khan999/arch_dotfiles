@@ -163,14 +163,16 @@ of the monocle workspaces, `wsgroups.lua`), so the wallpaper never flashes throu
 `config/hypr/scripts/`.
 
 The bar runs as waybar's own systemd user service (`autostart.lua` starts `waybar.service`): if
-it crashes it comes back by itself within a second. Restart it with `systemctl --user restart waybar`.
+it crashes it comes back by itself within a second. Each screen has its own waybar (a drop-in,
+`config/waybar/waybar.service.conf`, runs `scripts/waybars.py`, which starts one per screen and follows
+screens being plugged in or out), so each screen's bar can hide on its own. Restart it with `systemctl --user restart waybar`.
 
 **Hiding the bar:** Settings → Power & bar → Top bar → Hide the bar hides it on every workspace, or only
 on the workspaces you pick (the row of ten buttons; highlighted = hidden there). Windows take the space it
-leaves. It follows the focused workspace, so with two screens both bars follow the one you're on (waybar
-has one switch for all its bars). `Super + Ctrl + Shift + Space` adds or removes the workspace you're on (the
-same setting). `Super + Shift + Space` still shows or hides it by hand, until you switch to a workspace that
-wants it the other way. Saved in `settings.json` (`bar`), applied by `modules/barhide.lua`.
+leaves. Each screen's bar follows the workspace shown on that screen: hidden on workspace 1, the bar
+goes only from the screen showing workspace 1. `Super + Ctrl + Shift + Space` adds or removes the workspace
+you're on (the same setting). `Super + Shift + Space` still shows or hides the focused screen's bar by hand,
+until that screen switches to a workspace that wants it the other way. Saved in `settings.json` (`bar`), applied by `modules/barhide.lua`.
 
 Noctalia is still installed but no longer autostarted.
 

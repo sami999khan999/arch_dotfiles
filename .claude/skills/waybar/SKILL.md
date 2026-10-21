@@ -49,7 +49,11 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
   in the left section can't cross the middle of the bar. Truncate in the script instead
   (`wintitle.py`, `MAX`).
 - waybar runs as its packaged systemd user service (`autostart.lua`: `systemctl --user start
-  waybar.service`, `Restart=on-failure`): a crash brings it back by itself. Restart it with
+  waybar.service`, `Restart=on-failure`): a crash brings it back by itself. A drop-in
+  (`waybar.service.conf`, linked by `setup/install.sh`) makes it run `scripts/waybars.py`: one waybar
+  per screen (its own `-c $XDG_RUNTIME_DIR/waybar/<screen>.jsonc`, which includes `config.jsonc` and adds
+  `output`), so SIGUSR1 to one pid hides one screen's bar (`modules/barhide.lua`). Signal every bar by
+  name (`pkill -RTMIN+n -x waybar`) or with `waybarsig.send(n)`, which keeps all the pids. Restart it with
   `systemctl --user restart waybar`, never `pkill -x waybar` (a clean stop: systemd leaves it off)
   nor `uwsm app -- waybar` (a second bar outside the service).
 - A live `pkill -SIGUSR2 waybar` can crash waybar, at once (bar geometry: `margin-*`, `height`,

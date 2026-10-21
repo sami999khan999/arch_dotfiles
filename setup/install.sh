@@ -91,6 +91,10 @@ link_children "$REPO/local/bin" "$HOME/.local/bin"
 head_ "panels  ->  ~/.local/lib"
 link_children "$REPO/local/lib" "$HOME/.local/lib"
 
+head_ "waybar  ->  one bar per screen (a drop-in for its systemd service)"
+link "$REPO/config/waybar/waybar.service.conf" "$HOME/.config/systemd/user/waybar.service.d/screens.conf"
+(( DRY )) || systemctl --user daemon-reload
+
 head_ "cursors ->  ~/.icons"
 link_children "$REPO/icons" "$HOME/.icons"
 

@@ -366,7 +366,7 @@ bind("SUPER + CTRL + comma",         scripts .. "toggle.sh notifications") -- Do
 bind("SUPER + period",               panels .. "notifgui.py") -- Notifications (history, do not disturb)
 
 -- Toggles
-bind("SUPER + SHIFT + SPACE",        "pkill -SIGUSR1 waybar") -- Bar: show / hide for now
+bind("SUPER + SHIFT + SPACE",        function() barFlip() end) -- Bar: show / hide on this screen for now
 bind("SUPER + CTRL + SHIFT + SPACE", function()   -- Bar: always hidden on this workspace, or not (Settings → Top bar)
     local ws = hl.get_active_workspace()
     if ws then hl.exec_cmd("python3 ~/.local/lib/panels/settingslib.py bar-hide " .. ws.id) end

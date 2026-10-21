@@ -415,7 +415,7 @@ class Account(Picker):
             self.paint(self.selected())
         if force:
             stale = [lib.account_label(h, a) for h, a in usage if h == self.h and self.expired(h, a)]
-            self.say(f"Updated · {', '.join(stale)}: login expired, updates once a thread runs on it" if stale
+            self.say(f"Updated · {', '.join(stale)}: login expired: Log in again, or it updates once a thread runs on it" if stale
                      else "Updated", "bad" if stale else "ok", seconds=8 if stale else 3)
 
     @staticmethod
@@ -500,6 +500,8 @@ class Account(Picker):
             head.append(label("default", "green"))
         elif email:
             head.append(button("Make default", lambda: self.make_default(h, a), "flat"))
+        if email:   # a new login over the old one (expired, or another account wanted): stands out when expired
+            head.append(button("Log in again", lambda: self.login(h, a), "accent" if self.expired(h, a) else "flat"))
         head.append(button("Rename", lambda: self.start_rename(h, a), "flat"))
         if a != "main":   # a second click removes it (Delete twice): it logs the account out
             sure = self.removing == (h, a)
@@ -527,7 +529,7 @@ class Account(Picker):
                     card.append(self.today(name, pct, reset, use.get("today", {}).get(name)))
                     break
             if time.time() - use["at"] > 600:   # what was read last; its token too old to ask now
-                why = "login expired, updates once a thread runs on it" if self.expired(h, a) else "Update (F5) asks now"
+                why = "login expired: Log in again, or it updates once a thread runs on it" if self.expired(h, a) else "Update (F5) asks now"
                 card.append(label(f"as of {ago(use['at'])} · {why}", "dim", "acct-note"))
         elif email:
             card.append(label("usage not known yet · shows once a thread has run on it", "dim", "acct-note"))

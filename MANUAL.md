@@ -1142,6 +1142,7 @@ than an hour from midnight, the line says *used since 08:10* (or *since Tue 18:4
   login lives in one keyring entry, runs with the keyring out of reach and a home of its own, so it keeps
   the new login in a file there, which agentmux moves into the account's keyring slot (and closes agy)
   as soon as it appears: pick *Google OAuth* and sign in in the browser (it opens in your session).
+  A logged-in card has **Log in again**: the same login over the old one (highlighted when its login has expired).
   **Remove** (or `Delete`; a second click confirms) logs it out on this PC and drops it from every
   PC's list (not `main`, the agent's own login; not one a thread runs on; its conversations stay). **Rename** (or `F2`)
   gives an account the name it's shown by everywhere (the panel, the threads, the status bar, the
@@ -1157,7 +1158,7 @@ than an hour from midnight, the line says *used since 08:10* (or *since Tue 18:4
   once, again every minute while the panel is open, and right away with **Update** in the header or `F5`).
   A thread's turn shows at once: the panel follows the usage files. An account whose login token has expired (idle for hours) shows
   its saved numbers, *as of …*: agentmux doesn't renew the token itself (it could log out a Claude
-  Code running on it); it renews when a thread next runs on that account.
+  Code running on it); it renews when a thread next runs on that account, or **Log in again** now.
   An account is a config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`): `main` is `~/.claude` /
   `~/.codex`, the others are `~/.local/share/agentmux/accounts/<agent>/<name>/` on each PC (logins
   never go in the repo), linked to main's for everything but the login: settings and hooks, skills,

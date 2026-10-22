@@ -16,8 +16,8 @@ Tokyo Night colour for the theme's (local/lib/theme/themelib.py recolor) into co
   kitty, alacritty, btop, qt6ct, GTK 3 / 4 apps, waybar, walker, swayosd, mako, hyprlock,
   Hyprland's borders, agentmux's tmux, starship.
 The GTK panels and agentmux's screens recolor their own text at start (themelib). With Tokyo Night
-active every file made is the original's bytes or empty: nothing changes. Not themed: the login screen
-(system/greeter, root), the polkit password prompt (hyprtoolkit.conf), VS Code (Settings Sync), lazydocker,
+active every file made is the original's bytes or empty: nothing changes. The login screen takes the theme
+when system/greeter/install.sh runs (root). Not themed: the polkit password prompt (hyprtoolkit.conf), VS Code (Settings Sync), lazydocker,
 wiremix.
 """
 import hashlib, json, os, re, subprocess, sys, time

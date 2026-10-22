@@ -8,8 +8,9 @@ import os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, GLib, Gtk, View, box, label, run
 
-# (key, name, icon, command, asks first); Log out, Restart and Shutdown close every app first (session-end.py)
-END = os.path.expanduser("~/.config/hypr/scripts/session-end.py")
+# (key, name, icon, command, asks first); Log out, Restart and Shutdown close every app first, in a panel
+# that shows each one closing (sessionendgui.py)
+END = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessionendgui.py")
 ACTIONS = [
     ("l", "Lock", "", ["loginctl", "lock-session"], False),
     ("s", "Suspend", "\U000f0904", ["systemctl", "suspend"], False),

@@ -6,9 +6,15 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "== 1. Chrome: block on-device AI model re-download"
+echo "== 1. Chrome: block on-device AI model re-download; Memory Saver"
 install -Dm644 "$REPO/system/disable_ondevice_ai.json" /etc/opt/chrome/policies/managed/disable_ondevice_ai.json
 echo "   wrote /etc/opt/chrome/policies/managed/disable_ondevice_ai.json"
+# with many tabs open their renderers took ~7 GB of the 15 and the rest went to swap (memory pressure stalls,
+# the desktop stuttering): Memory Saver on, Balanced (tabs you haven't used for a while are discarded and
+# reload when you go back; playing audio / video, a call, a form being filled are kept), local dev servers
+# never discarded (their page state is the work)
+install -Dm644 "$REPO/system/chrome_performance.json" /etc/opt/chrome/policies/managed/chrome_performance.json
+echo "   wrote /etc/opt/chrome/policies/managed/chrome_performance.json"
 # the download manager's extension (local/lib/downloads/chrome), force-installed from the downloads service on
 # localhost. Its id is this PC's own: `downloads enable` (setup/install.sh) packs it with a key made here
 owner=$(stat -c %U "$REPO")

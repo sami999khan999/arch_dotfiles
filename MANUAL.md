@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policy (and the download manager's extension); LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
 pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
@@ -50,7 +50,7 @@ packages out on a PC without an NVIDIA card. The XDG Projects folder (file manag
 | `local/lib/panels/` | `~/.local/lib/panels/` | the panels — GTK windows (`*gui.py`, shared look in `gtkkit.py`) and their older terminal versions (`panelkit.py`) |
 | `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
-| `system/` | *manual, needs root* | `/etc` files — Chrome policy, this PC's data-drive fstab line |
+| `system/` | *manual, needs root* | `/etc` files — Chrome policies (Memory Saver: idle tabs discarded, reload when you go back; localhost kept), this PC's data-drive fstab line |
 | `system/greeter/` | *manual, needs root* | login screen (noctalia-greeter): the active colour theme, the desktop's wallpaper blurred with a vignette, your picture on the card (`~/.face`, else your initial); run it again after changing the theme, the wallpaper or `~/.face`; unlocks the keyring at login (its password must be the login password) — `pkexec ~/dotfiles/system/greeter/install.sh` |
 | `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |

@@ -1,5 +1,6 @@
 {
   "HighEfficiencyModeEnabled": true,
-  "MemorySaverModeSavings": 1,
-  "TabDiscardingExceptions": ["localhost", "127.0.0.1", "[::1]"]
+  "MemorySaverModeSavings": 2,
+  "TabDiscardingExceptions": ["localhost", "127.0.0.1", "[::1]"],
+  "BackgroundModeEnabled": false
 }

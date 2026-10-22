@@ -50,7 +50,7 @@ packages out on a PC without an NVIDIA card. The XDG Projects folder (file manag
 | `local/lib/panels/` | `~/.local/lib/panels/` | the panels — GTK windows (`*gui.py`, shared look in `gtkkit.py`) and their older terminal versions (`panelkit.py`) |
 | `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
-| `system/` | *manual, needs root* | `/etc` files — Chrome policies (Memory Saver: idle tabs discarded, reload when you go back; localhost kept), this PC's data-drive fstab line |
+| `system/` | *manual, needs root* | `/etc` files — Chrome policies (Memory Saver at Maximum: idle tabs discarded, no memory or CPU, reload when you go back; localhost kept; nothing left running after the last window closes; its flags are `config/chrome-flags.conf`: one process per site), this PC's data-drive fstab line |
 | `system/greeter/` | *manual, needs root* | login screen (noctalia-greeter): the active colour theme, the desktop's wallpaper blurred with a vignette, your picture on the card (`~/.face`, else your initial); run it again after changing the theme, the wallpaper or `~/.face`; unlocks the keyring at login (its password must be the login password) — `pkexec ~/dotfiles/system/greeter/install.sh` |
 | `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |

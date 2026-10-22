@@ -14,9 +14,9 @@ END = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sessionendgui.py
 ACTIONS = [
     ("l", "Lock", "", ["loginctl", "lock-session"], False),
     ("s", "Suspend", "\U000f0904", ["systemctl", "suspend"], False),
-    ("o", "Log out", "\U000f0343", [END, "logout"], True),
-    ("r", "Restart", "\U000f0709", [END, "reboot"], True),
-    ("p", "Shutdown", "\U000f0425", [END, "poweroff"], True),
+    ("o", "Log out", "\U000f0343", [sys.executable, END, "logout"], True),
+    ("r", "Restart", "\U000f0709", [sys.executable, END, "reboot"], True),
+    ("p", "Shutdown", "\U000f0425", [sys.executable, END, "poweroff"], True),
 ]
 CSS = """
 button.tile { background: alpha(#c0caf5, .04); border: 1px solid alpha(#3b4261, .7); padding: 16px 0 12px 0;

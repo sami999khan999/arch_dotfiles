@@ -55,6 +55,7 @@ bind("SUPER + SHIFT + T",            panels .. "themegui.py") -- colour theme (T
 bind("SUPER + CTRL + G",             "~/.local/bin/wsgroups") -- workspace groups manager
 bind("SUPER + CTRL + P",             "~/.local/bin/wsgroups go sami.projects") -- Projects workspace (every repo in ~/code: branches, history, open in VS Code)
 bind("SUPER + CTRL + S",             panels .. "sysagentgui.py") -- System agent: ask an AI about this PC (read-only)
+bind("SUPER + CTRL + R",             panels .. "setupsgui.py") -- Setups: save and open work environments (windows, folders, tabs)
 bind("SUPER + CTRL + D",             panels .. "lsendgui.py") -- LocalSend: send files / text to the phone, take what it sends
 bind("SUPER + CTRL + J",             panels .. "downloadsgui.py") -- Downloads: what the download manager fetches (Chrome's downloads, pasted links); pause, resume, open
 bind("SUPER + CTRL + O",             panels .. "portsgui.py") -- Ports: what listens on this PC (dev servers, containers); open or stop it

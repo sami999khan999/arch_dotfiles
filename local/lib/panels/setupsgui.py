@@ -5,7 +5,8 @@
 # login (sessionlib.py ask): the last session selected, Enter opens it again, Esc leaves everything closed.
 #
 #   left   Last session (what the last Log out / Restart / Shutdown left; this PC's), then your setups
-#   right  the selected one's windows by workspace: a setup's can be moved to another workspace or removed
+#   right  the selected one's workspaces, folded: a click shows its windows (× takes one out, + Add a window
+#          puts an open window or an app in that workspace)
 #
 # Keys: Enter open · r record the desktop as a new setup · n new empty setup · a add (an open window, a whole
 # workspace, an app) · u update from the desktop · F2 rename · Delete delete (u and Delete ask once).
@@ -16,7 +17,7 @@
 import os, sys, threading, time, uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, dropdown, label, rule_heading, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
 import sessionlib
 from sessionendgui import STATES
 
@@ -27,10 +28,13 @@ CSS = """
 .end-row { padding: 5px 2px; border-bottom: 1px solid alpha(#c0caf5, .04); }
 .end-glyph { min-width: 18px; }
 .end-row button { padding: 0 8px; min-height: 0; }
-.end-row dropdown button { padding: 0 6px; }
 .setup-list > row { padding: 8px 14px; }
+.setup-head { min-height: 36px; margin-bottom: 10px; }
 .pick-row { padding: 3px 2px; }
+button.ws-head { padding: 7px 4px; border-bottom: 1px solid alpha(#c0caf5, .04); }
+.ws-body { margin-left: 28px; }
 """
+CHEVRON = {False: "\U000f0142", True: "\U000f0140"}   # nf-md-chevron_right / chevron_down
 
 
 def item_glyph(item):
@@ -63,8 +67,11 @@ class Setups(View):
         self.picking = False
         self.renaming = None    # the Gtk.Entry while a name is typed
         self.armed = None       # (action, setup id) asked once: the same again within 3 s does it
+        self.head_buttons = {}  # action -> its header button (turns red when armed)
+        self.expanded = {}      # setup id -> the workspaces shown open (all start collapsed)
+        self.pick_ws = None     # the workspace the Add picker adds to (None: each window's own)
         self.groups = sessionlib.wsgroups.groups()
-        self.status_rows = []
+        self.status_rows = {}   # item index -> (glyph, status) while its workspace is shown open
         self.hints = [("Enter", "restore"), ("Esc", "not now")] if login else \
             [("Enter", "open"), ("r", "record"), ("n", "new"), ("a", "add"), ("u", "update"), ("F2", "rename"),
              ("Del", "delete"), ("Esc", "close")]
@@ -165,7 +172,8 @@ class Setups(View):
 
     def paint_detail(self):
         clear(self.detail)
-        self.status_rows = []
+        self.status_rows = {}
+        self.head_buttons = {}
         if self.picking:
             return self.paint_picker()
         if self.selected is None:
@@ -173,8 +181,10 @@ class Setups(View):
                                      "starts an empty one to add windows to.", "dim", wrap=True))
             return
         name, items, saved = self.current()
-        head = box(False, 8)
+        head = box(False, 8, classes=("setup-head",))
         if self.renaming:
+            if self.renaming.get_parent():   # still in the header painted before: one parent at a time
+                self.renaming.get_parent().remove(self.renaming)
             head.append(self.renaming)
         else:
             head.append(label(name, "bold", ellipsize=True))
@@ -182,32 +192,66 @@ class Setups(View):
         open_b = button("Restore" if self.selected == LAST else "Open", lambda: self.open_selected(), "primary")
         open_b.set_sensitive(bool(items) and not self.opening)
         if saved and not self.opening:
-            for text, act, tip in (("Add", self.start_picking, "An open window, a whole workspace, an app (a)"),
+            for text, act, tip in (("Add", lambda: self.start_picking(), "An open window, a whole workspace, an app (a)"),
                                    ("Update", self.update, "Replace its windows with the desktop now (u)"),
                                    ("Rename", self.rename, "F2"), ("Delete", self.delete, "Delete")):
-                b = button(text, lambda f=act: f(), "flat", tooltip=tip)
-                if self.armed and self.armed[0] == act.__name__:
+                b = button(text, lambda f=act: self.from_header(f), "flat", tooltip=tip)
+                if self.armed and self.armed[0] == getattr(act, "__name__", ""):
                     b.add_css_class("armed")
+                self.head_buttons[getattr(act, "__name__", text)] = b
                 head.append(b)
         elif self.selected == LAST and not self.opening and items:
             head.append(button("Save as setup", lambda: self.record(items=items), "flat"))
         head.append(open_b)
         self.detail.append(head)
-        if not items:
-            self.detail.append(label("Empty: Add (a) puts open windows, a whole workspace or an app in it.", "dim",
-                                     wrap=True))
-            self.detail.get_last_child().set_margin_top(16)
-        last_ws = None
-        for i, item in enumerate(items):
-            if item["workspace"] != last_ws:
-                last_ws = item["workspace"]
-                self.detail.append(rule_heading(ws_label(last_ws, self.groups), spaced=True))
-            self.detail.append(self.item_row(i, item, saved))
+        for ws in self.workspaces(items, saved):
+            self.paint_workspace(ws, items, saved)
         if self.selected == LAST and (self.session or {}).get("threads"):
             self.detail.append(rule_heading("Agent threads", str(len(self.session["threads"])), spaced=True))
             self.detail.append(box(False, 10, label("\U000f167a", "end-glyph", "dim"), label("agentmux", "sub"),
                                    label(", ".join(self.session["threads"]), "dim", ellipsize=True),
                                    label("back with agentmux", "dim", xalign=1.0), classes=("end-row",)))
+
+    def workspaces(self, items, saved):
+        """The workspaces to list: a setup's all ten (so an empty one can be filled) and any other it uses;
+        the last session's, and any while opening, only those with windows."""
+        names = [str(n) for n in range(1, 11)] if saved and not self.opening else []
+        for it in items:
+            if it["workspace"] not in names:
+                names.append(it["workspace"])
+        return sorted(names, key=lambda w: sessionlib.ws_order({"workspace": w}))
+
+    def paint_workspace(self, ws, items, saved):
+        """One workspace: a header (click: open / close) with its apps' icons and how many windows; open,
+        its windows (× takes one out) and + Add a window. All open while the setup is opening."""
+        mine = [i for i, it in enumerate(items) if it["workspace"] == ws]
+        shown = self.opening or ws in self.expanded.get(self.selected, set())
+        count = f"{len(mine)} window{'s' * (len(mine) != 1)}" if mine else "empty"
+        line = box(False, 10, label(CHEVRON[shown], "end-glyph", "dim"),
+                   label(ws_label(ws, self.groups), "accent" if mine else "dim"),
+                   label("  ".join(item_glyph(items[i]) for i in mine), "dim", ellipsize=True), label(count, "dim"))
+        line.get_last_child().set_hexpand(True)
+        line.get_last_child().set_xalign(1.0)
+        head = Gtk.Button(child=line, css_classes=["flat", "ws-head"])
+        head.connect("clicked", lambda *_: self.toggle_ws(ws))
+        self.detail.append(head)
+        if not shown:
+            return
+        body = box(True, 0, classes=("ws-body",))
+        for i in mine:
+            body.append(self.item_row(i, items[i], saved))
+        if saved and not self.opening:
+            add = button("+ Add a window", lambda: self.start_picking(ws), "flat")
+            add.set_halign(Gtk.Align.START)
+            body.append(add)
+        self.detail.append(body)
+
+    def toggle_ws(self, ws):
+        if self.opening:
+            return
+        shown = self.expanded.setdefault(self.selected, set())
+        shown.symmetric_difference_update({ws})
+        self.paint_detail()
 
     def item_row(self, i, item, saved):
         glyph = label(item_glyph(item), "end-glyph", "dim")
@@ -215,19 +259,13 @@ class Setups(View):
         detail = label(item.get("detail", ""), "dim", ellipsize=True)
         detail.set_hexpand(True)
         row = box(False, 10, glyph, label(item["name"], "sub"), detail, status, classes=("end-row",))
-        self.status_rows.append((glyph, status))
+        self.status_rows[i] = (glyph, status)
         if saved and not self.opening:
-            # short: the heading above already says it in full
-            options = [(str(n), ws_label(str(n), self.groups).removeprefix("Workspace ")) for n in range(1, 11)] + \
-                [("special:scratchpad", "Scratchpad")]
-            if item["workspace"] not in [v for v, _ in options]:
-                options.append((item["workspace"], ws_label(item["workspace"], self.groups)))
-            row.append(dropdown(options, item["workspace"], lambda v, i=i: self.move(i, v)))
-            row.append(button("×", lambda i=i: self.remove(i), "flat", tooltip="Remove from this setup"))
+            row.append(button("\u00d7", lambda i=i: self.remove(i), "flat", tooltip="Remove from this setup"))
         return row
 
     def set_state(self, i, state, text):
-        if i < len(self.status_rows):
+        if i in self.status_rows:
             glyph, status = self.status_rows[i]
             g, colour, said = STATES[state]
             glyph.set_text(g)
@@ -241,7 +279,8 @@ class Setups(View):
     # ---- the Add picker ----------------------------------------------------------------------------------
     def paint_picker(self):
         s = self.setup(self.selected)
-        head = box(False, 8, label(f"Add to {s['name']}", "bold"))
+        where = f" · {ws_label(self.pick_ws, self.groups)}" if self.pick_ws else ""
+        head = box(False, 8, label(f"Add to {s['name']}{where}", "bold"), classes=("setup-head",))
         head.get_last_child().set_hexpand(True)
         head.append(button("Done", lambda: self.stop_picking(), "primary"))
         self.detail.append(head)
@@ -331,18 +370,38 @@ class Setups(View):
             n += 1
         return f"Setup {n}"
 
+    def from_header(self, action):
+        """A header button pressed while the name is being typed: the name is kept first (the header
+        stays as it is: no jump), then the button does its thing."""
+        if self.renaming:
+            s = self.setup(self.selected)
+            text = self.renaming.get_text().strip()
+            if s and text and text != s["name"]:
+                old, s["name"] = s["name"], text
+                self.changed(f"rename {old} to {text}")
+                self.paint_list()
+            self.renaming = None
+            self.paint_detail()
+            if action == self.rename:   # Rename again: done renaming
+                return
+        action()
+
     def ask_once(self, action):
-        """True the second time within 3 s (the button turns red the first time)."""
+        """True the second time within 3 s (the button turns red the first time; nothing else redrawn)."""
         if self.armed == (action, self.selected):
             self.armed = None
             return True
         self.armed = (action, self.selected)
-        self.paint_detail()
+        b = self.head_buttons.get(action)
+        if b:
+            b.add_css_class("armed")
 
         def disarm(armed=self.armed):
             if self.armed == armed:
                 self.armed = None
-                self.paint_detail()
+                b = self.head_buttons.get(action)
+                if b:
+                    b.remove_css_class("armed")
         GLib.timeout_add(3000, lambda: disarm() or False)
         self.say("again to confirm", "ok", 3)
         return False
@@ -385,31 +444,27 @@ class Setups(View):
             self.renaming = None
             self.paint_detail()
 
-    def start_picking(self):
+    def start_picking(self, ws=None):
+        """The Add picker: into workspace ws (a workspace's + Add a window), else each window to its own."""
         if self.setup(self.selected):
-            self.picking = True
+            self.picking, self.pick_ws = True, ws
             self.paint_detail()
 
     def stop_picking(self):
-        self.picking = False
+        if self.pick_ws:   # back to that workspace, open, with what was just added in it
+            self.expanded.setdefault(self.selected, set()).add(self.pick_ws)
+        self.picking, self.pick_ws = False, None
         self.paint()
 
     def add(self, items):
         s = self.setup(self.selected)
         if s:
-            s["items"] = sorted(s["items"] + [dict(it) for it in items], key=sessionlib.ws_order)
+            items = [dict(it, workspace=self.pick_ws) if self.pick_ws else dict(it) for it in items]
+            s["items"] = sorted(s["items"] + items, key=sessionlib.ws_order)
             s["updated"] = time.time()
             self.changed(f"add {', '.join(it['name'] for it in items)} to {s['name']}")
             self.say(f"added {len(items)} to {s['name']}", "ok", 3)
             self.paint_list()
-
-    def move(self, i, ws):
-        s = self.setup(self.selected)
-        if s and s["items"][i]["workspace"] != ws:
-            s["items"][i]["workspace"] = ws
-            s["items"].sort(key=sessionlib.ws_order)
-            self.changed(f"{s['name']}: {s['items'][i]['name']} to workspace {ws}")
-            GLib.idle_add(lambda: self.paint_detail() or False)   # not from inside the dropdown's own signal
 
     def remove(self, i):
         s = self.setup(self.selected)
@@ -429,7 +484,7 @@ class Setups(View):
             return True
         if self.login or self.opening or self.typing():
             return False
-        actions = {Gdk.KEY_r: self.record, Gdk.KEY_n: self.new, Gdk.KEY_a: self.start_picking,
+        actions = {Gdk.KEY_r: self.record, Gdk.KEY_n: self.new, Gdk.KEY_a: lambda: self.start_picking(),
                    Gdk.KEY_u: self.update, Gdk.KEY_F2: self.rename, Gdk.KEY_Delete: self.delete}
         if keyval in actions:
             actions[keyval]()

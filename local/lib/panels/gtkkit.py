@@ -118,6 +118,7 @@ button.armed { background: #f7768e; color: #16161e; font-weight: 700; }
 button.flat { background: transparent; color: #a9b1d6; padding: 3px 10px; }
 button.flat:hover { background: alpha(#c0caf5, .08); color: #c0caf5; }
 button.flat.danger, button.flat.danger:hover { color: #f7768e; }   /* a flat destructive action stays red */
+button.flat.armed, button.flat.armed:hover { background: #f7768e; color: #16161e; }   /* asked once: red, flat or not */
 button:disabled { background: alpha(#c0caf5, .03); color: #565f89; }
 
 menubutton arrow { -gtk-icon-source: none; min-width: 0; min-height: 0; margin: 0; }

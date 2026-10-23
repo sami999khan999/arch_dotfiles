@@ -988,8 +988,10 @@ are open, on which workspace, with what in them — and opened again in one go.
   folder). Popups, panels, the VS Code kittys (they come back with their VS Code) and the Control Center
   aren't kept.
 - **Left:** *Last session* (this PC's: what the last Log out / Restart / Shutdown left), then your setups.
-  **Right:** the selected one's windows by workspace; a setup's can be moved to another workspace (the
-  dropdown) or taken out (`×`).
+  **Right:** the selected one's workspaces (all ten for a setup, so an empty one can be filled), folded: each
+  shows its apps' icons and how many windows; a click opens it to its windows. `×` takes a window out,
+  *+ Add a window* puts an open window or an app into that workspace. While a setup opens they all unfold,
+  so each window's progress shows.
 - **Keys:** `Enter` open · `r` record the desktop as it is now as a new setup (then type its name) · `n` a new
   empty one · `a` add: an open window, a whole workspace (all its windows), or an app (the workspace groups'
   and the app hotkeys') · `u` update it from the desktop now · `F2` rename · `Delete` delete (`u` and `Delete`

@@ -11,7 +11,8 @@
 import json, os, subprocess, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, Gtk, View, box, button, label, rule_heading, run, setting_row, switch
+from gtkkit import (Gdk, Gtk, View, box, button, dropdown, label, rgbf, rule_heading, run, scrolled,
+                    setting_row, switch)
 
 CONF = os.path.expanduser("~/.config/hypr/codepair.conf")
 PRESETS = (20, 30, 40, 45, 50, 60, 70, 80)
@@ -49,14 +50,20 @@ def write_conf(share, side):
                 f"share = {share:.3f}\nside = {side}\n")
 
 
+SHOW = [("none", "Side by side"), ("term", "Kitty full width"), ("code", "VS Code full width")]
+SIDES = [("left", "Left"), ("right", "Right")]
+
+
 class Pair(View):
+    icon = "\U000f0bcc"   # nf-md-view_split_vertical
     title, subtitle = "Pair layout", "VS Code + kitty"
     interval = 0
     backdrop = False   # the pair beside it is what you're adjusting
     hints = [("← →", "width"), ("l / r", "side"), ("b / k / c", "both / kitty / VS Code full"), ("Esc", "close")]
     css = """
-    .pair-preview { margin: 6px 0 14px 0; }
-    .preset { padding: 4px 10px; min-width: 0; }
+    .pair-page { padding: 6px 26px 20px 22px; }
+    .pair-preview { margin: 10px 0 4px 0; }
+    .preset { padding: 5px 10px; min-width: 0; }
     """
 
     def __init__(self, address):
@@ -91,9 +98,7 @@ class Pair(View):
 
     # ---- the window ----
     def build(self):
-        page = box(True, 0)
-        for edge in ("start", "end", "top", "bottom"):
-            getattr(page, f"set_margin_{edge}")(18)
+        page = box(True, 0, classes=("pair-page",))
         if not (self.code and self.term):
             page.append(label("This VS Code window has no kitty beside it.", "dim"))
             return page
@@ -103,40 +108,32 @@ class Pair(View):
         self.preview.set_draw_func(self.draw_preview)
         page.append(self.preview)
 
-        page.append(rule_heading("Kitty width"))
-        self.presets = {}
-        row = box(False, 6)
-        for p in PRESETS:
-            b = button(f"{p} %", lambda p=p: self.set_share(p / 100), "preset")
-            b.set_sensitive(p / 100 <= self.most + 1e-6)
-            self.presets[p] = b
-            row.append(b)
+        page.append(rule_heading("Kitty width", spaced=True))
         self.scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, MIN_SHARE * 100, self.most * 100, 1)
         self.scale.set_draw_value(False)
-        self.scale.set_hexpand(True)
+        self.scale.set_size_request(200, -1)
         self.scale.set_value(self.share * 100)
         self.scale_handler = self.scale.connect("value-changed", lambda w: self.set_share(w.get_value() / 100, slider=True))
         self.value = label("", "sub", xalign=1.0)
-        self.value.set_width_chars(6)
+        self.value.set_width_chars(5)
+        self.width_row = setting_row("Width", " ", box(False, 8, self.scale, self.value))
+        self.code_note = self.width_row.get_first_child().get_last_child()   # its dim line: VS Code's px
+        page.append(self.width_row)
+        self.presets = {}
+        row = box(False, 6)
+        for p in PRESETS:
+            if p / 100 <= self.most + 1e-6:   # VS Code can't go narrower than CODE_MIN_PX
+                self.presets[p] = button(f"{p} %", lambda p=p: self.set_share(p / 100), "preset")
+                row.append(self.presets[p])
         page.append(setting_row("Presets", "VS Code gets the rest", row))
-        self.code_note = label("", "setting-sub", wrap=True)
-        page.append(setting_row("Exact", "", box(False, 8, self.scale, self.value)))
-        page.append(self.code_note)
 
-        page.append(rule_heading("Show", spaced=True))
-        self.show_btn = {
-            "none": button("Side by side", lambda: self.set_full("none")),
-            "term": button("Kitty full", lambda: self.set_full("term")),
-            "code": button("VS Code full", lambda: self.set_full("code")),
-        }
-        page.append(setting_row("Full width", "Either one takes the whole width, the other waits beside it; "
-                                "side by side goes back to the split", *self.show_btn.values()))
-
-        page.append(rule_heading("Kitty side", spaced=True))
-        self.side_left = button("Left", lambda: self.set_side("left"))
-        self.side_right = button("Right", lambda: self.set_side("right"))
-        page.append(setting_row("Kitty on the", "Which side of VS Code the terminal sits",
-                                box(False, 6, self.side_left, self.side_right)))
+        page.append(rule_heading("Layout", spaced=True))
+        self.quiet = False   # set while show() puts the dropdowns in step, so they don't call back
+        self.show_dd = dropdown(SHOW, self.full, lambda v: self.quiet or self.set_full(v))
+        page.append(setting_row("Show", "One of them takes the whole width, the other waits beside it",
+                                self.show_dd))
+        self.side_dd = dropdown(SIDES, self.side, lambda v: self.quiet or self.set_side(v))
+        page.append(setting_row("Kitty side", "Which side of VS Code the terminal sits", self.side_dd))
 
         page.append(rule_heading("Apply", spaced=True))
         self.all_switch = switch(self.all, self.set_all)
@@ -144,16 +141,17 @@ class Pair(View):
                                 self.all_switch))
         page.append(setting_row("New pairs open like this", "Saved in ~/.config/hypr/codepair.conf",
                                 switch(self.remember, self.set_remember)))
-        page.append(box(False, 8, button("Reset to 45 % · left", self.reset), classes=()))
+        page.append(setting_row("Reset", f"Kitty {round(DEFAULT[0] * 100)} %, on the {DEFAULT[1]}",
+                                button("Reset", self.reset)))
         self.show()
-        return page
+        return scrolled(page)
 
     def draw_preview(self, _area, cr, w, h):
         """The pair to scale: the kitty block and the VS Code block, the kitty on its side."""
         gap = 6
         share = {"term": 1.0, "code": 0.0}.get(self.full, self.share)
         kw = round((w - gap) * share)
-        blocks = [(kw, (0.42, 0.56, 0.88), "kitty"), (w - gap - kw, (0.16, 0.18, 0.26), "VS Code")]
+        blocks = [(kw, rgbf("#6b8fe0"), "kitty"), (w - gap - kw, rgbf("#292e42"), "VS Code")]
         if self.side == "right":
             blocks.reverse()
         x = 0
@@ -161,7 +159,7 @@ class Pair(View):
             cr.set_source_rgb(*rgb)
             cr.rectangle(x, 0, bw, h)
             cr.fill()
-            cr.set_source_rgb(0.75, 0.79, 0.96) if name == "VS Code" else cr.set_source_rgb(0.09, 0.09, 0.12)
+            cr.set_source_rgb(*rgbf("#c0caf5" if name == "VS Code" else "#16161e"))
             cr.select_font_face("JetBrainsMono Nerd Font")
             cr.set_font_size(12)
             if bw < 60:
@@ -177,14 +175,14 @@ class Pair(View):
         """Controls and preview to match self.share / self.side / self.full."""
         self.value.set_text(f"{round(self.share * 100)} %")
         code_px = round((1 - self.share) * self.total)
-        self.code_note.set_text(f"VS Code {code_px} px · it can't draw narrower than {CODE_MIN_PX} px "
-                                "(its title bar); for more room, use Kitty full")
-        for k, b in self.show_btn.items():
-            (b.add_css_class if self.full == k else b.remove_css_class)("primary")
+        self.code_note.set_text(f"VS Code gets {code_px} px; it can't draw narrower than {CODE_MIN_PX} "
+                                "(its title bar)")
         for p, b in self.presets.items():
             (b.add_css_class if round(self.share * 100) == p else b.remove_css_class)("primary")
-        for b, s in ((self.side_left, "left"), (self.side_right, "right")):
-            (b.add_css_class if self.side == s else b.remove_css_class)("primary")
+        self.quiet = True
+        self.show_dd.set_selected([k for k, _ in SHOW].index(self.full))
+        self.side_dd.set_selected([k for k, _ in SIDES].index(self.side))
+        self.quiet = False
         self.preview.queue_draw()
 
     # ---- changing it ----

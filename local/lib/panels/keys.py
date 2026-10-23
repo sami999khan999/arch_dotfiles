@@ -87,7 +87,7 @@ DESCRIBE = [
 
 KEYNAMES = {
     "SUPER": "Super", "SHIFT": "Shift", "CTRL": "Ctrl", "ALT": "Alt", "RETURN": "Enter", "SPACE": "Space",
-    "TAB": "Tab", "ESCAPE": "Esc", "Escape": "Esc", "comma": ",", "PRINT": "PrtSc",
+    "TAB": "Tab", "ESCAPE": "Esc", "Escape": "Esc", "comma": ",", "grave": "`", "PRINT": "PrtSc",
     "LEFT": "←", "RIGHT": "→", "UP": "↑", "DOWN": "↓", "code:20": "-", "code:21": "=",
     "mouse:272": "Left drag", "mouse:273": "Right drag", "mouse_down": "Scroll ↓", "mouse_up": "Scroll ↑",
     "XF86AudioRaiseVolume": "Vol+", "XF86AudioLowerVolume": "Vol−", "XF86AudioMute": "Mute key",

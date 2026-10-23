@@ -937,7 +937,6 @@ and it's still there over its backdrop (it's pinned above the backdrop, so that 
 and unpinned while another workspace shows). Settings → Appearance → Panels: on / off, darkness, and Panel opacity
 (how solid the panel's own background is: lower shows more of the blur behind it; the blur is
 Appearance → Blur's, the windows').
-The pair popup (`Super + Alt + P`) has none: you watch the pair while you change it.
 
 | Panel | Opens with | Does |
 |---|---|---|

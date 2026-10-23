@@ -58,7 +58,6 @@ class Pair(View):
     icon = "\U000f0bcc"   # nf-md-view_split_vertical
     title, subtitle = "Pair layout", "VS Code + kitty"
     interval = 0
-    backdrop = False   # the pair beside it is what you're adjusting
     hints = [("← →", "width"), ("l / r", "side"), ("b / k / c", "both / kitty / VS Code full"), ("Esc", "close")]
     css = """
     .pair-page { padding: 6px 26px 20px 22px; }

@@ -36,7 +36,8 @@ neighbour before writing one (`wsgui.py` list + detail, `pairgui.py` settings, `
    - on / off → `switch`;
    - numbers → `spin` / `slider`;
    - a section → `rule_heading("Name", right, spaced=True)` (`spaced` between blocks of a window);
-   - buttons → `button(text, fn, classes)`:
+   - buttons → `button(text, fn, classes)`; `fn` is called with **no arguments** (`lambda: self.x()`,
+     `lambda i=i: self.remove(i)`, never `lambda _b: …`):
      - `"primary"` for the one main action (Open, Restore, Done);
      - `"flat"` for the rest;
      - `"flat", "danger"` for destructive ones;
@@ -70,7 +71,10 @@ python3 .claude/skills/gtk-panel/snapshot.py <module> "<view expr>" out.png --si
 
 - It draws the panel under `gtk4-broadwayd :7` and saves the window as PNG; then read the PNG.
 - Use `--setup` to stub whatever saves, pulls, pushes or opens apps (it gets the module as `m`).
-- Use `--then` to reach another state (it gets the view as `view`).
+- Use `--then` to reach another state (it gets the view as `view`). `click("Label")` presses a button the way a
+  click does: **press every button you add** and check that something happened. gtkkit's `button(text, fn)` calls
+  `fn()` with no arguments. A `lambda _b: …` handler raises a TypeError on every click and does nothing, which
+  left all of Setups' buttons dead.
 - Look at each state: empty, full, the longest text, a sub-view (picker), progress.
 - `DOTFILES_THEME=crimson` in front checks another theme.
 

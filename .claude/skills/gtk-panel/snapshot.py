@@ -11,7 +11,8 @@
 #   --size      the size its window rule in config/hypr/modules/windowrules.lua gives it
 #   --setup     run before the view is made, with the module as `m` (stub out what saves, pulls or opens:
 #               m.sessionlib.save_setups = lambda s: None)
-#   --then      run once it's drawn, with the view as `view` (another state: view.selected = "a"; view.paint())
+#   --then      run once it's drawn, with the view as `view` and click("Label") / find("Label") for its buttons
+#               (another state: view.selected = "a"; view.paint() — or click("Add"))
 #
 # DOTFILES_THEME=crimson in front checks it in another colour theme.
 import argparse, os, subprocess, sys, time
@@ -44,6 +45,30 @@ view = eval(a.expr, vars(m))
 tries = [0]
 
 
+def find(text, widget=None):
+    """The button labelled text in the window (depth first), or None."""
+    w = widget or view.host.win
+    if isinstance(w, Gtk.Button) and w.get_label() == text:
+        return w
+    child = w.get_first_child()
+    while child:
+        found = find(text, child)
+        if found:
+            return found
+        child = child.get_next_sibling()
+    return None
+
+
+def click(text):
+    """Press the button labelled text, as a click would (its "clicked" signal); False if there's none."""
+    b = find(text)
+    if b:
+        b.emit("clicked")
+    else:
+        print(f"snapshot.py: no button {text!r}", file=sys.stderr)
+    return bool(b)
+
+
 def shoot():
     win = view.host.win
     paintable = Gtk.WidgetPaintable.new(win)
@@ -64,7 +89,13 @@ def shoot():
 
 def ready():
     if a.then:
-        exec(a.then, {"view": view, "m": m})
+        try:
+            exec(a.then, {"view": view, "m": m, "click": click, "find": find})
+        except Exception:   # a broken --then would leave the window open for ever
+            import traceback
+            traceback.print_exc()
+            view.host.quit()
+            return False
     GLib.timeout_add(300, shoot)
     return False
 

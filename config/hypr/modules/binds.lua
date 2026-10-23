@@ -182,8 +182,8 @@ end
 
 -- Focus and swap with arrows
 for key, dir in pairs({ LEFT = "l", RIGHT = "r", UP = "u", DOWN = "d" }) do
-    bind("SUPER + " .. key,               hl.dsp.focus({ direction = dir }))
-    bind("SUPER + SHIFT + " .. key,       hl.dsp.window.swap({ direction = dir }))
+    bind("SUPER + " .. key,               hl.dsp.focus({ direction = dir })) -- focus the window in that direction
+    bind("SUPER + SHIFT + " .. key,       hl.dsp.window.swap({ direction = dir })) -- swap with the window in that direction
     bind("SUPER + SHIFT + ALT + " .. key, function() moveWorkspaceToMonitor(dir) end) -- move workspace to monitor (it stays on that screen)
     bind("SUPER + ALT + " .. key,         hl.dsp.window.move({ into_group = dir }))
 end

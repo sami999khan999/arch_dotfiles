@@ -1,6 +1,6 @@
 ---
 name: tui-panel
-description: Build or change a terminal panel in this dotfiles repo — the Control Center cards (sysmon, keys, audio, network, wsgroups), the sync panel, or a new popup — using the shared panelkit.py framework. Use when a feature needs a small GUI.
+description: Build or change one of the older terminal panels in this dotfiles repo (panelkit.py, drawn with ANSI in kitty). New panels and popups are GTK — use the gtk-panel skill for those.
 ---
 
 # TUI panels (panelkit)
@@ -8,8 +8,8 @@ description: Build or change a terminal panel in this dotfiles repo — the Cont
 All panels are Python in `local/lib/panels/` (linked to `~/.local/lib/panels`), drawn with ANSI in a kitty window, sharing
 `panelkit.py` for the look (Tokyo Night) and the terminal plumbing.
 
-**GUI panels are what's in use now** (GTK 4, `*gui.py`); the terminal ones below are the older
-versions. A GUI panel is a `gtkkit.View`: `build()` returns the content, `refresh()` runs every
+**GUI panels are what's in use now** (GTK 4, `*gui.py`): building or restyling one is the `gtk-panel`
+skill (its checklist and off-screen snapshot helper). The terminal ones below are the older versions. A GUI panel is a `gtkkit.View`: `build()` returns the content, `refresh()` runs every
 `interval` s while shown (a workspace app's pauses while its workspace is hidden: `hidden_refresh()`
 instead, `shown_changed(shown)` when that flips; a view updated by events sets `interval = 0` and calls
 `self.on_change()` if set, so its Control Center card's header follows), `say()` writes the status line, `close()` closes a popup (no-op in the

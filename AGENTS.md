@@ -13,7 +13,8 @@ Task-specific guides live in `.claude/skills/*/SKILL.md` (plain Markdown, usable
 | `hyprland-config` | editing anything under `config/hypr/` (binds, rules, autostart, Lua gotchas) |
 | `waybar` | adding or restyling a bar module |
 | `workspace-groups` | adding, moving or renaming a workspace group |
-| `tui-panel` | building or changing a panel / Control Center card (`panelkit.py`) |
+| `gtk-panel` | building or restyling a GTK panel / popup (`*gui.py` on `gtkkit.py`): the checklist (backdrop, size rule, shared controls) and an off-screen snapshot helper |
+| `tui-panel` | the older terminal panels (`panelkit.py`) |
 | `codesync` | anything about the code backup service |
 
 ## How the repo is wired

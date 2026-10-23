@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Downloads (this PC's download manager)",
-  "description": "Hands Chrome's downloads to the download manager (Super + Ctrl + J), which downloads them faster.",
-  "version": "1.0",
-  "permissions": ["downloads", "cookies", "nativeMessaging"],
+  "description": "Hands Chrome's downloads to the download manager (Super + Ctrl + J), which downloads them faster, and tells Setups which tabs are open.",
+  "version": "1.1",
+  "permissions": ["downloads", "cookies", "nativeMessaging", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" }
 }

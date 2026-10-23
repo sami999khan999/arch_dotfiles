@@ -1184,7 +1184,7 @@ than an hour from midnight, the line says *used since 08:10* (or *since Tue 18:4
   it had. Remove one: delete its folder.
 - **Panels close and reopen:** `Ctrl+Alt+1` / `Ctrl+Alt+2` / `Ctrl+Alt+3` (Projects / Threads / Terminals), or the `×` in a
   panel's header (`─` in the terminal list's); a closed one shows as `▸ projects Ctrl+Alt+1` in the status bar (click it) and stays closed
-  until reopened. Closing Terminals only hides the column: its shells keep running.
+  until reopened; reopened, it has the keyboard. Closing Terminals only hides the column: its shells keep running.
 - **Collapse Projects / Threads:** `‹` beside a sidebar's `×` (or `c` in it) folds it to a narrow strip:
   a row per project (its state dot and initial) or thread (its state and number), `+` at the bottom;
   click one to open it, `›` at the top (or `c`) opens the sidebar back to its width. It stays

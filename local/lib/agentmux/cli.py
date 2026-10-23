@@ -829,7 +829,7 @@ def set_hidden(role, closed):
 
 
 def toggle(role):
-    """Ctrl+Alt+1/2/3 or a panel's ×: close it (its width is kept), or bring it back. Closing the
+    """Ctrl+Alt+1/2/3 or a panel's ×: close it (its width is kept), or bring it back, focused. Closing the
     terminals column only hides it: the shells keep running."""
     if opt("@max"):
         unmaximize()
@@ -857,6 +857,8 @@ def toggle(role):
     else:
         set_hidden(role, False)
         ensure_layout()
+    if pane(role):   # brought back to be used: it takes the focus
+        lib.app("select-pane", "-t", pane(role))
 
 
 def close_term(target=None):

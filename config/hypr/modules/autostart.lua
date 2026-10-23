@@ -23,4 +23,6 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd("~/.local/bin/projects scan")
     -- the Control Center, on whichever workspace workspaces.conf gives it (10 by default: Super + Ctrl + 0)
     hl.exec_cmd("~/.local/bin/wsgroups launch " .. (workspaceOfClass("sami.controlcenter") or "10") .. " --background")
+    -- what was open before the last Log out / Restart / Shutdown: a panel asks whether to open it again
+    hl.exec_cmd("python3 ~/.local/lib/panels/sessionlib.py ask")
 end)

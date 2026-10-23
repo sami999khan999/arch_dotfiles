@@ -11,12 +11,14 @@
 # it's focused, the panel beside it; Show / Force quit per app, F for all). Nothing goes down while one is
 # open; once the last one closes it carries on by itself. Then agentmux quits (its threads come back next
 # time), and the rest is systemd's: listed (your services, Docker's containers), stopped gracefully by it.
+# What was open is saved first (sessionlib.save): after the next login, restoregui.py offers to open it again.
 # Esc (or closing the panel) cancels: what's closed stays closed. No backdrop: the apps closing, and a save dialog, stay in view.
 import os, signal, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, GLib, View, box, button, hypr_events, hypr_socket, label, rule_heading, run, scrolled
 from hyprsock import query
+import sessionlib
 
 ACTIONS = {"poweroff": ("Shutdown", "shutting down", "\U000f0425", ["systemctl", "poweroff"]),
            "reboot": ("Restart", "restarting", "\U000f0709", ["systemctl", "reboot"]),
@@ -167,6 +169,8 @@ class SessionEnd(View):
 
     # -- closing --
     def start(self):
+        # what's open, for the next login to offer again (restoregui.py), before anything closes
+        sessionlib.save(windows(), self.threads, self.action)
         events = False
         if self.apps:
             events = hypr_events(self.window, (b"closewindow>>",), self.window_closed)

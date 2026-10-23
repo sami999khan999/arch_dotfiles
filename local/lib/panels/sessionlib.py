@@ -5,12 +5,13 @@
 #                        (setupsgui.py --login) asks whether to open it again
 #   sessionlib.py show   print the last session's list and the tabs Chrome last reported
 #
-# An item is one window, with what reopens it as it was: a Chrome window and its tabs (the download manager's
-# extension reports them: TABS), a VS Code window and its folder (from its title), a terminal and its folder,
+# An item is one window, with what reopens it as it was: a Chrome window and its tabs (from Chrome's own session
+# file, or the download manager's extension when its report is newer: TABS), a VS Code window and its folder
+# (from its title), a terminal and its folder,
 # agentmux and its project, any other app by its workspace group's command or exactly how it was started.
 # Opening is one item at a time: the next once the last one's window is up and the CPU has calmed down
 # (open_gently), each window on the workspace it was on, while you stay on yours.
-import json, os, shlex, subprocess, sys, time
+import glob, json, os, shlex, struct, subprocess, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
 import wsgroups
@@ -22,6 +23,7 @@ STATE = os.path.join(XDG_STATE, "session")
 SAVED = os.path.join(STATE, "saved.json")   # the last session, waiting to be offered at the next login
 ASKED = os.path.join(STATE, "asked.json")   # offered (restored or not): still listed, never asked about again
 TABS = os.path.join(XDG_STATE, "setups", "chrome-tabs.json")    # written by local/lib/downloads/native-host.py
+CHROME_SESSIONS = os.path.join(HOME, ".config/google-chrome/Default/Sessions")   # Chrome's own Session_* files
 AGENTMUX_STATE = os.path.join(XDG_STATE, "agentmux", "state.json")
 PROJECTS_CMD = os.path.join(HOME, ".local/bin/projects")
 AGENTMUX = os.path.join(HOME, ".local/bin/agentmux")
@@ -109,11 +111,85 @@ def shell_cwd(pid):
 
 
 def chrome_windows():
-    """The tabs Chrome last reported: [{title, tabs: [{url, title, …}]}], or None."""
+    """Chrome's open windows and their tabs: [{title, tabs: [{url, title, pinned, active}]}], or None. From the
+    extension's report if it's newer than Chrome's own session file, else from that file."""
     try:
-        return json.load(open(TABS)).get("windows")
-    except (OSError, ValueError):
+        reported = os.path.getmtime(TABS)
+    except OSError:
+        reported = 0
+    files = glob.glob(os.path.join(CHROME_SESSIONS, "Session_*"))
+    session = max(files, key=os.path.getmtime) if files else None
+    if reported and (not session or reported >= os.path.getmtime(session)):
+        try:
+            return json.load(open(TABS)).get("windows")
+        except (OSError, ValueError):
+            pass
+    return chrome_session(session) if session else None
+
+
+def chrome_session(path):
+    """Chrome's session file (SNSS: a log of commands Chrome appends as you browse) replayed into its open
+    windows and their tabs, in the extension's shape. Incognito windows are never in it. The commands used
+    (Chrome's session_service_commands.cc): 0 tab → window, 2 tab's place in its window, 6 a tab's
+    navigation entry (a pickle: tab, index, url, title), 7 a tab's current entry, 8 a window's selected tab,
+    9 window type (0 = normal), 12 pinned, 16 tab closed, 17 window closed."""
+    try:
+        data = open(path, "rb").read()
+    except OSError:
         return None
+    if data[:4] != b"SNSS":
+        return None
+    window_of, place, entries, current, pinned, selected, kind = {}, {}, {}, {}, {}, {}, {}
+    closed_tabs, closed_windows = set(), set()
+    pos = 8   # "SNSS", version
+    while pos + 2 <= len(data):
+        size = struct.unpack_from("<H", data, pos)[0]
+        pos += 2
+        if not size or pos + size > len(data):
+            break
+        cmd, body = data[pos], data[pos + 1:pos + size]
+        pos += size
+        try:
+            if cmd in (0, 2, 7, 8, 9) and len(body) >= 8:
+                a, b = struct.unpack_from("<ii", body)
+                {0: window_of, 2: place, 7: current, 8: selected, 9: kind}[cmd][b if cmd == 0 else a] = a if cmd == 0 else b
+            elif cmd == 6:
+                tab, index, n = struct.unpack_from("<iii", body, 4)   # after the pickle's own size
+                p = 16
+                url = body[p:p + n].decode("utf-8", "replace")
+                p += (n + 3) & ~3
+                n = struct.unpack_from("<i", body, p)[0]
+                title = body[p + 4:p + 4 + 2 * n].decode("utf-16-le", "replace")
+                entries.setdefault(tab, {})[index] = (url, title)
+            elif cmd == 12 and len(body) >= 5:
+                pinned[struct.unpack_from("<i", body)[0]] = bool(body[4])
+            elif cmd == 16 and len(body) >= 4:
+                closed_tabs.add(struct.unpack_from("<i", body)[0])
+            elif cmd == 17 and len(body) >= 4:
+                closed_windows.add(struct.unpack_from("<i", body)[0])
+        except struct.error:   # a command cut short (Chrome writing as we read): skip it
+            continue
+    windows = {}
+    for tab, win in window_of.items():
+        if tab in closed_tabs or win in closed_windows or kind.get(win, 0) != 0 or not entries.get(tab):
+            continue
+        nav = entries[tab]
+        url, title = nav.get(current.get(tab), nav[max(nav)])
+        windows.setdefault(win, []).append((place.get(tab, 0), {"url": url, "title": title,
+                                                                 "pinned": pinned.get(tab, False)}))
+    out = []
+    for win, tabs in windows.items():
+        tabs = [t for _, t in sorted(tabs, key=lambda x: x[0])]
+        active = selected.get(win, 0)
+        for i, t in enumerate(tabs):
+            t["active"] = i == active
+        out.append({"title": tabs[min(active, len(tabs) - 1)]["title"], "tabs": tabs})
+    return out
+
+
+def words(text):
+    """The words of a title or address (3 letters or more, lower case), to compare two of them."""
+    return {w for w in "".join(ch.lower() if ch.isalnum() else " " for ch in text).split() if len(w) > 2}
 
 
 def agentmux_project():
@@ -132,7 +208,8 @@ def detail_of(item):
             host = u.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
             if host and host not in sites:
                 sites.append(host)
-        return f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (" · " + ", ".join(sites[:4]) if sites else "")
+        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (" · " + ", ".join(sites[:4]) if sites else "")
+        return f"{item['title']} · {tabs}" if item.get("title") else tabs   # its current tab: which window it is
     if item["kind"] == "code":
         return tilde(item.get("folder")) or "no folder"
     if item["kind"] == "kitty":
@@ -158,21 +235,34 @@ def capture(clients=None):
     chrome = [c for c in clients if c["class"] == CHROME]
     tabs = chrome_windows() if chrome else None
     if tabs:
-        # each reported window to its Hyprland window (whose title is the active tab's + " - Google Chrome"),
-        # for its workspace; one that doesn't match takes a Chrome window left over
+        # each of Chrome's windows to its Hyprland window (whose title is the current tab's + " - Google Chrome"),
+        # for its workspace: by its current tab's title, then by any of its tabs', then by the words they share
+        suffix = " - Google Chrome"
         free = list(chrome)
-        for w in tabs:
-            win = next((c for c in free if c["title"] == f"{w.get('title', '')} - Google Chrome"), None) \
-                or (free[0] if free else None)
-            if win:
-                free.remove(win)
+        found = [None] * len(tabs)
+        for n, w in enumerate(tabs):
+            found[n] = next((c for c in free if w.get("title") and c["title"] == w["title"] + suffix), None)
+            if found[n]:
+                free.remove(found[n])
+        for n, w in enumerate(tabs):   # the session file's selected tab can lag: any of its tabs' titles
+            if not found[n]:
+                titles = {t.get("title", "") + suffix for t in w.get("tabs", [])}
+                found[n] = next((c for c in free if c["title"] in titles), None)
+                if found[n]:
+                    free.remove(found[n])
+        for n, w in enumerate(tabs):   # its current tab's title not written yet: the most words in common
+            if not found[n] and free:
+                mine = words(" ".join(t.get("title", "") + " " + t.get("url", "") for t in w.get("tabs", [])))
+                found[n] = max(free, key=lambda c: len(words(c["title"].removesuffix(suffix)) & mine))
+                free.remove(found[n])
+            win = found[n] or chrome[0]
             urls = [t["url"] for t in w.get("tabs", []) if t.get("url") and not t["url"].startswith("chrome://newtab")]
-            items.append(make_item("chrome", CHROME, (win or chrome[0])["workspace"]["name"], urls=urls))
-    elif chrome:   # no tabs reported (the extension not updated yet): Chrome reopens its own last session
+            items.append(make_item("chrome", CHROME, win["workspace"]["name"], urls=urls,
+                                   title=w.get("title") or win["title"].removesuffix(suffix)))
+    elif chrome:   # Chrome's tabs unknown (no session file yet): it reopens its own last session
         item = make_item("app", CHROME, chrome[0]["workspace"]["name"],
                          argv=["google-chrome-stable", "--restore-last-session"])
-        item["detail"] = (f"{len(chrome)} window{'s' * (len(chrome) != 1)} · its last session (tabs not known: "
-                          "Chrome hasn't the updated extension yet)")
+        item["detail"] = f"{len(chrome)} window{'s' * (len(chrome) != 1)} · its last session (tabs not known)"
         items.append(item)
     for c in clients:
         cls, ws = c["class"], c["workspace"]["name"]

@@ -1008,10 +1008,11 @@ are open, on which workspace, with what in them — and opened again in one go.
 - **Synced:** setups live in `~/code/.projects/setups.json`, the private project-list repo (never this one: tabs
   are in it). The panel pulls when it opens and commits + pushes each change, so both PCs have the same ones.
   Folders are full paths: a project cloned to the same place (`projects clone`) opens on either PC.
-- **Chrome's tabs** come from the download manager's extension (`local/lib/downloads/chrome/`), which reports them
-  whenever they change (at most every 2 s) to `~/.local/state/setups/chrome-tabs.json`. After pulling a newer
-  extension, `downloads enable` packs it for this PC and Chrome updates it by itself (or at its next start).
-  Until it has, Chrome is kept as one app that reopens its last session. Incognito windows are never kept.
+- **Chrome's tabs** come from Chrome's own session file (`~/.config/google-chrome/Default/Sessions/Session_*`, which
+  Chrome keeps up to date as you browse): each window with its tabs, in order, shown with its current tab's title.
+  Incognito windows are never in it, so never kept. The download manager's extension also reports the tabs
+  (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
+  is `google-chrome-stable --new-window <its tabs>`.
 - `python3 ~/.local/lib/panels/sessionlib.py show` prints the last session and the tabs Chrome last reported.
 
 ### System agent

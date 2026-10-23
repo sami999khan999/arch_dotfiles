@@ -41,7 +41,9 @@ neighbour before writing one (`wsgui.py` list + detail, `pairgui.py` settings, `
      - `"primary"` for the one main action (Open, Restore, Done);
      - `"flat"` for the rest;
      - `"flat", "danger"` for destructive ones;
-     - ask once with the `armed` class (red; the same again within 3 s does it; see `powergui.py`).
+     - ask once with the `armed` class (red; the same again within 3 s does it; see `powergui.py`): add and
+       remove the class on that button, **don't redraw the panel** to show it (a redraw drops what's being
+       typed and moves things: Setups' name box vanished on Delete).
    - a left list → a `Gtk.ListBox` (SINGLE) in `box(True, 0, …, classes=("side",))`, 260–360 px wide;
      the detail beside it in `scrolled()`, with 18–20 px margins.
    - a dropdown repeating a heading's words says less: `1 · Agents`, not `Workspace 1 · Agents`.
@@ -58,7 +60,10 @@ neighbour before writing one (`wsgui.py` list + detail, `pairgui.py` settings, `
 9. **Threads.** GTK is main-thread only. Slow work (git, opening apps, docker) goes in a
    `threading.Thread(daemon=True)`; the UI changes from it go through `GLib.idle_add(fn, …)`.
    Nothing polls while unseen: `interval = 0` for a popup updated by events or by its own actions.
-10. **Status.** `self.say(text, "ok"|"bad", seconds)` for messages, `self.set_subtitle()` for progress.
+10. **Redrawing.** `clear(box)` then building again is fine, but a widget kept across redraws (a text field being
+    typed in) still belongs to the old container: `w.get_parent().remove(w)` before appending it again, or it
+    silently doesn't show. A button pressed while a field is being typed in keeps what was typed first.
+11. **Status.** `self.say(text, "ok"|"bad", seconds)` for messages, `self.set_subtitle()` for progress.
 
 ## Check it without a window on the user's screen
 

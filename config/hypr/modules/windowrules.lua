@@ -122,6 +122,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.bluetoot
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.notifications)$" }, size = { 460, 620 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.power)$" }, size = { 640, 290 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.sessionend)$" }, size = { 620, 520 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.setups)$" }, size = { 900, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.theme)$" }, size = { 1060, 560 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcuts)$" }, size = { 760, 600 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })

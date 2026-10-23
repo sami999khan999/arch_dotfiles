@@ -50,7 +50,6 @@ class Setups(View):
     title = "Setups"
     interval = 0
     css = CSS
-    backdrop = False   # the windows opening stay in view
 
     def __init__(self, login=False):
         super().__init__()
@@ -130,7 +129,9 @@ class Setups(View):
             getattr(self.detail, f"set_margin_{edge}")(18)
         self.paint()
         threading.Thread(target=self.pull, daemon=True).start()
-        return box(False, 0, side, scrolled(self.detail))
+        page = scrolled(self.detail)
+        page.set_hexpand(True)   # the detail takes the rest of the width (a wrapped line otherwise wraps per word)
+        return box(False, 0, side, page)
 
     def paint(self):
         self.paint_list()
@@ -443,11 +444,15 @@ class Setups(View):
         super().close()
 
 
+def make(login=False):
+    return Setups(login)
+
+
 def main():
     login = "--login" in sys.argv
     if login and not sessionlib.last_session()[1]:
         return
-    run(Setups(login), "panels.setups", (900, 560))
+    run(make(login), "panels.setups", (900, 560))
 
 
 if __name__ == "__main__":

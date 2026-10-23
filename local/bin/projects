@@ -163,11 +163,12 @@ def save(data):
         f.write("\n")
 
 
-def commit(message):
-    """Commit the list and push it. Returns a problem to report, or ""."""
+def commit(message, files=("projects.json",)):
+    """Commit the list (or other files of its repo: the Setups panel's setups.json) and push it. Returns a
+    problem to report, or ""."""
     if not os.path.isdir(f"{DIR}/.git"):
         return f"{DIR} isn't a git repo yet (projects init)"
-    git(DIR, "add", "projects.json")
+    git(DIR, "add", *files)
     ok, out = git(DIR, "commit", "-q", "-m", message)
     if not ok and "nothing to commit" not in out:
         return out

@@ -954,7 +954,7 @@ Appearance → Blur's, the windows').
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
 | Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |
 | Power (`powergui.py`) | `Super + Esc`, the power key, waybar power button | Lock, Suspend, Log out, Restart, Shutdown as tiles: a tile's letter (`L S O R P`), `←→` + `Enter` or a click; Log out, Restart and Shutdown ask once (the tile turns red: the same again within 3 s does it), then a panel shows it happen (`sessionendgui.py`): every app is a row going closing… → closed (each window closed as `Super + W` would, an app with several windows such as Chrome or VS Code told to quit so it reopens all of them), then agentmux's threads end (they come back next time), and the panel lists what systemd stops after that (your services, Docker's containers) as the system goes down. If an app is still open after 15 s (asking to save?) nothing goes down: it's focused with the panel beside it, Show / Force quit per app, `F` force quits them all, and once the last one closes it carries on. `Esc` cancels |
-| Restore (`restoregui.py`) | after a login, when the last Log out / Restart / Shutdown left apps open | What was open is saved as the session-end panel starts (`sessionlib.py`: each app once, how it starts, its workspace). After the next login this panel lists it: `Enter` / Restore opens it all again, gently: one app at a time, the next once the last one's window is up and the CPU has calmed down, each on its own workspace while you stay on yours. Chrome comes back with its windows and tabs, VS Code with its windows (and their kittys), agentmux with its threads. `Esc` / Not now leaves it closed (`Esc` while restoring stops there). Asked once either way; `python3 ~/.local/lib/panels/sessionlib.py show` prints the list. Only the power menu's Log out / Restart / Shutdown save it: after a crash or power cut there's nothing to offer |
+| Setups (`setupsgui.py`) | `Super + Ctrl + R`, waybar briefcase icon; after a login, when the last Log out / Restart / Shutdown left windows open | save and open work environments, the last session among them: see Setups below |
 | System agent (`sysagentgui.py`) | `Super + Ctrl + S`, waybar sparkles icon | ask an AI about this PC, strictly read-only: see System agent below |
 
 **Busy warning.** While the CPU stays busy (85% for 30 s) a red chip appears left of the idle indicator,
@@ -977,6 +977,40 @@ dismisses the newest on screen, `Super + Shift + ,` all of them.
 How: mako runs `scripts/notifications.py log` for every notification (`on-notify` in
 `config/mako/config`), which keeps the last 200 with their time in `~/.local/state/notifications.json`
 and signals the bell (waybar signal 10). Nothing polls.
+
+### Setups (work environments)
+
+`Super + Ctrl + R` (or the briefcase in the bar) opens Setups: work environments saved by name — which windows
+are open, on which workspace, with what in them — and opened again in one go.
+
+- **What's kept, per window:** a Chrome window's tabs, a VS Code window's folder, a terminal's folder, agentmux
+  and its project, any other app by its workspace group's command (or exactly how it was started, in its
+  folder). Popups, panels, the VS Code kittys (they come back with their VS Code) and the Control Center
+  aren't kept.
+- **Left:** *Last session* (this PC's: what the last Log out / Restart / Shutdown left), then your setups.
+  **Right:** the selected one's windows by workspace; a setup's can be moved to another workspace (the
+  dropdown) or taken out (`×`).
+- **Keys:** `Enter` open · `r` record the desktop as it is now as a new setup (then type its name) · `n` a new
+  empty one · `a` add: an open window, a whole workspace (all its windows), or an app (the workspace groups'
+  and the app hotkeys') · `u` update it from the desktop now · `F2` rename · `Delete` delete (`u` and `Delete`
+  ask once: the button turns red, the same again within 3 s does it). On Last session, *Save as setup* keeps it.
+- **Opening is gentle:** one window at a time, the next once the last one's window is up and the CPU has
+  calmed down (under half busy, 15 s at most), each on its workspace while you stay on yours; the rows show
+  waiting → opening… → open (how long it took). It adds to what's open: what's there already is left alone
+  (that VS Code folder, a single-window app like Discord or a panel); a Chrome window or a terminal always
+  opens. `Esc` stops.
+- **After a login:** if the last Log out / Restart / Shutdown (the power menu: the session-end panel saves what's
+  open before it closes anything) left windows open, Setups opens with Last session selected: `Enter` opens it
+  again, another setup can be picked instead, `Esc` leaves everything closed. Asked once either way; Last
+  session stays in the list. After a crash or a power cut there's nothing to offer.
+- **Synced:** setups live in `~/code/.projects/setups.json`, the private project-list repo (never this one: tabs
+  are in it). The panel pulls when it opens and commits + pushes each change, so both PCs have the same ones.
+  Folders are full paths: a project cloned to the same place (`projects clone`) opens on either PC.
+- **Chrome's tabs** come from the download manager's extension (`local/lib/downloads/chrome/`), which reports them
+  whenever they change (at most every 2 s) to `~/.local/state/setups/chrome-tabs.json`. After pulling a newer
+  extension, `downloads enable` packs it for this PC and Chrome updates it by itself (or at its next start).
+  Until it has, Chrome is kept as one app that reopens its last session. Incognito windows are never kept.
+- `python3 ~/.local/lib/panels/sessionlib.py show` prints the last session and the tabs Chrome last reported.
 
 ### System agent
 

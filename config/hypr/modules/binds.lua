@@ -211,7 +211,8 @@ end
 
 bind("SUPER + TAB",                  hl.dsp.focus({ workspace = "e+1" }))
 bind("SUPER + SHIFT + TAB",          hl.dsp.focus({ workspace = "e-1" }))
-bind("SUPER + CTRL + TAB",           hl.dsp.focus({ workspace = "previous" }))
+bind("SUPER + CTRL + TAB",           hl.dsp.focus({ workspace = "previous" })) -- previous workspace
+bind("SUPER + SHIFT + grave",        hl.dsp.focus({ workspace = "previous" })) -- previous workspace
 bind("SUPER + mouse_down",           hl.dsp.focus({ workspace = "e+1" }))
 bind("SUPER + mouse_up",             hl.dsp.focus({ workspace = "e-1" }))
 
@@ -300,7 +301,23 @@ function cycle(step)   -- assigns the local declared above the workspace binds
     focusPair(wins[(i - 1 + step) % #wins + 1])
 end
 
+-- Back to the window focused before this one on the workspace (focus_history_id: 0 = focused, 1 = the one
+-- before…); pressed again, back again. A VS Code + kitty pair counts as one window, as in cycle().
+local function lastWindow()
+    local active = hl.get_active_window()
+    active = active and pairMain(active)
+    local best
+    for _, w in ipairs(workspaceWindows()) do
+        if not (active and w.address == active.address)
+            and (not best or w.focus_history_id < best.focus_history_id) then
+            best = w
+        end
+    end
+    if best then focusPair(best) end
+end
+
 -- Window cycling and monitors
+bind("SUPER + grave",                lastWindow) -- previous window on this workspace
 bind("ALT + TAB",                    function() cycle(1) end)
 bind("ALT + SHIFT + TAB",            function() cycle(-1) end)
 bind("CTRL + ALT + TAB",             hl.dsp.focus({ monitor = "+1" }))

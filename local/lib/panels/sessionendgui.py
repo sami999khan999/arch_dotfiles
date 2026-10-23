@@ -249,8 +249,8 @@ class SessionEnd(View):
         stuck = [a for a in left if not a.buttons.get_first_child()]
         for app in stuck:
             app.set("stuck")
-            app.buttons.append(button("Show", lambda _b, a=app: self.show(a), "flat"))
-            app.buttons.append(button("Force quit", lambda _b, a=app: self.force(a), "flat", "danger"))
+            app.buttons.append(button("Show", lambda a=app: self.show(a), "flat"))
+            app.buttons.append(button("Force quit", lambda a=app: self.force(a), "flat", "danger"))
         if stuck:
             self.hints = [("F", "force quit all"), ("Esc", "cancel")]
             self.host.show_hints()

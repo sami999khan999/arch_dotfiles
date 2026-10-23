@@ -118,8 +118,8 @@ class Setups(View):
         self.list.connect("row-selected", self.row_selected)
         self.list.connect("row-activated", lambda *_: self.open_selected())
         self.list.set_margin_top(8)
-        record = button("Record current", lambda _b: self.record(), "flat", tooltip="The desktop now, as a new setup (r)")
-        new = button("New", lambda _b: self.new(), "flat", tooltip="An empty setup, to add windows to (n)")
+        record = button("Record current", lambda: self.record(), "flat", tooltip="The desktop now, as a new setup (r)")
+        new = button("New", lambda: self.new(), "flat", tooltip="An empty setup, to add windows to (n)")
         side = box(True, 0, scrolled(self.list), box(False, 4, record, new), classes=("side",))
         side.get_last_child().set_margin_start(10)
         side.get_last_child().set_margin_bottom(10)
@@ -179,18 +179,18 @@ class Setups(View):
         else:
             head.append(label(name, "bold", ellipsize=True))
             head.get_last_child().set_hexpand(True)
-        open_b = button("Restore" if self.selected == LAST else "Open", lambda _b: self.open_selected(), "primary")
+        open_b = button("Restore" if self.selected == LAST else "Open", lambda: self.open_selected(), "primary")
         open_b.set_sensitive(bool(items) and not self.opening)
         if saved and not self.opening:
             for text, act, tip in (("Add", self.start_picking, "An open window, a whole workspace, an app (a)"),
                                    ("Update", self.update, "Replace its windows with the desktop now (u)"),
                                    ("Rename", self.rename, "F2"), ("Delete", self.delete, "Delete")):
-                b = button(text, lambda _b, f=act: f(), "flat", tooltip=tip)
+                b = button(text, lambda f=act: f(), "flat", tooltip=tip)
                 if self.armed and self.armed[0] == act.__name__:
                     b.add_css_class("armed")
                 head.append(b)
         elif self.selected == LAST and not self.opening and items:
-            head.append(button("Save as setup", lambda _b: self.record(items=items), "flat"))
+            head.append(button("Save as setup", lambda: self.record(items=items), "flat"))
         head.append(open_b)
         self.detail.append(head)
         if not items:
@@ -223,7 +223,7 @@ class Setups(View):
             if item["workspace"] not in [v for v, _ in options]:
                 options.append((item["workspace"], ws_label(item["workspace"], self.groups)))
             row.append(dropdown(options, item["workspace"], lambda v, i=i: self.move(i, v)))
-            row.append(button("×", lambda _b, i=i: self.remove(i), "flat", tooltip="Remove from this setup"))
+            row.append(button("×", lambda i=i: self.remove(i), "flat", tooltip="Remove from this setup"))
         return row
 
     def set_state(self, i, state, text):
@@ -243,7 +243,7 @@ class Setups(View):
         s = self.setup(self.selected)
         head = box(False, 8, label(f"Add to {s['name']}", "bold"))
         head.get_last_child().set_hexpand(True)
-        head.append(button("Done", lambda _b: self.stop_picking(), "primary"))
+        head.append(button("Done", lambda: self.stop_picking(), "primary"))
         self.detail.append(head)
         items = sessionlib.capture()
         self.detail.append(rule_heading("Open windows", f"{len(items)}", spaced=True))
@@ -254,19 +254,19 @@ class Setups(View):
                 same = [it for it in items if it["workspace"] == last_ws]
                 line = box(False, 10, label(ws_label(last_ws, self.groups), "accent"), classes=("pick-row",))
                 line.get_last_child().set_hexpand(True)
-                line.append(button(f"Add the workspace ({len(same)})", lambda _b, w=same: self.add(w), "flat"))
+                line.append(button(f"Add the workspace ({len(same)})", lambda w=same: self.add(w), "flat"))
                 self.detail.append(line)
             line = box(False, 10, label(item_glyph(item), "end-glyph", "dim"), label(item["name"], "sub"),
                        label(item.get("detail", ""), "dim", ellipsize=True), classes=("end-row",))
             line.get_last_child().set_hexpand(True)
-            line.append(button("Add", lambda _b, it=item: self.add([it]), "flat"))
+            line.append(button("Add", lambda it=item: self.add([it]), "flat"))
             self.detail.append(line)
         self.detail.append(rule_heading("Apps", spaced=True))
         for cls, name, argv in self.known_apps():
             line = box(False, 10, label(name, "sub"), label(" ".join(argv), "dim", ellipsize=True),
                        classes=("end-row",))
             line.get_last_child().set_hexpand(True)
-            line.append(button("Add", lambda _b, c=cls, n=name, a=argv: self.add([sessionlib.app_item(c, n, a)]), "flat"))
+            line.append(button("Add", lambda c=cls, n=name, a=argv: self.add([sessionlib.app_item(c, n, a)]), "flat"))
             self.detail.append(line)
 
     def known_apps(self):

@@ -180,9 +180,22 @@ local function moveWorkspaceToMonitor(dir)
     hl.exec_cmd("python3 ~/.local/lib/panels/settingslib.py pin-workspace " .. ws.id)
 end
 
+local cycle   -- defined with Alt + Tab further down
+
+-- Focus by direction. On a monocle workspace every window fills the screen, so there is no "left of":
+-- there the arrows step through its windows like Alt + Tab (← ↑ previous, → ↓ next).
+local function focusDirection(dir)
+    local ws = hl.get_active_workspace()
+    if ws and ws.tiled_layout == "monocle" then
+        cycle((dir == "l" or dir == "u") and -1 or 1)
+    else
+        hl.dispatch(hl.dsp.focus({ direction = dir }))
+    end
+end
+
 -- Focus and swap with arrows
 for key, dir in pairs({ LEFT = "l", RIGHT = "r", UP = "u", DOWN = "d" }) do
-    bind("SUPER + " .. key,               hl.dsp.focus({ direction = dir })) -- focus the window in that direction
+    bind("SUPER + " .. key,               function() focusDirection(dir) end) -- focus the window in that direction (monocle: previous / next)
     bind("SUPER + SHIFT + " .. key,       hl.dsp.window.swap({ direction = dir })) -- swap with the window in that direction
     bind("SUPER + SHIFT + ALT + " .. key, function() moveWorkspaceToMonitor(dir) end) -- move workspace to monitor (it stays on that screen)
     bind("SUPER + ALT + " .. key,         hl.dsp.window.move({ into_group = dir }))
@@ -190,7 +203,6 @@ end
 
 -- Workspaces 1..10. Super + N goes to workspace N; pressed again while there, it moves on to the
 -- next window of that workspace (same order and pairing as Alt + Tab, via cycle below)
-local cycle   -- defined with Alt + Tab further down
 
 -- global: waybar's workspace buttons call it too (hyprctl eval), so clicking works like the keys
 function goOrCycle(ws)
@@ -290,7 +302,7 @@ hl.on("window.active", function(w)
     end
 end)
 
-function cycle(step)   -- assigns the local declared above the workspace binds
+function cycle(step)   -- assigns the local declared above the arrow binds
     local wins, active = workspaceWindows(), hl.get_active_window()
     if #wins < 2 then return end
     active = active and pairMain(active)   -- in a VS Code + kitty pair, the kitty counts as its VS Code

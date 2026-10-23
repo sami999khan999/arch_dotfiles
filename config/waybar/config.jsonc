@@ -24,6 +24,7 @@
     "custom/divider",
     "custom/downloads",
     "custom/codesync",
+    "custom/setups",
     "custom/sysagent",
     "custom/keys",
     "custom/settings",
@@ -369,6 +370,11 @@
     "escape": true,
     "on-click": "~/.local/bin/wsgroups",
     "on-click-right": "hyprctl eval 'toggleWindowMode()'"
+  },
+  "custom/setups": {
+    "format": "󰠔",
+    "tooltip-format": "<b>Setups</b>  <span alpha='55%'>Super + Ctrl + R</span>\n<span alpha='55%'>Save and open work environments: windows, folders, tabs</span>",
+    "on-click": "~/.local/lib/panels/setupsgui.py"
   },
   "custom/sysagent": {
     "format": "󰙴",

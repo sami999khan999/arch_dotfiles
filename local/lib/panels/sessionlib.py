@@ -169,8 +169,11 @@ def capture(clients=None):
             urls = [t["url"] for t in w.get("tabs", []) if t.get("url") and not t["url"].startswith("chrome://newtab")]
             items.append(make_item("chrome", CHROME, (win or chrome[0])["workspace"]["name"], urls=urls))
     elif chrome:   # no tabs reported (the extension not updated yet): Chrome reopens its own last session
-        items.append(make_item("app", CHROME, chrome[0]["workspace"]["name"],
-                               argv=["google-chrome-stable", "--restore-last-session"]))
+        item = make_item("app", CHROME, chrome[0]["workspace"]["name"],
+                         argv=["google-chrome-stable", "--restore-last-session"])
+        item["detail"] = (f"{len(chrome)} window{'s' * (len(chrome) != 1)} · its last session (tabs not known: "
+                          "Chrome hasn't the updated extension yet)")
+        items.append(item)
     for c in clients:
         cls, ws = c["class"], c["workspace"]["name"]
         if cls == CHROME:

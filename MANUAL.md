@@ -1010,7 +1010,7 @@ are open, on which workspace, with what in them — and opened again in one go.
   Folders are full paths: a project cloned to the same place (`projects clone`) opens on either PC.
 - **Chrome's tabs** come from Chrome's own session file (`~/.config/google-chrome/Default/Sessions/Session_*`, which
   Chrome keeps up to date as you browse): each window with its tabs, in order, shown with its current tab's title.
-  Incognito windows are never in it, so never kept. The download manager's extension also reports the tabs
+  Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension also reports the tabs
   (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
   is `google-chrome-stable --new-window <its tabs>`.
 - `python3 ~/.local/lib/panels/sessionlib.py show` prints the last session and the tabs Chrome last reported.

@@ -201,6 +201,8 @@ def agentmux_project():
 
 def detail_of(item):
     """The dim line beside its name: the tabs, the folder, the project."""
+    if item["kind"] == "chrome" and item.get("incognito"):
+        return "incognito window · opens empty (its tabs are never kept)"
     if item["kind"] == "chrome":
         urls = item.get("urls") or []
         sites = []
@@ -259,6 +261,8 @@ def capture(clients=None):
             urls = [t["url"] for t in w.get("tabs", []) if t.get("url") and not t["url"].startswith("chrome://newtab")]
             items.append(make_item("chrome", CHROME, win["workspace"]["name"], urls=urls,
                                    title=w.get("title") or win["title"].removesuffix(suffix)))
+        for c in free:   # a window Chrome didn't record is incognito: kept as one, its tabs never are
+            items.append(make_item("chrome", CHROME, c["workspace"]["name"], urls=[], incognito=True))
     elif chrome:   # Chrome's tabs unknown (no session file yet): it reopens its own last session
         item = make_item("app", CHROME, chrome[0]["workspace"]["name"],
                          argv=["google-chrome-stable", "--restore-last-session"])
@@ -314,6 +318,8 @@ def argv_of(item):
     """(argv, cwd) that opens this item's window."""
     kind = item["kind"]
     if kind == "chrome":
+        if item.get("incognito"):
+            return ["google-chrome-stable", "--incognito"], None
         return ["google-chrome-stable", "--new-window", *(item.get("urls") or [])], None
     if kind == "code":
         return ["code", "--new-window", *([item["folder"]] if item.get("folder") else [])], None

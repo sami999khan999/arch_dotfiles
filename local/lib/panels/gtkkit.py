@@ -586,7 +586,12 @@ class Backdrop(Gtk.Widget):
 
     def __init__(self, darken):
         super().__init__(hexpand=True, vexpand=True)
-        self.darken = darken
+        self.darken = self.usual = darken
+
+    def set_opaque(self, on):
+        """Nothing behind shows (Setups while it opens windows), or back to the usual see-through."""
+        self.darken = 1 if on else self.usual
+        self.queue_draw()
 
     def do_snapshot(self, snap):
         dark = Gdk.RGBA()
@@ -777,6 +782,11 @@ class ViewHost:
             self.arm_timer()
             self.view.shown_changed(shown)
         return False
+
+    def set_backdrop_opaque(self, on):
+        """The backdrop hides the screen behind the popup completely (on) or as usual."""
+        if self.backdrop:
+            self.backdrop.get_child().set_opaque(on)
 
     def close_from_backdrop(self):
         """A click on the backdrop. The popup is pinned (pin_over_backdrop), so it stays above the

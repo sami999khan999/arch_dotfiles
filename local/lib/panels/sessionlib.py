@@ -11,7 +11,7 @@
 # agentmux and its project, any other app by its workspace group's command or exactly how it was started.
 # Opening is one item at a time: the next once the last one's window is up and the CPU has calmed down
 # (open_gently), each window on the workspace it was on, while you stay on yours.
-import glob, json, os, shlex, struct, subprocess, sys, time
+import glob, json, os, re, shlex, struct, subprocess, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
 import wsgroups
@@ -374,21 +374,26 @@ def open_gently(item, stop, timeout=30, calm=0.5, settle=15):
         return None
     before = {c["address"] for c in query("clients") or []}
     home = (query("activeworkspace") or {}).get("name")
-    subprocess.Popen(["uwsm", "app", "--", *argv], cwd=cwd if cwd and os.path.isdir(cwd) else HOME,
-                     start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    start = time.monotonic()
-    new = None
-    while not new and time.monotonic() - start < timeout and not stop():
-        time.sleep(0.25)
-        new = next((c for c in query("clients") or [] if c["address"] not in before
-                    and c["class"] == item["class"]), None)
+    cls = re.escape(item["class"])
+    wsgroups.quietly(cls, item["workspace"])   # it opens on its workspace, the screen stays where it is
+    try:
+        subprocess.Popen(["uwsm", "app", "--", *argv], cwd=cwd if cwd and os.path.isdir(cwd) else HOME,
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        start = time.monotonic()
+        new = None
+        while not new and time.monotonic() - start < timeout and not stop():
+            time.sleep(0.25)
+            new = next((c for c in query("clients") or [] if c["address"] not in before
+                        and c["class"] == item["class"]), None)
+    finally:
+        wsgroups.quiet_done(cls)
     if not new:
         return None
     took = time.monotonic() - start
     if new["workspace"]["name"] != item["workspace"]:
         wsgroups.dispatch(f'hl.dsp.window.move({{ workspace = "{item["workspace"]}", follow = false, '
                           f'window = "address:{new["address"]}" }})')
-    # opening it switched the screen to its workspace: back to where you were
+    # a window that came up elsewhere anyway (an app that switches by itself): back to where you were
     now = (query("activeworkspace") or {}).get("name")
     if home and now != home and now in (new["workspace"]["name"], item["workspace"]):
         wsgroups.dispatch(f'hl.dsp.focus({{ workspace = "{home}" }})')

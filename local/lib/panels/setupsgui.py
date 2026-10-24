@@ -11,7 +11,8 @@
 # Keys: Enter open · r record the desktop as a new setup · n new empty setup · a add (an open window, a whole
 # workspace, an app) · u update from the desktop · F2 rename · Delete delete (u and Delete ask once).
 # Opening is sessionlib's: one window at a time, the next once the last one is up and the CPU has calmed
-# down, each on its workspace while you stay on yours; what's open already is left alone. Setups live in
+# down, each on its workspace while you stay on yours (the backdrop goes dark until it's done; closing the panel
+# stops it); what's open already is left alone. Setups live in
 # ~/code/.projects/setups.json (the private project-list repo): pulled when the panel opens, committed and
 # pushed after each change, so both PCs have the same ones.
 import os, sys, threading, time, uuid
@@ -64,6 +65,7 @@ class Setups(View):
             (self.setups[0]["id"] if self.setups else None)
         self.opening = False
         self.stopped = False
+        self.worker = None   # the thread opening a setup
         self.picking = False
         self.renaming = None    # the Gtk.Entry while a name is typed
         self.armed = None       # (action, setup id) asked once: the same again within 3 s does it
@@ -119,6 +121,7 @@ class Setups(View):
 
     # ---- layout ------------------------------------------------------------------------------------------
     def build(self):
+        self.host.win.connect("close-request", self.closing)
         if self.login:
             sessionlib.answered()   # offered once: opened or not, it isn't asked about again
         self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, css_classes=["setup-list"])
@@ -337,17 +340,33 @@ class Setups(View):
         self.paint_detail()
         self.hints = [("Esc", "stop")]
         self.host.show_hints()
+        self.host.set_backdrop_opaque(True)   # the windows open behind it unseen, the screen stays still
 
         def progress(i, state, text):
             GLib.idle_add(self.set_state, i, state, text)
             if state == "busy":
                 GLib.idle_add(self.set_subtitle, f"opening {i + 1} of {len(items)}")
 
+        def done():
+            self.set_subtitle(f"{name} is open")
+            self.host.set_backdrop_opaque(False)
+            GLib.timeout_add(1500, lambda: self.close() or False)
+
         def work():
             sessionlib.open_items(items, lambda: self.stopped, progress)
-            GLib.idle_add(self.set_subtitle, f"{name} is open")
-            GLib.timeout_add(1500, lambda: self.close() or False)
-        threading.Thread(target=work, daemon=True).start()
+            if not self.stopped:
+                GLib.idle_add(done)
+        self.worker = threading.Thread(target=work, daemon=True)
+        self.worker.start()
+
+    def closing(self, *_):
+        """The panel closes (Esc, a click on the backdrop, done): a restore stops, nothing more opens.
+        The window being opened is waited for a moment (it checks every 0.25 s), so the workspace rules it
+        changed for its launch are put back before this process ends."""
+        self.stopped = True
+        if self.worker:
+            self.worker.join(2)
+        return False
 
     def record(self, items=None):
         """The desktop now (or the Last session's list) as a new setup; its name typed next."""
@@ -494,9 +513,6 @@ class Setups(View):
             return True
         return False
 
-    def close(self):
-        self.stopped = True
-        super().close()
 
 
 def make(login=False):

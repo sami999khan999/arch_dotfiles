@@ -997,10 +997,11 @@ are open, on which workspace, with what in them — and opened again in one go.
   and the app hotkeys') · `u` update it from the desktop now · `F2` rename · `Delete` delete (`u` and `Delete`
   ask once: the button turns red, the same again within 3 s does it). On Last session, *Save as setup* keeps it.
 - **Opening is gentle:** one window at a time, the next once the last one's window is up and the CPU has
-  calmed down (under half busy, 15 s at most), each on its workspace while you stay on yours; the rows show
+  calmed down (under half busy, 15 s at most), each straight onto its workspace: the screen never moves, and
+  the backdrop goes dark until everything is open, so nothing flickers behind the panel. The rows show
   waiting → opening… → open (how long it took). It adds to what's open: what's there already is left alone
   (that VS Code folder, a single-window app like Discord or a panel); a Chrome window or a terminal always
-  opens. `Esc` stops.
+  opens. Closing the panel (`Esc`, a click outside it) stops the restore; you're free to move around.
 - **After a login:** if the last Log out / Restart / Shutdown (the power menu: the session-end panel saves what's
   open before it closes anything) left windows open, Setups opens with Last session selected: `Enter` opens it
   again, another setup can be picked instead, `Esc` leaves everything closed. Asked once either way; Last

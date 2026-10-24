@@ -52,6 +52,10 @@ Query with `hyprctl clients -j`, `activewindow -j`, `workspaces -j`, `workspacer
   `hl.on("window.open", function(w) … hl.dispatch(hl.dsp.window.fullscreen_state({…})) end)`.
 - Rules that match through a tag (e.g. `tag = "floating-window"`, set by an earlier rule) apply
   later than plain ones. To override such a window's size, match `tag = "floating-window"` too.
+- A group's rule (`workspace = N`, wsgroups.lua) **follows** the window: the screen jumps there. To open
+  something in the background, don't jump there and back: `hyprctl eval 'openQuietly("class", "N")'`
+  before launching and `openQuietlyDone("class")` once its window is up (`wsgroups.quietly` /
+  `quiet_done` in Python; `wsgroups launch --background` and Setups' restore do this).
 - TUI popups from `scripts/tui.sh` have class `TUI.float` and title = the command's basename
   (`wiremix`, `syncpanel.py`), which is what size rules match on.
 

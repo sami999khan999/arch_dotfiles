@@ -10,6 +10,7 @@ local function trim(s) return (s:gsub("^%s+", ""):gsub("%s+$", "")) end
 
 local grouped = {} -- workspace numbers that have a group line
 local classesOf = {} -- workspace number -> { class = true } of its apps, as written in the file
+local groupRules = {} -- workspace number -> its window rule (which follows the window there)
 
 -- the workspace an app's class belongs to (autostart.lua: the Control Center's), nil if none
 function workspaceOfClass(cls)
@@ -33,12 +34,37 @@ if file then
                 if class ~= "" then
                     classesOf[ws] = {}
                     for c in class:gmatch("[^|]+") do classesOf[ws][c] = true end
-                    hl.window_rule({ match = { class = "^(" .. class .. ")$" }, workspace = ws })
+                    groupRules[ws] = hl.window_rule({ match = { class = "^(" .. class .. ")$" }, workspace = ws })
                 end
             end
         end
     end
     file:close()
+end
+
+-- Opening without going there (hyprctl eval, from wsgroups launch --background and a Setups restore):
+-- the group rule would switch the screen to the new window's workspace and back again, so while
+-- `class` (a regex: "a|b") is launched its group rules are off and a silent rule sends it to `ws`.
+-- openQuietlyDone(class) puts the group rules back. Keyed by class: the Control Center starting at
+-- login and a restore can overlap.
+local quiet = {} -- class -> its silent rule
+local function setGroupRules(class, on)
+    for c in class:gmatch("[^|]+") do
+        local ws = workspaceOfClass((c:gsub("\\(.)", "%1")))   -- escaped (sami\.files) as written
+        if ws and groupRules[ws] then groupRules[ws]:set_enabled(on) end
+    end
+end
+
+function openQuietly(class, ws)
+    if quiet[class] then quiet[class]:set_enabled(false) end
+    quiet[class] = hl.window_rule({ match = { class = "^(" .. class .. ")$" }, workspace = ws .. " silent" })
+    setGroupRules(class, false)
+end
+
+function openQuietlyDone(class)
+    if quiet[class] then quiet[class]:set_enabled(false) end
+    quiet[class] = nil
+    setGroupRules(class, true)
 end
 
 -- workspaces 1..10 always exist, assigned or not, so waybar always shows all ten.

@@ -10,7 +10,7 @@ Super + Q…P to switch.
                               are open there yet
   wsgroups new                open another window of the current workspace's app (Super + N)
   wsgroups launch N|all [-f]  launch a group's programs (-f: even if some are already open;
-                              --background: return to the current workspace afterwards)
+                              --background: opened on its workspace, the screen stays here)
   wsgroups tidy               move already-open windows to their group's workspace
   wsgroups list               show the groups and the numbered windows in each
   wsgroups bar                waybar module: follows Hyprland events, prints JSON lines
@@ -37,11 +37,21 @@ def hypr(*args):
 
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
-from hyprsock import follow, query   # the socket: the bar asks on every window event, hyprctl was a process each
+from hyprsock import follow, query, request   # the socket: the bar asks on every window event, hyprctl was a process each
 
 
 def dispatch(lua):
     hypr("dispatch", lua)
+
+
+def quietly(cls, ws):
+    """Windows of cls (a regex) open on ws without the screen going there, until quiet_done(cls)
+    (openQuietly in wsgroups.lua)."""
+    request(f'eval openQuietly({json.dumps(cls)}, {json.dumps(str(ws))})')
+
+
+def quiet_done(cls):
+    request(f'eval openQuietlyDone({json.dumps(cls)})')
 
 
 def notify(msg):
@@ -455,11 +465,18 @@ def main(argv):
         targets = sorted(groups()) if rest[0] == "all" else [int(rest[0])]
         home = (query("activeworkspace") or {}).get("id")
         for ws in targets:
-            started = launch(ws, force)
-            print(f"workspace {ws}: {'launched' if started else 'already open (use -f)'}")
-            if started and background:
-                wait_for(ws)
-        if background and home:   # the group rules follow new windows; go back to where we were
+            g = groups().get(ws)
+            if background and g and g["cls"]:   # opened where it belongs, the screen stays here
+                quietly(g["cls"], ws)
+            try:
+                started = launch(ws, force)
+                print(f"workspace {ws}: {'launched' if started else 'already open (use -f)'}")
+                if started and background:
+                    wait_for(ws)
+            finally:
+                if background and g and g["cls"]:
+                    quiet_done(g["cls"])
+        if background and home and (query("activeworkspace") or {}).get("id") != home:
             dispatch(f'hl.dsp.focus({{ workspace = "{home}" }})')
     elif cmd == "tidy":
         print(f"moved {tidy()} window(s)")

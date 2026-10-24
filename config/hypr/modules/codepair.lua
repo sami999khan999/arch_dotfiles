@@ -253,19 +253,39 @@ function openPairPanel()
     end
 end
 
+local function pairUp(w)
+    -- a new column opens right of the focused one: if that was the left column of another pair,
+    -- this window landed inside that pair; hop over to the right of it
+    local left = leftOf(w)
+    focus(w)
+    if left and ((termSide == "left" and isPairTerm(left)) or (termSide == "right" and CODE[left.class])) then
+        hl.dispatch(hl.dsp.layout("swapcol r"))
+    end
+    -- full width until its kitty is there, so it never shows half-width beside the old pair
+    hl.dispatch(hl.dsp.layout("colresize 1.0"))
+    hl.exec_cmd("~/.local/bin/kitty-pair " .. w.address)
+end
+
+-- A VS Code window opened where no screen shows (Setups opens windows quietly): pairing it moves the
+-- focus there, and the screen with it. So it gets its kitty when its workspace is first shown.
+local unpaired = {}   -- address -> true
+
+hl.on("workspace.active", function()
+    for address in pairs(unpaired) do
+        local w = hl.get_window("address:" .. address)
+        if not w or not onPairWs(w) then
+            unpaired[address] = nil
+        elseif w.workspace.visible then
+            unpaired[address] = nil
+            pairUp(w)
+        end
+    end
+end)
+
 hl.on("window.open", function(w)
     if not w or w.floating then return end
     if CODE[w.class] and onPairWs(w) then
-        -- a new column opens right of the focused one: if that was the left column of another pair,
-        -- this window landed inside that pair; hop over to the right of it
-        local left = leftOf(w)
-        focus(w)
-        if left and ((termSide == "left" and isPairTerm(left)) or (termSide == "right" and CODE[left.class])) then
-            hl.dispatch(hl.dsp.layout("swapcol r"))
-        end
-        -- full width until its kitty is there, so it never shows half-width beside the old pair
-        hl.dispatch(hl.dsp.layout("colresize 1.0"))
-        hl.exec_cmd("~/.local/bin/kitty-pair " .. w.address)
+        if w.workspace.visible then pairUp(w) else unpaired[w.address] = true end
     elseif isPairTerm(w) then
         -- kitty-pair focused the VS Code window, so the kitty opened as the column to its right:
         -- give it its width (and move it left of VS Code, unless it belongs on the right), VS Code
@@ -309,7 +329,7 @@ end)
 
 hl.on("window.close", function(w)
     if w and CODE[w.class] then
-        folderOf[w.address] = nil
+        folderOf[w.address], unpaired[w.address] = nil, nil
         local term = termOf(w)
         if term then hl.dispatch(hl.dsp.window.close({ window = "address:" .. term.address })) end
     end

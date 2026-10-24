@@ -880,7 +880,8 @@ and the title beside it stay on the window it opened over.
 Window…) opens with its own kitty beside it: kitty 45 % on the left, VS Code 55 %, together the
 whole screen. kitty starts in that window's project folder (found from the window title under
 `~/code`; an empty window gets `~/code`) and runs as its own app, so a dev server that runs out of
-memory takes down that kitty, not VS Code. The workspace uses Hyprland's scrolling layout: pairs
+memory takes down that kitty, not VS Code. A window opened while the Code workspace isn't on screen
+(Setups opening a setup) gets its kitty when you first go there, so the screen isn't pulled over. The workspace uses Hyprland's scrolling layout: pairs
 sit side by side and `Super + Q…P` / `Alt + Tab` slide to VS Code window N with its kitty (kittys
 aren't counted). Opening another project in a VS Code window takes its kitty along: it `cd`s
 there if it's idle, or opens a new tab there if something is running. Closing a VS Code window

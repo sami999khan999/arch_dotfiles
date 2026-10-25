@@ -21,6 +21,13 @@ Every driver has the same shape, called from one worker thread per connection:
   more(limit)             the next page of the last run()
   info(path)              [(key, value)] about a node
   close()
+and, to change what a leaf holds (its rows, documents, a key's items, a folder's files), one row or many:
+  editor(path)            how: None (it can't be changed: a view) or an Editor
+  record(path, key)       one row in full, for its edit form: {field: text or None}, or a document's JSON
+  insert(path, values)    a new row (values {field: text or None}, or a document's / documents' JSON)
+  update(path, keys, values)   the same change to every row in keys: only the fields in values
+  remove(path, keys)      those rows; each returns a message ("3 rows deleted")
+where a row's key is the hidden one browse() gave it (Result.keys: a primary key, a ctid, an _id…).
 Postgres and SQLite also have liam(schema): the schema as Liam ERD's schema.json, for dbliam.py.
 """
 import json, os, shlex, socket, subprocess, tempfile, time, uuid
@@ -67,11 +74,40 @@ class Node:
 
 class Result:
     """A page of rows: columns, rows (lists of cell text), more (another page exists), message.
-    next_at: where the next page starts when it isn't an offset (a Redis hash / set scan's cursor)."""
+    next_at: where the next page starts when it isn't an offset (a Redis hash / set scan's cursor).
+    keys: each row's key for record() / update() / remove(), when the rows can be changed."""
 
-    def __init__(self, columns=(), rows=(), more=False, message="", next_at=None):
+    def __init__(self, columns=(), rows=(), more=False, message="", next_at=None, keys=None):
         self.columns, self.rows, self.more, self.message = list(columns), list(rows), more, message
-        self.next_at = next_at
+        self.next_at, self.keys = next_at, keys
+
+
+class Field:
+    """A field of an edit form. type: shown beside its name; null: can be NULL; default: what an insert
+    leaves out gets; fixed: computed by the database (a generated column), never written."""
+    __slots__ = ("name", "type", "null", "default", "fixed")
+
+    def __init__(self, name, type="", null=False, default="", fixed=False):
+        self.name, self.type, self.null, self.default, self.fixed = name, type, null, default, fixed
+
+
+class Editor:
+    """How a leaf's rows are changed. noun: what a row is ("row", "document", "field"…); fields: the form's
+    (json: one JSON text instead); new / edit / delete: which of those it has; many: what an edit of several
+    rows sets (a hint; "" = they can't be edited together); files: new rows are uploaded files."""
+
+    def __init__(self, noun, fields=(), json=False, new=True, edit=True, delete=True, many="", files=False, hint=""):
+        self.noun, self.fields, self.json, self.files, self.hint = noun, list(fields), json, files, hint
+        self.new, self.edit, self.delete, self.many = new, edit, delete, many
+
+
+def text(v):
+    """A stored value in full, for an edit form: str, or None (NULL)."""
+    if v is None or isinstance(v, str):
+        return v
+    if isinstance(v, (bytes, bytearray, memoryview)):
+        return bytes(v).decode(errors="replace")
+    return str(v)
 
 
 def cell(v):
@@ -435,6 +471,9 @@ class Driver:
     def info(self, path):
         return []
 
+    def editor(self, path):
+        return None
+
 
 class Lookahead:
     """A cursor's rows a page at a time, one row read ahead: "more" is then exact (a query that ends on a
@@ -482,6 +521,7 @@ class Postgres(Driver):
         except self.pg.Error as e:
             raise DbError(str(e).strip())
         self.cur = None
+        self.shapes = {}   # path: (its columns [Field], its key's columns, a table?), asked once
 
     def children(self, path):
         if not path:
@@ -502,8 +542,13 @@ class Postgres(Driver):
 
     def browse(self, path, offset=0, limit=PAGE):
         s = self.pg.sql
-        query = s.SQL("select * from {}.{} limit {} offset {}").format(
-            s.Identifier(path[0]), s.Identifier(path[1]), s.Literal(limit + 1), s.Literal(offset))
+        _f, key, table = self.shape(path)
+        ctid = table and key == ["ctid"]   # no primary key: the row's place in the table says which it is
+        # by its primary key (its index): a row edited stays where it was, pages don't overlap
+        order = s.SQL(" order by {}").format(s.SQL(", ").join(map(s.Identifier, key))) if table and not ctid else s.SQL("")
+        query = s.SQL("select {}* from {}.{}{} limit {} offset {}").format(
+            s.SQL("ctid, " if ctid else ""), s.Identifier(path[0]), s.Identifier(path[1]), order, s.Literal(limit + 1),
+            s.Literal(offset))
         try:
             with self.conn.cursor() as c:
                 c.execute(query)
@@ -511,7 +556,104 @@ class Postgres(Driver):
                 cols = [d.name for d in c.description]
         except self.pg.Error as e:
             raise DbError(str(e).strip())
-        return Result(cols, [[cell(v) for v in r] for r in rows[:limit]], len(rows) > limit)
+        more, rows, keys = len(rows) > limit, rows[:limit], None
+        if ctid:
+            keys, rows, cols = [(r[0],) for r in rows], [r[1:] for r in rows], cols[1:]
+        elif table:
+            at = [cols.index(k) for k in key]
+            keys = [tuple(r[i] for i in at) for r in rows]
+        return Result(cols, [[cell(v) for v in r] for r in rows], more, keys=keys)
+
+    # ---- changing rows ----
+    def shape(self, path):
+        if path not in self.shapes:
+            rel = self.q("select c.oid, c.relkind from pg_class c join pg_namespace n on n.oid = c.relnamespace "
+                         "where n.nspname = %s and c.relname = %s", path)
+            oid, kind = rel[0] if rel else (0, "")
+            fields = [Field(n, t, null, d or "", fixed) for n, t, null, d, fixed in self.q("""
+                select a.attname, format_type(a.atttypid, a.atttypmod), not a.attnotnull, pg_get_expr(d.adbin, d.adrelid),
+                       a.attgenerated <> '' or a.attidentity = 'a'
+                from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+                where a.attrelid = %s and a.attnum > 0 and not a.attisdropped order by a.attnum""", (oid,))]
+            key = [k for (k,) in self.q("select a.attname from pg_index i join pg_attribute a on a.attrelid = i.indrelid "
+                                        "and a.attnum = any(i.indkey) where i.indrelid = %s and i.indisprimary", (oid,))]
+            self.shapes[path] = (fields, key or ["ctid"], kind in ("r", "p"))
+        return self.shapes[path]
+
+    def editor(self, path):
+        fields, key, table = self.shape(path)
+        if not table:
+            return None
+        return Editor("row", fields, many="the fields you change, on every selected row",
+                      hint="" if key != ["ctid"] else "no primary key: rows are told apart by their place (ctid)")
+
+    def where(self, path, key):
+        """The WHERE matching one key, and its arguments."""
+        s = self.pg.sql
+        names = self.shape(path)[1]
+        return s.SQL(" and ").join(s.SQL("ctid = %s::tid") if n == "ctid" else s.SQL("{} = %s").format(s.Identifier(n))
+                                   for n in names), list(key)
+
+    def assign(self, path, values):
+        """[(column, a placeholder cast to its type)] for values: what's typed is text, Postgres reads it as the
+        column's type (an int, a date, an array, JSON…), as psql would."""
+        s = self.pg.sql
+        types = {f.name: f.type for f in self.shape(path)[0]}
+        unknown = [k for k in values if k not in types]
+        if unknown:
+            raise DbError(f"no column {unknown[0]}")
+        return [(s.Identifier(k), s.SQL("cast(%s as {})").format(s.SQL(types[k]))) for k in values]
+
+    def record(self, path, key):
+        s = self.pg.sql
+        fields = self.shape(path)[0]
+        where, args = self.where(path, key)
+        rows = self.q(s.SQL("select {} from {}.{} where {}").format(
+            s.SQL(", ").join(s.SQL("{}::text").format(s.Identifier(f.name)) for f in fields),
+            s.Identifier(path[0]), s.Identifier(path[1]), where), args)
+        if not rows:
+            raise DbError("that row isn't there any more: Refresh")
+        return dict(zip((f.name for f in fields), rows[0]))
+
+    def change(self, sql, many):
+        """Run sql once per argument list, in one transaction: all of them or none. Rows it touched."""
+        try:
+            with self.conn.transaction(), self.conn.cursor() as c:
+                n = 0
+                for args in many:
+                    c.execute(sql, args)
+                    n += max(c.rowcount, 0)
+                return n
+        except self.pg.Error as e:
+            raise DbError(str(e).strip())
+
+    def insert(self, path, values):
+        s = self.pg.sql
+        cols = self.assign(path, values)
+        sql = s.SQL("insert into {}.{} ({}) values ({})").format(
+            s.Identifier(path[0]), s.Identifier(path[1]), s.SQL(", ").join(c for c, _v in cols),
+            s.SQL(", ").join(v for _c, v in cols)) if cols else \
+            s.SQL("insert into {}.{} default values").format(s.Identifier(path[0]), s.Identifier(path[1]))
+        self.change(sql, [list(values.values())])
+        return "1 row added"
+
+    def update(self, path, keys, values):
+        s = self.pg.sql
+        if not values:
+            return "nothing changed"
+        where, _a = self.where(path, keys[0])
+        sql = s.SQL("update {}.{} set {} where {}").format(
+            s.Identifier(path[0]), s.Identifier(path[1]),
+            s.SQL(", ").join(s.SQL("{} = {}").format(c, v) for c, v in self.assign(path, values)), where)
+        n = self.change(sql, [list(values.values()) + list(k) for k in keys])
+        return f"{n} row{'s' * (n != 1)} changed"
+
+    def remove(self, path, keys):
+        s = self.pg.sql
+        where, _a = self.where(path, keys[0])
+        n = self.change(s.SQL("delete from {}.{} where {}").format(s.Identifier(path[0]), s.Identifier(path[1]), where),
+                        [list(k) for k in keys])
+        return f"{n} row{'s' * (n != 1)} deleted"
 
     def count(self, path):
         """Exact (count(*), given 3 s) unless the planner knows the table is huge; then its estimate.
@@ -673,6 +815,7 @@ class Sqlite(Driver):
             raise DbError(f"no such file: {path}")
         self.conn = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.cur = None
+        self.shapes = {}   # as Postgres'
 
     def children(self, path):
         rows = self.conn.execute("select name, type from sqlite_master where type in ('table', 'view') "
@@ -723,12 +866,94 @@ class Sqlite(Driver):
         return {"tables": tables, "enums": {}, "extensions": {}}
 
     def browse(self, path, offset=0, limit=PAGE):
+        _f, key, table = self.shape(path)
+        rowid = table and key == ["rowid"]
         try:
-            c = self.conn.execute(f"select * from {self.name(path)} limit ? offset ?", (limit + 1, offset))
+            c = self.conn.execute(f"select {'rowid, ' if rowid else ''}* from {self.name(path)} limit ? offset ?",
+                                  (limit + 1, offset))
         except self.sq.Error as e:
             raise DbError(str(e))
         rows = c.fetchall()
-        return Result([d[0] for d in c.description], [[cell(v) for v in r] for r in rows[:limit]], len(rows) > limit)
+        more, rows, cols, keys = len(rows) > limit, rows[:limit], [d[0] for d in c.description], None
+        if rowid:
+            keys, rows, cols = [(r[0],) for r in rows], [r[1:] for r in rows], cols[1:]
+        elif table:
+            at = [cols.index(k) for k in key]
+            keys = [tuple(r[i] for i in at) for r in rows]
+        return Result(cols, [[cell(v) for v in r] for r in rows], more, keys=keys)
+
+    # ---- changing rows ----
+    def shape(self, path):
+        if path not in self.shapes:
+            try:
+                kind, sql = (self.conn.execute("select type, sql from sqlite_master where name = ?", path).fetchone()
+                             or ("", ""))
+                info = self.conn.execute(f"pragma table_xinfo({self.name(path)})").fetchall()   # …, hidden
+            except self.sq.Error as e:
+                raise DbError(str(e))
+            fields = [Field(r[1], r[2] or "", not r[3] and not r[5], "" if r[4] is None else str(r[4]), r[6] in (2, 3))
+                      for r in info if r[6] != 1]
+            pk = [r[1] for r in sorted(info, key=lambda r: r[5]) if r[5]]
+            without = "without rowid" in " ".join((sql or "").lower().split())
+            self.shapes[path] = (fields, pk if without else ["rowid"], kind == "table")
+        return self.shapes[path]
+
+    def editor(self, path):
+        return Editor("row", self.shape(path)[0], many="the fields you change, on every selected row") \
+            if self.shape(path)[2] else None
+
+    def where(self, path):
+        return " and ".join("rowid = ?" if k == "rowid" else f"{self.name((k,))} = ?" for k in self.shape(path)[1])
+
+    def check(self, path, values):
+        names = {f.name for f in self.shape(path)[0]}
+        unknown = [k for k in values if k not in names]
+        if unknown:
+            raise DbError(f"no column {unknown[0]}")
+
+    def record(self, path, key):
+        fields = self.shape(path)[0]
+        row = self.conn.execute(f"select {', '.join(self.name((f.name,)) for f in fields)} from {self.name(path)} "
+                                f"where {self.where(path)}", key).fetchone()
+        if not row:
+            raise DbError("that row isn't there any more: Refresh")
+        return {f.name: text(v) for f, v in zip(fields, row)}
+
+    def change(self, sql, many):
+        """As Postgres.change: in one transaction (sqlite's file changes once, all or nothing)."""
+        try:
+            self.conn.execute("begin")
+            n = 0
+            for args in many:
+                n += max(self.conn.execute(sql, args).rowcount, 0)
+            self.conn.execute("commit")
+            return n
+        except self.sq.Error as e:
+            if self.conn.in_transaction:
+                self.conn.execute("rollback")
+            raise DbError(str(e))
+
+    def insert(self, path, values):
+        # what's typed is text: the column's affinity makes "42" an INTEGER, "1.5" a REAL, as the sqlite3 shell does
+        self.check(path, values)
+        cols = ", ".join(self.name((k,)) for k in values)
+        sql = f"insert into {self.name(path)} ({cols}) values ({', '.join('?' * len(values))})" if values else \
+            f"insert into {self.name(path)} default values"
+        self.change(sql, [list(values.values())])
+        return "1 row added"
+
+    def update(self, path, keys, values):
+        if not values:
+            return "nothing changed"
+        self.check(path, values)
+        sets = ", ".join(f"{self.name((k,))} = ?" for k in values)
+        n = self.change(f"update {self.name(path)} set {sets} where {self.where(path)}",
+                        [list(values.values()) + list(k) for k in keys])
+        return f"{n} row{'s' * (n != 1)} changed"
+
+    def remove(self, path, keys):
+        n = self.change(f"delete from {self.name(path)} where {self.where(path)}", [list(k) for k in keys])
+        return f"{n} row{'s' * (n != 1)} deleted"
 
     def count(self, path):
         try:
@@ -823,23 +1048,27 @@ class Redis(Driver):
         try:
             t = self.r.type(k).decode()
             if t == "string":
-                return Result(["value"], [[cell(self.r.get(k))]])
+                return Result(["value"], [[cell(self.r.get(k))]], keys=[None])
             if t == "hash":
                 cur, items = self.r.hscan(k, offset or 0, count=limit)
-                return Result(["field", "value"], [[cell(f), cell(v)] for f, v in items.items()], bool(cur), next_at=cur)
+                return Result(["field", "value"], [[cell(f), cell(v)] for f, v in items.items()], bool(cur), next_at=cur,
+                              keys=list(items))
             if t == "list":
                 items = self.r.lrange(k, offset, offset + limit)
-                return Result(["#", "value"], [[str(offset + i), cell(v)] for i, v in enumerate(items[:limit])], len(items) > limit)
+                return Result(["#", "value"], [[str(offset + i), cell(v)] for i, v in enumerate(items[:limit])], len(items) > limit,
+                              keys=[offset + i for i in range(len(items[:limit]))])
             if t == "set":
                 cur, items = self.r.sscan(k, offset or 0, count=limit)
-                return Result(["member"], [[cell(v)] for v in items], bool(cur), next_at=cur)
+                return Result(["member"], [[cell(v)] for v in items], bool(cur), next_at=cur, keys=list(items))
             if t == "zset":
                 items = self.r.zrange(k, offset, offset + limit, withscores=True)
-                return Result(["member", "score"], [[cell(m), str(s)] for m, s in items[:limit]], len(items) > limit)
+                return Result(["member", "score"], [[cell(m), str(s)] for m, s in items[:limit]], len(items) > limit,
+                              keys=[m for m, _s in items[:limit]])
             if t == "stream":
                 items = self.r.xrange(k, min=f"({offset}" if offset else "-", count=limit + 1)
                 rows = [[cell(i), cell({cell(a): cell(b) for a, b in f.items()})] for i, f in items[:limit]]
-                return Result(["id", "fields"], rows, len(items) > limit, next_at=rows[-1][0] if rows else None)
+                return Result(["id", "fields"], rows, len(items) > limit, next_at=rows[-1][0] if rows else None,
+                              keys=[i for i, _f in items[:limit]])
             return Result(message=f"{k}: {t}")
         except self.err as e:
             raise DbError(str(e))
@@ -902,6 +1131,216 @@ class Redis(Driver):
     def delete(self, path):
         self.r.delete(path[0])
 
+    # ---- changing a key's items (a hash's fields, a list's items, members…) and the keys themselves ----
+    EDITORS = {   # type: (noun, fields, new / edit / delete, what an edit of several sets)
+        "string": ("value", ["value"], (False, True, False), ""),
+        "hash": ("field", ["field", "value"], (True, True, True), "the value, on every selected field"),
+        "list": ("item", ["value"], (True, True, True), "the value, on every selected item"),
+        "set": ("member", ["member"], (True, True, True), ""),
+        "zset": ("member", ["member", "score"], (True, True, True), "the score, on every selected member"),
+        "stream": ("entry", ["fields"], (True, False, True), ""),
+    }
+    NEW_KEY = {   # type: how the new key's value is typed
+        "string": "its value", "hash": 'JSON: {"field": "value", …}', "list": "one item a line",
+        "set": "one member a line", "zset": 'JSON: {"member": score, …}', "stream": 'its first entry, JSON: {"field": "value"}',
+    }
+
+    def kind_of(self, k):
+        try:
+            return self.r.type(k).decode()
+        except self.err as e:
+            raise DbError(str(e))
+
+    def editor(self, path):
+        t = self.kind_of(path[0])
+        if t not in self.EDITORS:
+            return None
+        noun, names, (new, edit, delete), many = self.EDITORS[t]
+        return Editor(noun, [Field(n, "JSON object" if t == "stream" else "") for n in names], new=new, edit=edit,
+                      delete=delete, many=many, hint="a list's item is told apart by its place: if the list moved "
+                      "since you looked (another client pushed), Refresh first" if t == "list" else "")
+
+    def record(self, path, key):
+        k, t = path[0], self.kind_of(path[0])
+        try:
+            if t == "string":
+                return {"value": text(self.r.get(k))}
+            if t == "hash":
+                return {"field": text(key), "value": text(self.r.hget(k, key))}
+            if t == "list":
+                return {"value": text(self.r.lindex(k, key))}
+            if t == "set":
+                return {"member": text(key)}
+            if t == "zset":
+                return {"member": text(key), "score": text(self.r.zscore(k, key))}
+        except self.err as e:
+            raise DbError(str(e))
+        raise DbError(f"a {t}'s entries can't be edited")
+
+    @staticmethod
+    def score(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            raise DbError(f"a score is a number, not {v!r}")
+
+    def insert(self, path, values):
+        k, t = path[0], self.kind_of(path[0])
+        v = values.get("value") or ""
+        try:
+            if t == "hash":
+                if not values.get("field"):
+                    raise DbError("a field needs a name")
+                if not self.r.hsetnx(k, values["field"], v):
+                    raise DbError(f"{values['field']} is already in {k}: edit it instead")
+            elif t == "list":
+                self.r.rpush(k, v)
+            elif t == "set":
+                if not self.r.sadd(k, values.get("member") or ""):
+                    raise DbError("that's already a member")
+            elif t == "zset":
+                self.r.zadd(k, {values.get("member") or "": self.score(values.get("score") or 0)}, nx=True)
+            elif t == "stream":
+                fields = json.loads(values.get("fields") or "{}")
+                if not isinstance(fields, dict) or not fields:
+                    raise DbError('an entry is a JSON object of its fields: {"field": "value"}')
+                self.r.xadd(k, {a: b if isinstance(b, str) else json.dumps(b) for a, b in fields.items()})
+            else:
+                raise DbError(f"nothing is added to a {t}")
+        except ValueError as e:
+            raise DbError(f"not JSON: {e}")
+        except self.err as e:
+            raise DbError(str(e))
+        return f"1 {self.EDITORS[t][0]} added to {k}"
+
+    def update(self, path, keys, values):
+        k, t = path[0], self.kind_of(path[0])
+        if not values:
+            return "nothing changed"
+        if len(keys) > 1 and set(values) & {"field", "member"}:
+            raise DbError(f"several {self.EDITORS[t][0]}s can't all get one name")
+        try:
+            pipe = self.r.pipeline(transaction=True)   # MULTI / EXEC: all of it or none
+            for key in keys:
+                if t == "string":
+                    pipe.set(k, values["value"] or "", keepttl=True)
+                elif t == "hash":
+                    field = values.get("field", text(key))
+                    value = values["value"] if "value" in values else self.r.hget(k, key)
+                    if field != text(key):
+                        if self.r.hexists(k, field):
+                            raise DbError(f"{field} is already in {k}")
+                        pipe.hdel(k, key)
+                    pipe.hset(k, field, value or "")
+                elif t == "list":
+                    pipe.lset(k, key, values.get("value") or "")
+                elif t == "set":
+                    pipe.srem(k, key)
+                    pipe.sadd(k, values.get("member") or "")
+                elif t == "zset":
+                    member = values.get("member", text(key))
+                    score = self.score(values["score"]) if "score" in values else self.r.zscore(k, key)
+                    if member != text(key):
+                        pipe.zrem(k, key)
+                    pipe.zadd(k, {member: score})
+                else:
+                    raise DbError(f"a {t}'s entries can't be edited")
+            pipe.execute()
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{len(keys)} {self.EDITORS[t][0]}{'s' * (len(keys) != 1)} changed"
+
+    def remove(self, path, keys):
+        k, t = path[0], self.kind_of(path[0])
+        try:
+            if t == "hash":
+                n = self.r.hdel(k, *keys)
+            elif t == "set":
+                n = self.r.srem(k, *keys)
+            elif t == "zset":
+                n = self.r.zrem(k, *keys)
+            elif t == "stream":
+                n = self.r.xdel(k, *keys)
+            elif t == "list":   # by place: each marked, then the marks taken out at once
+                mark = f"\0dbclient-delete-{uuid.uuid4().hex}"
+                pipe = self.r.pipeline(transaction=True)
+                for i in keys:
+                    pipe.lset(k, i, mark)
+                pipe.lrem(k, 0, mark)
+                n = pipe.execute()[-1]
+            else:
+                raise DbError(f"delete the {t} key itself (the key on the left)")
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{n} {self.EDITORS[t][0]}{'s' * (n != 1)} deleted"
+
+    def new_key(self, name, t, value, ttl=None):
+        """A new key of type t, its value typed as NEW_KEY says; ttl: seconds until it expires (None: never)."""
+        if not name:
+            raise DbError("a key needs a name")
+        try:
+            if self.r.exists(name):
+                raise DbError(f"{name} already exists")
+            if t in ("hash", "zset", "stream"):
+                data = json.loads(value or "{}")
+                if not isinstance(data, dict) or not data:
+                    raise DbError(f"the value is {self.NEW_KEY[t]}")
+            lines = [x for x in (value or "").splitlines() if x]
+            if t in ("list", "set") and not lines:
+                raise DbError(f"a {t} needs one item at least: {self.NEW_KEY[t]}")
+            pipe = self.r.pipeline(transaction=True)
+            if t == "string":
+                pipe.set(name, value or "")
+            elif t == "hash":
+                pipe.hset(name, mapping={a: b if isinstance(b, str) else json.dumps(b) for a, b in data.items()})
+            elif t == "list":
+                pipe.rpush(name, *lines)
+            elif t == "set":
+                pipe.sadd(name, *lines)
+            elif t == "zset":
+                pipe.zadd(name, {m: self.score(sc) for m, sc in data.items()})
+            elif t == "stream":
+                pipe.xadd(name, {a: b if isinstance(b, str) else json.dumps(b) for a, b in data.items()})
+            else:
+                raise DbError(f"no such type: {t}")
+            if ttl:
+                pipe.expire(name, ttl)
+            pipe.execute()
+        except ValueError as e:
+            raise DbError(f"not JSON: {e}")
+        except self.err as e:
+            raise DbError(str(e))
+
+    def ttl(self, name):
+        """Seconds until the key expires, or None (never)."""
+        try:
+            t = self.r.ttl(name)
+        except self.err as e:
+            raise DbError(str(e))
+        return t if t >= 0 else None
+
+    def edit_keys(self, names, rename=None, ttl=None):
+        """Rename one key (to a name not taken), and / or give keys a time to live: seconds, 0 = never expire."""
+        try:
+            pipe = self.r.pipeline(transaction=True)
+            if rename and rename != names[0]:
+                if self.r.exists(rename):
+                    raise DbError(f"{rename} already exists")
+                pipe.rename(names[0], rename)
+                names = [rename]
+            for k in names if ttl is not None else ():
+                pipe.expire(k, ttl) if ttl else pipe.persist(k)
+            pipe.execute()
+        except self.err as e:
+            raise DbError(str(e))
+
+    def delete_keys(self, names):
+        try:
+            n = sum(self.r.delete(*names[i:i + 500]) for i in range(0, len(names), 500))
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{n} key{'s' * (n != 1)} deleted"
+
     def close(self):
         self.r.close()
         super().close()
@@ -952,7 +1391,7 @@ class Mongo(Driver):
         except self.err as e:
             raise DbError(str(e))
         cols, rows = self.docs(docs[:limit])
-        return Result(cols, rows, len(docs) > limit)
+        return Result(cols, rows, len(docs) > limit, keys=[d.get("_id") for d in docs[:limit]])
 
     def count(self, path):
         try:   # from the collection's metadata: no scan
@@ -989,6 +1428,62 @@ class Mongo(Driver):
         if not self.cur:
             raise DbError("nothing more")
         return self.page(limit)
+
+    # ---- changing documents: as (extended) JSON ----
+    def editor(self, path):
+        return Editor("document", json=True, many='a change for every selected document: {"field": value} sets those '
+                      'fields, or an update {"$inc": {"n": 1}, "$unset": {"old": ""}}',
+                      hint='JSON, as mongosh writes it: {"name": "x", "at": {"$date": "2024-05-01T00:00:00Z"}}; '
+                           'a list [{…}, {…}] adds several')
+
+    def parse(self, text):
+        try:
+            return self.ju.loads(text)
+        except ValueError as e:
+            raise DbError(f"not JSON: {e}")
+
+    def record(self, path, key):
+        doc = self.c[path[0]][path[1]].find_one({"_id": key})
+        if doc is None:
+            raise DbError("that document isn't there any more: Refresh")
+        return self.ju.dumps(doc, indent=2, ensure_ascii=False)
+
+    def insert(self, path, text):
+        docs = self.parse(text)
+        if isinstance(docs, dict):
+            docs = [docs]
+        if not docs or not all(isinstance(d, dict) for d in docs):
+            raise DbError("a document is a JSON object {…} (or a list of them)")
+        try:
+            n = len(self.c[path[0]][path[1]].insert_many(docs).inserted_ids)
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{n} document{'s' * (n != 1)} added"
+
+    def update(self, path, keys, text):
+        """One document: what's typed replaces it (its _id kept). Several: fields set on each, or an update."""
+        doc = self.parse(text)
+        if not isinstance(doc, dict):
+            raise DbError("a JSON object {…}")
+        coll = self.c[path[0]][path[1]]
+        operators = any(k.startswith("$") for k in doc)
+        try:
+            if len(keys) == 1 and not operators:
+                if doc.get("_id", keys[0]) != keys[0]:
+                    raise DbError("a document's _id can't change: add it again as a new one, then delete this one")
+                n = coll.replace_one({"_id": keys[0]}, {k: v for k, v in doc.items() if k != "_id"}).matched_count
+            else:
+                n = coll.update_many({"_id": {"$in": list(keys)}}, doc if operators else {"$set": doc}).matched_count
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{n} document{'s' * (n != 1)} changed"
+
+    def remove(self, path, keys):
+        try:
+            n = self.c[path[0]][path[1]].delete_many({"_id": {"$in": list(keys)}}).deleted_count
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{n} document{'s' * (n != 1)} deleted"
 
     def info(self, path):
         try:
@@ -1074,11 +1569,71 @@ class S3(Driver):
             r = self.s3.list_objects_v2(**kw)
         except self.err as e:
             raise DbError(str(e))
-        rows = [[o["Key"][len(prefix):], size(o["Size"]), str(o.get("LastModified", ""))[:19]]
-                for o in r.get("Contents", []) if o["Key"] != prefix]
+        objs = [o for o in r.get("Contents", []) if o["Key"] != prefix]
+        rows = [[o["Key"][len(prefix):], size(o["Size"]), str(o.get("LastModified", ""))[:19]] for o in objs]
         more = bool(r.get("IsTruncated"))
         return Result(["file", "size", "modified"], rows, more, "" if rows or more else "no files",
-                      r.get("NextContinuationToken") if more else None)
+                      r.get("NextContinuationToken") if more else None, keys=[o["Key"] for o in objs])
+
+    # ---- changing a bucket / folder's files: upload, rename / move, delete ----
+    def editor(self, path):
+        if len(path) != 2:
+            return None
+        return Editor("file", [Field("file", "its name in this folder: a/b.txt makes folders")], files=True,
+                      many="the folder they move to, under this one (empty: here)")
+
+    def record(self, path, key):
+        return {"file": key[len(path[1]):]}
+
+    def replace(self, bucket, key, src):
+        """The file at key's contents replaced by the local file src (its name stays; its type is src's)."""
+        import mimetypes
+        ctype = mimetypes.guess_type(src)[0]
+        try:
+            self.s3.upload_file(src, bucket, key, ExtraArgs={"ContentType": ctype} if ctype else None)
+        except self.err as e:
+            raise DbError(str(e))
+        return f"replaced {os.path.basename(key)} with {os.path.basename(src)}"
+
+    def update(self, path, keys, values):
+        """Rename one file, or move several into a folder (under this one): a copy, then the old one deleted."""
+        bucket, prefix = path
+        if "file" not in values:
+            return "nothing changed"
+        to = (values["file"] or "").strip().lstrip("/")
+        if len(keys) == 1:
+            if not to or to.endswith("/"):
+                to += os.path.basename(keys[0])
+            moves = [(keys[0], prefix + to)]
+        else:
+            to = to and to.rstrip("/") + "/"
+            moves = [(k, prefix + to + os.path.basename(k)) for k in keys]
+        moves = [(a, b) for a, b in moves if a != b]
+        targets = [b for _a, b in moves]
+        if len(set(targets)) < len(targets):
+            raise DbError("two of them have the same name: they'd land on each other")
+        try:
+            for new in targets:   # S3 overwrites without a word: never over a file that's there
+                if self.s3.list_objects_v2(Bucket=bucket, Prefix=new, MaxKeys=1).get("Contents", [{}])[0].get("Key") == new:
+                    raise DbError(f"{new} is already there")
+            for old, new in moves:
+                self.s3.copy({"Bucket": bucket, "Key": old}, bucket, new)   # managed: a multipart copy past 5 GB
+            self.remove(path, [old for old, _n in moves])
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{len(moves)} file{'s' * (len(moves) != 1)} " + ("renamed" if len(keys) == 1 else "moved")
+
+    def remove(self, path, keys):
+        try:
+            for i in range(0, len(keys), 1000):   # DeleteObjects takes 1000 at a time
+                r = self.s3.delete_objects(Bucket=path[0], Delete={"Objects": [{"Key": k} for k in keys[i:i + 1000]],
+                                                                    "Quiet": True})
+                if r.get("Errors"):
+                    e = r["Errors"][0]
+                    raise DbError(f"{e.get('Key')}: {e.get('Message') or e.get('Code')}")
+        except self.err as e:
+            raise DbError(str(e))
+        return f"{len(keys)} file{'s' * (len(keys) != 1)} deleted"
 
     def image(self, bucket, key):
         """An image file's bytes for the preview, or None (not an image, or too big to fetch for a look)."""

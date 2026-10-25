@@ -540,6 +540,29 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   command (`HGETALL session:42`) or, on a collection, a Mongo filter `{…}` or pipeline `[…]`:
   **Ctrl + Enter** runs it, or just the selected part. **Stop** cancels a long Postgres / SQLite query.
   Full access: what you run applies at once. S3: Download, Upload…, Delete; Redis: Delete (click twice).
+- **Changing rows** (under the table, for what it shows): **+ Row / Document / Field / Item / Member / Entry**,
+  **Edit**, **Delete**, on one row or several: tick the checkbox beside each row (**All**: the whole page),
+  or Ctrl / Shift + click, Ctrl + A; Enter or
+  a double-click edits a row, `Del` deletes the picked ones (Delete asks twice). The form (Ctrl + Enter
+  saves, Esc leaves) writes only the fields you change: a new row gets the database's defaults for the
+  rest, an edit of several sets those fields on each and leaves the others. Postgres reads what's typed as
+  the column's type (`2024-05-01`, `{a,b}` for an array, JSON), as psql would; **NULL** beside a field that
+  can be one; a computed column is greyed out. One edit is one transaction: all of the rows change, or none.
+  A table without a primary key is told apart by the row's place (`ctid`; SQLite: `rowid`); a table is
+  shown in its primary key's order, so an edited row stays where it was. Views and query results are read-only.
+  - MongoDB: a document is JSON as mongosh writes it (`{"$date": …}`, `{"$oid": …}`); its edit replaces it
+    (its `_id` stays), a list `[{…}, {…}]` adds several; several documents get `{"field": value}` set on each,
+    or an update such as `{"$inc": {"n": 1}}`.
+  - Redis, inside a key: a hash's fields, a list's items, a set's or sorted set's members (several: one
+    value / score for all), a stream's entries (add, delete), a string's value. **+ Key** on a Redis connection
+    makes one (its type, value, expiry); **Edit key** renames it or changes when it expires.
+  - S3, in a bucket or folder's file list: **Upload…** takes several files; Edit renames a file (`a/b.txt`
+    makes folders) or moves the picked ones into a folder; never onto a file that's there. **Replace with a
+    file…** (in one file's Edit, or *Replace…* on a file picked in the tree) uploads one from this PC in its
+    place: same name, new contents.
+- **Several in the tree** (Ctrl / Shift + click): connections → *Move to group* or delete them all (the
+  databases themselves are untouched); one Redis connection's keys → *Set expiry* or delete; one S3
+  connection's files → delete. `Del` deletes them too (twice).
 - **Diagram** (`d`, or *Diagram* on a Postgres connection, schema or table, or a SQLite file): the schema in
   [Liam ERD](https://liambx.com) inside the panel: the tables and the keys between them, laid out by Liam;
   drag, zoom, click a table for its columns, keys and indexes, *Show* switches names / keys / all fields,

@@ -7,11 +7,18 @@
 #          databases → collections, buckets → folders → files. A green dot: connected. The search filters
 #          what's open; the dropdown below it shows one kind of database only. The databases running in
 #          Docker are added by themselves, in their compose project's group (looked for when the window
-#          comes on screen: dblib.docker_scan). F2 renames a connection or a group, in place.
+#          comes on screen: dblib.docker_scan). F2 renames a connection or a group, in place. Ctrl / Shift +
+#          click picks several connections (move them to a group, delete them), Redis keys (expiry, delete)
+#          or S3 files (delete) to change together.
 #   right  the selected table / key / collection / file, a page at a time (« ‹ page › », the page size), the query box
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once. An S3 image (the file
 #          picked in the tree, or a row of a bucket / folder's file list) shows beside the table.
+#   rows   under the table: + New, Edit, Delete for what it shows (a table's rows, a collection's documents,
+#          a key's fields / items / members, a folder's files), on one row or the several picked (the checkbox
+#          beside each, All for the page; or Ctrl / Shift + click, Ctrl+A). Enter on a row edits it, Del deletes the picked ones (twice). The form
+#          writes only the fields you change: a new row gets the database's defaults for the rest, an edit of
+#          several sets those fields on each. Views and query results are read-only.
 #   Diagram  (d, or Diagram on a Postgres connection / schema / table or a SQLite file) the schema's tables
 #          and the keys between them, in Liam ERD (dbliam.py)
 #   Ask    (a, or Ask in the header) an AI about this connection and what's selected: its own popup
@@ -75,6 +82,9 @@ window.panel.solid { background: #16161e; backdrop-filter: none; }
 .dg-toggle:checked { color: #6b8fe0; background: alpha(#292e42, .9); }
 .db-preview { border-left: 1px solid alpha(#3b4261, .7); padding-left: 14px; }
 
+.rec-field { min-height: 30px; }
+.form-type { color: #565f89; font-size: 9pt; }
+
 button.pager-btn { padding: 2px 10px; min-width: 0; font-size: 12pt; }
 button.pager-btn:disabled { background: transparent; color: #3b4261; }
 entry.page-entry { padding: 2px 4px; min-height: 0; }
@@ -82,12 +92,12 @@ entry.page-entry { padding: 2px 4px; min-height: 0; }
 
 
 class Row(GObject.Object):
-    """One result row (a ColumnView needs GObjects)."""
+    """One result row (a ColumnView needs GObjects); key: the driver's, when the row can be changed."""
     __gtype_name__ = "DbguiRow"
 
-    def __init__(self, cells):
+    def __init__(self, cells, key=None):
         super().__init__()
-        self.cells = cells
+        self.cells, self.key = cells, key
 
 
 class Pager:
@@ -105,6 +115,7 @@ class Pager:
         self.pages = []            # run: the pages fetched so far
         self.more = False          # the page shown has a next one
         self.total = None          # (rows, exact?) when cheap to know
+        self.editor = None         # browse: how its rows are changed (a dblib.Editor), None: they aren't
 
     def first_row(self):
         if self.kind == "browse" and self.seekable:
@@ -131,12 +142,54 @@ class Live:
         self.jobs = 0
 
 
+FIELD_MAX = 200   # px: a form field's text box grows to this (about ten lines), then scrolls
+
+
+class FormField:
+    """A field of a row's form: a text box (a long or multi-line value wraps; Tab moves on) and, for a
+    column that can be one, NULL. touched: you changed it; only those are written."""
+
+    def __init__(self, f, value, enabled=True):
+        self.f, self.touched = f, False
+        enabled = enabled and not f.fixed
+        self.view = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, top_margin=4,
+                                 bottom_margin=4, hexpand=True)
+        self.view.add_css_class("query")
+        self.view.add_css_class("rec-field")
+        # in a box as tall as its text up to FIELD_MAX, then it scrolls: a wrapping text view measured before
+        # the form has its width (a long name with no spaces, wrapped a letter a line) took the whole window
+        self.widget = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True,
+                                         max_content_height=FIELD_MAX, hexpand=True, valign=Gtk.Align.START)
+        self.widget.set_child(self.view)
+        buf = self.view.get_buffer()
+        buf.set_text(value or "")
+        self.null = None
+        if f.null and enabled:
+            self.null = Gtk.ToggleButton(label="NULL", active=value is None, valign=Gtk.Align.START,
+                                         tooltip_text="NULL instead of what's typed")
+            self.null.add_css_class("flat")
+            self.null.add_css_class("dg-toggle")
+            self.null.connect("toggled", self.nulled)
+        self.view.set_sensitive(enabled and not (self.null and self.null.get_active()))
+        buf.connect("changed", lambda *_: setattr(self, "touched", True))
+
+    def nulled(self, b):
+        self.touched = True
+        self.view.set_sensitive(not b.get_active())
+
+    def value(self):
+        if self.null and self.null.get_active():
+            return None
+        buf = self.view.get_buffer()
+        return buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+
+
 class Databases(View):
     title, subtitle = "Databases", "Postgres · Redis · MongoDB · S3 · SQLite"
     icon = ""
     interval = 5   # refresh(): only closes idle connections
     css = CSS
-    hints = [("Enter", "open"), ("Ctrl+Enter", "run"), ("[ ]", "page"), ("a", "ask AI"), ("d", "diagram"), ("n", "new connection"), ("e", "edit"),
+    hints = [("Enter", "open"), ("Ctrl+click", "pick several"), ("Ctrl+Enter", "run / save"), ("[ ]", "page"), ("a", "ask AI"), ("d", "diagram"), ("n", "new connection"), ("e", "edit"),
              ("F2", "rename"), ("F5", "reload"), ("Del", "delete")]
 
     def __init__(self):
@@ -161,6 +214,8 @@ class Databases(View):
         self.docker_up = set()   # the Docker databases running ("docker" keys); the rest show dimmed
         self.scanned = 0         # when Docker was last looked in
         self.renaming = None     # ("conn", id) or ("group", name) while the name is being edited
+        self.many = None         # several picked in the tree: ("conns" | "keys" | "files" | "none", [what])
+        self.save_form = None    # the form showing's Save (Ctrl+Enter)
 
     def conn(self, cid):
         return next((c for c in self.conns if c["id"] == cid), None)
@@ -177,11 +232,13 @@ class Databases(View):
         self.kind = dropdown([("", "All types")] + [(k, f"{v[1]}  {v[0]}") for k, v in db.KINDS.items()], "",
                              lambda k: (setattr(self, "only", k), self.paint_tree()))
         self.kind.set_tooltip_text("show one kind of database only")
-        self.tree = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        # MULTIPLE: Ctrl / Shift + click picks several (picked_many); a plain click still picks one
+        self.tree = Gtk.ListBox(selection_mode=Gtk.SelectionMode.MULTIPLE)
         self.tree.add_css_class("db-tree")
         self.tree.set_activate_on_single_click(False)
-        self.tree.connect("row-selected", lambda _l, row: row and (self.picked_group(row.group) if row.group is not None
-                                                                   else self.picked(row.key)))
+        self.tree.connect("row-selected", lambda _l, row: row and len(self.tree.get_selected_rows()) == 1 and (
+            self.picked_group(row.group) if row.group is not None else self.picked(row.key)))
+        self.tree.connect("selected-rows-changed", lambda _l: self.picked_many())
         self.tree.connect("row-activated", lambda _l, row: self.fold(row.group) if row.group is not None
                           else self.toggle(row.key))
         top = box(True, 6, self.filter, self.kind)
@@ -194,6 +251,10 @@ class Databases(View):
         self.stack = Gtk.Stack(hexpand=True)
         self.stack.add_named(self.build_browse(), "browse")
         self.form_page = box(True, 0)
+        # Ctrl+Enter saves a form, caught before its text boxes (they'd take it as a new line)
+        keys = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self.form_key)
+        self.form_page.add_controller(keys)
         self.stack.add_named(scrolled(self.form_page), "form")
         self.diagram = dbliam.Diagram(lambda: self.stack.set_visible_child_name("browse"),
                                       lambda s: self.show_diagram(self.diagram_cid, s))
@@ -241,10 +302,20 @@ class Databases(View):
         self.query_box.set_margin_top(14)
 
         self.store = Gio.ListStore(item_type=Row)
-        self.selection = Gtk.SingleSelection(model=self.store, autoselect=False, can_unselect=True)
-        self.selection.connect("notify::selected", lambda *_: self.show_row())
+        # several rows can be picked (Ctrl / Shift + click, Ctrl+A) to edit or delete together
+        self.selection = Gtk.MultiSelection(model=self.store)
+        self.selection.connect("selection-changed", lambda *_: (self.show_row(), self.paint_rec()))
         self.table = Gtk.ColumnView(model=self.selection, reorderable=False, show_row_separators=False,
                                     show_column_separators=False)
+        self.table.connect("activate", lambda _t, i: self.edit_rows([i]))   # Enter / double-click: edit it
+        # a checkbox a row, first: ticking picks it without unpicking the others (a click picks one only).
+        # Kept across fill()s (only the data columns are rebuilt); shown when the rows can be changed
+        f = Gtk.SignalListItemFactory()
+        f.connect("setup", self.check_setup)
+        f.connect("bind", self.check_bind)
+        f.connect("unbind", lambda _f, item: item.binding.unbind())
+        self.check_col = Gtk.ColumnViewColumn(title="", factory=f, visible=False)
+        self.table.append_column(self.check_col)
         self.count = label("", "dim", ellipsize=True)
         self.nav = {}
         for name, text, tip in (("first", "\u00ab", "first page"), ("prev", "\u2039", "previous page ( [ )"),
@@ -256,8 +327,17 @@ class Databases(View):
         self.page_of = label("", "dim")
         sizes = dropdown([(n, f"{n} / page") for n in SIZES], self.size, self.resize)
         sizes.set_tooltip_text("rows a page")
+        # + New, Edit, Delete for what the table shows (paint_rec: when it can be changed)
+        self.rec_new = button("+ New", self.new_row, "flat")
+        self.rec_edit = button("Edit", lambda: self.edit_rows(self.picked_rows()), "flat", tooltip="Enter")
+        self.rec_del = button("Delete", self.delete_rows, "flat", "danger", tooltip="Del; click twice")
+        self.check_all = Gtk.CheckButton(label="All", tooltip_text="pick every row on this page (Ctrl+A)")
+        self.check_all.connect("toggled", self.all_toggled)
+        self.check_all.set_margin_end(6)
+        self.rec = box(False, 6, self.check_all, self.rec_new, self.rec_edit, self.rec_del)
+        self.rec_armed = 0
         foot = box(False, 4, self.count, self.nav["first"], self.nav["prev"], self.page_entry, self.page_of,
-                   self.nav["next"], self.nav["last"], sizes)
+                   self.nav["next"], self.nav["last"], sizes, Gtk.Box(hexpand=True), self.rec)
         sizes.set_margin_start(8)
         foot.set_margin_top(6)
         foot.set_margin_bottom(6)
@@ -315,8 +395,8 @@ class Databases(View):
         return sorted(named.items(), key=lambda g: (not g[0], g[0].lower()))
 
     def paint_tree(self):
-        sel = self.tree.get_selected_row()
-        keep = (sel.group, sel.key) if sel else None
+        sel = self.tree.get_selected_rows()
+        keep = (sel[0].group, sel[0].key) if len(sel) == 1 else None
         self.painting = True
         clear(self.tree)
         text = self.filter.get_text().strip().lower()
@@ -415,6 +495,7 @@ class Databases(View):
         while r is not None:
             if (group is not None and getattr(r, "group", None) == group) or \
                     (group is None and getattr(r, "key", None) == key):
+                self.tree.unselect_all()   # a multiple selection's select_row adds to it
                 self.tree.select_row(r)
                 return
             r = r.get_next_sibling()
@@ -568,7 +649,7 @@ class Databases(View):
             return
         if self.sel:
             self.queries[self.sel[0]] = self.query_text()
-        self.sel, self.group, self.pager = None, project, None
+        self.sel, self.group, self.pager, self.many = None, project, None, None
         self.end_rename(False)
         self.gen += 1
         self.stack.set_visible_child_name("browse")
@@ -663,6 +744,201 @@ class Databases(View):
             self.say(f"renamed to {name}")
         self.tree.grab_focus()
 
+    # ---- several picked in the tree: connections, Redis keys, S3 files -----------------------------
+    def picked_many(self):
+        """Ctrl / Shift + click: the picked rows' page on the right, what they can have done together.
+        Back to one row: its own page."""
+        if self.painting:
+            return
+        rows = self.tree.get_selected_rows()
+        if len(rows) == 1 and self.many:
+            self.many = None
+            row = rows[0]
+            return self.picked_group(row.group) if row.group is not None else self.picked(row.key)
+        if len(rows) < 2:
+            return
+        if self.sel:
+            self.queries[self.sel[0]] = self.query_text()
+        self.sel, self.group, self.pager = None, None, None
+        self.end_rename(False)
+        self.gen += 1
+        self.stack.set_visible_child_name("browse")
+        for w in (self.query_box, self.results, self.previewpane):
+            w.set_visible(False)
+        clear(self.actions)
+        keys = [r.key for r in rows if r.key]
+        conns = [k[0] for k in keys if not k[1]]
+        nodes = [(k[0], self.node_of(k)) for k in keys if k[1]]
+        cids = {cid for cid, _n in nodes}
+        kind = self.conn(next(iter(cids)))["kind"] if len(cids) == 1 else ""
+        self.many_armed = 0
+        if conns and len(conns) == len(rows):
+            self.many = ("conns", conns)
+            self.heading.set_text(f"{len(conns)} connections")
+            self.state.set_text(", ".join(self.conn(c)["name"] for c in conns))
+            self.many_entry = Gtk.Entry(placeholder_text="a group's name (empty: none)", width_chars=24)
+            self.many_entry.connect("activate", lambda *_: self.many_group())
+            self.actions.append(self.many_entry)
+            self.actions.append(button("Move to group", self.many_group, "primary"))
+        elif nodes and len(nodes) == len(rows) and kind == "redis" and all(n and n.leaf for _c, n in nodes):
+            self.many = ("keys", [n.path[0] for _c, n in nodes])
+            self.heading.set_text(f"{len(nodes)} keys")
+            self.state.set_text(", ".join(n.name for _c, n in nodes))
+            self.many_entry = Gtk.Entry(placeholder_text="expire in … seconds (empty: never)", width_chars=28)
+            self.many_entry.connect("activate", lambda *_: self.many_expire())
+            self.actions.append(self.many_entry)
+            self.actions.append(button("Set expiry", self.many_expire, "primary"))
+        elif nodes and len(nodes) == len(rows) and kind == "s3" and all(n and n.kind == "object" for _c, n in nodes):
+            self.many = ("files", [n.path for _c, n in nodes])
+            self.heading.set_text(f"{len(nodes)} files")
+            self.state.set_text(", ".join(n.name for _c, n in nodes))
+        else:
+            self.many = ("none", [])
+            self.heading.set_text(f"{len(rows)} picked")
+            self.state.set_text("Pick connections, or one Redis connection's keys, or one S3 connection's files, "
+                                "to change them together.")
+            return
+        self.many_cid = next(iter(cids)) if cids else None
+        self.many_btn = button(f"Delete {len(rows)}", self.many_delete, "flat", "danger", tooltip="Del; click twice")
+        self.actions.append(self.many_btn)
+
+    def many_group(self):
+        _w, cids = self.many
+        name = self.many_entry.get_text().strip()
+        db.rename(set(cids), project=name)
+        self.conns = db.load()
+        self.many = None
+        self.paint_tree()
+        self.select_key(name) if name else self.show_empty()
+        self.say(f"{len(cids)} connections moved to {name or 'no group'}")
+
+    def many_expire(self):
+        _w, names = self.many
+        text = self.many_entry.get_text().strip()
+        try:
+            ttl = int(text) if text else 0
+        except ValueError:
+            return self.say("seconds: a whole number", "bad")
+        self.job(self.many_cid, lambda d: d.edit_keys(names, ttl=ttl),
+                 lambda _r: self.say(f"{len(names)} keys expire in {ttl} s" if ttl else f"{len(names)} keys never expire"))
+
+    def many_delete(self):
+        """Delete what's picked (twice): connections (the databases themselves are untouched), keys, files."""
+        what, items = self.many or ("none", [])
+        if what == "none":
+            return
+        if time.time() - self.many_armed > 3:
+            self.many_armed = time.time()
+            self.many_btn.set_label(f"Click again to delete {len(items)}")
+            self.many_btn.add_css_class("armed")
+            return
+        self.many_armed = 0
+        if what == "conns":
+            for cid in items:
+                self.disconnect(cid)
+                db.remove(cid)
+                dbagent.forget(cid)
+            self.conns = db.load()
+            self.many = None
+            self.show_empty()
+            self.paint_tree()
+            return self.say(f"deleted {len(items)} connections (the databases themselves are untouched)")
+        cid = self.many_cid
+
+        def done(msg):
+            gone = set(items)
+            for k, ns in self.kids.items():
+                if k[0] == cid:
+                    ns[:] = [n for n in ns if (n.path[0] if what == "keys" else n.path) not in gone]
+            self.many = None
+            self.paint_tree()
+            self.show_empty()
+            self.say(msg)
+        if what == "keys":
+            self.job(cid, lambda d: d.delete_keys(items), done)
+        else:   # files: by bucket
+            def rm(d):
+                buckets = {}
+                for b, key, _o in items:
+                    buckets.setdefault(b, []).append(key)
+                for b, keys in buckets.items():
+                    d.remove((b, ""), keys)
+                return f"{len(items)} files deleted"
+            self.job(cid, rm, done)
+
+    # ---- Redis keys: a new one, or one's name and expiry -----------------------------------------
+    def key_form(self, c, node=None, ttl=None):
+        """+ Key on a Redis connection (node None), or Edit key: its name and when it expires."""
+        clear(self.form_page)
+        self.stack.set_visible_child_name("form")
+        cid = c["id"]
+        page = box(True, 10)
+        for edge in ("top", "start", "end", "bottom"):
+            getattr(page, f"set_margin_{edge}")(24)
+        page.append(label("Edit key" if node else "New key", "heading"))
+        page.append(label(c["name"], "dim"))
+        grid = Gtk.Grid(column_spacing=14, row_spacing=8)
+
+        def line(text, widget, r):
+            grid.attach(label(text, "form-label"), 0, r, 1, 1)
+            widget.set_hexpand(True)
+            grid.attach(widget, 1, r, 1, 1)
+        name = Gtk.Entry(text=node.path[0] if node else "", placeholder_text="e.g. user:42")
+        line("Name", name, 0)
+        expire = Gtk.Entry(text=str(ttl) if ttl else "", placeholder_text="seconds; empty: never")
+        line("Expires in", expire, 1)
+        state = {"type": "string"}
+        if not node:
+            value = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, top_margin=4,
+                                 bottom_margin=4)
+            value.add_css_class("query")
+            vs = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+            vs.set_size_request(-1, 160)
+            vs.set_child(value)
+            how = label(db.Redis.NEW_KEY["string"], "form-type")
+
+            def typed(t):
+                state["type"] = t
+                how.set_text(db.Redis.NEW_KEY[t])
+            line("Type", dropdown([(t, t) for t in db.Redis.NEW_KEY], "string", typed), 2)
+            grid.attach(box(True, 2, label("Value", "form-label"), how), 0, 3, 1, 1)
+            grid.attach(vs, 1, 3, 1, 1)
+        page.append(grid)
+
+        def save():
+            n = name.get_text().strip()
+            t = expire.get_text().strip()
+            try:
+                secs = int(t) if t else None
+            except ValueError:
+                return self.say("expires in: seconds, a whole number", "bad")
+            if node:
+                def done(_r):
+                    self.say(f"saved {n}")
+                    self.refetch(cid, ())
+                    self.stack.set_visible_child_name("browse")
+                return self.job(cid, lambda d: d.edit_keys([node.path[0]], rename=n, ttl=secs or 0), done)
+            buf = value.get_buffer()
+            v = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+
+            def made(_r):
+                self.say(f"added {n}")
+                self.kids.pop((cid, ()), None)
+                self.open.add((cid, ()))
+                self.stack.set_visible_child_name("browse")
+                self.fetch_kids(cid, (), then=lambda: self.select_key(None, (cid, (n,))))
+            self.job(cid, lambda d: d.new_key(n, state["type"], v, secs), made)
+        self.save_form = save
+        buttons = box(False, 8, button("Save", save, "primary", tooltip="Ctrl+Enter"),
+                      button("Cancel", lambda: self.stack.set_visible_child_name("browse"), "flat", tooltip="Esc"))
+        buttons.set_margin_top(8)
+        page.append(buttons)
+        self.form_page.append(page)
+        GLib.idle_add(lambda: name.grab_focus() and False)
+
+    def edit_key(self, cid, node):
+        self.job(cid, lambda d: d.ttl(node.path[0]), lambda ttl: self.key_form(self.conn(cid), node, ttl))
+
     # ---- the right side --------------------------------------------------------------------------
     def show_empty(self):
         self.heading.set_text("Databases")
@@ -681,7 +957,7 @@ class Databases(View):
             self.queries[self.sel[0]] = self.query_text()
         same_conn = self.sel and self.sel[0] == cid
         self.sel = (cid, node)
-        self.group = None
+        self.group, self.many = None, None
         self.end_rename(False)
         self.gen += 1
         self.armed = 0
@@ -727,6 +1003,8 @@ class Databases(View):
             add(button("Open" if cid not in self.live else "Reload", lambda: self.reload(cid), "primary", tooltip="Enter / F5"))
             add(button("Edit", lambda: self.form(c), tooltip="e"))
             add(button("Rename", lambda: self.start_rename(("conn", cid)), "flat", tooltip="F2"))
+            if c["kind"] == "redis":
+                add(button("+ Key", lambda: self.key_form(c), "flat"))
             if cid in self.live:
                 add(button("Disconnect", lambda: self.disconnect(cid), "flat"))
             return
@@ -738,8 +1016,12 @@ class Databases(View):
         if c["kind"] == "s3":
             if node.kind == "object":
                 add(button("Download", lambda: self.s3_download(cid, node)))
+                add(button("Replace…", lambda: self.replace_file(cid, node.path[0], node.path[1]), "flat",
+                           tooltip="upload a file from this PC in its place: same name, new contents"))
             else:
                 add(button("Upload…", lambda: self.s3_upload(cid, node)))
+        if c["kind"] == "redis" and node.leaf:
+            add(button("Edit key", lambda: self.edit_key(cid, node), "flat", tooltip="its name, when it expires"))
         if c["kind"] in ("redis", "s3") and node.kind not in ("bucket", "folder", "more"):
             self.del_btn = button("Delete", lambda: self.delete_node(cid, node), "danger", tooltip="Del; click twice")
             add(self.del_btn)
@@ -798,8 +1080,14 @@ class Databases(View):
     def browse(self, cid, path):
         """Show a table / key / collection from its first page, and count its rows (when that's cheap)."""
         self.pager = pg = Pager("browse", cid, path, self.size)
+        self.paint_rec()
+        self.job(cid, lambda d: d.editor(path), lambda e: self.pager is pg and self.got_editor(pg, e))
         self.show_page(0)
         self.job(cid, lambda d: d.count(path), lambda n: self.pager is pg and self.counted(n))
+
+    def got_editor(self, pg, editor):
+        pg.editor = editor
+        self.paint_rec()
 
     def reload_page(self, cid, path):
         """Refresh: the page shown again (and the count), or the first page of something else."""
@@ -921,7 +1209,7 @@ class Databases(View):
         if pg.kind == "browse":
             top = pg.first_row()
             new = Pager("browse", pg.cid, pg.path, size)
-            new.total = pg.total
+            new.total, new.editor = pg.total, pg.editor
             self.pager = new
             self.show_page(top // size if pg.seekable else 0)
         else:
@@ -929,7 +1217,7 @@ class Databases(View):
 
     def paint_pager(self):
         pg = self.pager
-        has = bool(pg and self.table.get_columns())
+        has = bool(pg and self.data_columns())
         for w in (*self.nav.values(), self.page_entry, self.page_of):
             w.set_visible(has)
         if not has:
@@ -956,8 +1244,8 @@ class Databases(View):
     def fill(self, r):
         """Show a page of rows (new columns when they changed: a Mongo page can bring new fields)."""
         self.results.set_visible(True)
-        if [c.get_title() for c in self.table.get_columns()] != r.columns:
-            for col in list(self.table.get_columns()):
+        if [c.get_title() for c in self.data_columns()] != r.columns:
+            for col in self.data_columns():
                 self.table.remove_column(col)
             for i, title in enumerate(r.columns):
                 f = Gtk.SignalListItemFactory()
@@ -968,20 +1256,55 @@ class Databases(View):
                 col.set_expand(len(r.columns) <= 3)
                 self.table.append_column(col)
         self.rowview.get_buffer().set_text("")
-        self.store.splice(0, self.store.get_n_items(), [Row(cells) for cells in r.rows])
+        keys = r.keys if r.keys is not None else [None] * len(r.rows)
+        self.store.splice(0, self.store.get_n_items(), [Row(cells, k) for cells, k in zip(r.rows, keys)])
         if r.columns:
             self.paint_pager()
         else:   # a statement with no rows (an UPDATE…): its message instead of a pager
             self.count.set_text(r.message or "")
             self.paint_pager()
         if len(r.rows) == 1:
-            self.selection.set_selected(0)
+            self.selection.select_item(0, True)
         else:
-            self.selection.set_selected(Gtk.INVALID_LIST_POSITION)
+            self.selection.unselect_all()
+        self.paint_rec()
         GLib.idle_add(lambda: self.table.scroll_to(0, None, Gtk.ListScrollFlags.NONE, None) if self.store.get_n_items() else None)
 
+    def data_columns(self):
+        """The table's columns but the checkboxes'."""
+        return [c for c in self.table.get_columns() if c is not self.check_col]
+
+    def picked_rows(self):
+        """The positions of the table's picked rows."""
+        bits = self.selection.get_selection()
+        return [bits.get_nth(i) for i in range(bits.get_size())]
+
+    # ---- the checkboxes: a row's follows its selection, ticking one adds it to the others -----------
+    def check_setup(self, _f, item):
+        check = Gtk.CheckButton(halign=Gtk.Align.CENTER)
+        check.connect("toggled", lambda c: self.check_toggled(item, c))
+        item.set_child(check)
+
+    def check_bind(self, _f, item):
+        item.binding = item.bind_property("selected", item.get_child(), "active", GObject.BindingFlags.SYNC_CREATE)
+
+    def check_toggled(self, item, check):
+        if check.get_active() == item.get_selected():   # the binding showing the selection: nothing to do
+            return
+        if check.get_active():
+            self.selection.select_item(item.get_position(), False)
+        else:
+            self.selection.unselect_item(item.get_position())
+
+    def all_toggled(self, check):
+        n = self.store.get_n_items()
+        if check.get_active() == (n and len(self.picked_rows()) == n):   # paint_rec() showing it
+            return
+        self.selection.select_all() if check.get_active() else self.selection.unselect_all()
+
     def show_row(self):
-        item = self.selection.get_selected_item()
+        rows = self.picked_rows()
+        item = self.store.get_item(rows[0]) if len(rows) == 1 else None   # several: no one row to show
         pg = self.pager
         if pg and pg.kind == "browse" and len(pg.path) == 2 and self.conn(pg.cid)["kind"] == "s3":
             # a bucket / folder's file list: the picked file's image, if it is one
@@ -991,7 +1314,7 @@ class Databases(View):
         self.rowpane.set_visible(item is not None)
         if not item:
             return
-        cols = [c.get_title() for c in self.table.get_columns()]
+        cols = [c.get_title() for c in self.data_columns()]
         end = buf.get_end_iter
         for title, value in zip(cols, item.cells):
             if title:
@@ -1020,6 +1343,219 @@ class Databases(View):
                 self.preview.set_paintable(tex)
                 self.preview_note.set_text(f"{tex.get_width()} × {tex.get_height()} · {db.size(n)}")
         self.job(cid, fetch, done, fail=lambda: gen == self.img_gen and self.previewpane.set_visible(False))
+
+    # ---- changing rows: + New, Edit, Delete under the table -----------------------------------------
+    def editor(self):
+        """The Editor of what the table shows, when it's a browsed leaf that can be changed."""
+        pg = self.pager
+        return pg.editor if pg and pg.kind == "browse" else None
+
+    def paint_rec(self):
+        e = self.editor()
+        self.rec.set_visible(e is not None)
+        self.check_col.set_visible(e is not None)
+        if not e:
+            return
+        n = len(self.picked_rows())
+        rows = self.store.get_n_items()
+        self.check_all.set_active(bool(rows) and n == rows)
+        self.check_all.set_sensitive(rows > 0)
+        noun = e.noun + "s" * (n != 1)
+        self.rec_new.set_visible(e.new)
+        self.rec_new.set_label("Upload…" if e.files else f"+ {e.noun.capitalize()}")
+        self.rec_new.set_tooltip_text("upload files into this folder" if e.files else f"add a {e.noun}")
+        self.rec_edit.set_visible(e.edit)
+        self.rec_edit.set_sensitive(n == 1 or n > 1 and bool(e.many))
+        self.rec_edit.set_label(f"Edit {n} {noun}" if n > 1 else "Edit")
+        self.rec_edit.set_tooltip_text(f"several {e.noun}s can't be edited together" if n > 1 and not e.many
+                                       else "Enter")
+        self.rec_del.set_visible(e.delete)
+        self.rec_del.set_sensitive(n > 0)
+        self.rec_armed = 0
+        self.rec_del.remove_css_class("armed")
+        self.rec_del.set_label(f"Delete {n} {noun}" if n > 1 else "Delete")
+
+    def new_row(self):
+        e, pg = self.editor(), self.pager
+        if not e or not e.new:
+            return
+        if e.files:
+            return self.upload_files(pg.cid, pg.path)
+        self.record_form(pg, e, [])
+
+    def edit_rows(self, rows):
+        """The form for one row (its values in full, fetched again: a cell is cut short) or for several."""
+        e, pg = self.editor(), self.pager
+        if not e or not e.edit or not rows:
+            return
+        keys = [self.store.get_item(i).key for i in rows]
+        if len(keys) > 1:
+            if not e.many:
+                return self.say(f"several {e.noun}s can't be edited together: pick one", "bad")
+            return self.record_form(pg, e, keys)
+        self.job(pg.cid, lambda d: d.record(pg.path, keys[0]),
+                 lambda rec: self.pager is pg and self.record_form(pg, e, keys, rec))
+
+    def delete_rows(self):
+        e, pg = self.editor(), self.pager
+        rows = self.picked_rows()
+        if not e or not e.delete or not rows:
+            return
+        if time.time() - self.rec_armed > 3:
+            self.rec_armed = time.time()
+            self.rec_del.set_label(f"Click again to delete {len(rows)}" if len(rows) > 1 else "Click again to delete")
+            self.rec_del.add_css_class("armed")
+            GLib.timeout_add(3000, self.disarm_rec)
+            return
+        self.rec_armed = 0
+        keys = [self.store.get_item(i).key for i in rows]
+        self.job(pg.cid, lambda d: d.remove(pg.path, keys), lambda msg: self.changed_rows(pg, msg))
+
+    def disarm_rec(self):
+        if self.rec_armed and time.time() - self.rec_armed >= 3:
+            self.paint_rec()
+        return False
+
+    def changed_rows(self, pg, msg):
+        """After a change: the page again (with its count), and an S3 folder's files in the tree."""
+        self.say(msg)
+        self.stack.set_visible_child_name("browse")
+        if self.conn(pg.cid)["kind"] == "s3":
+            self.refetch(pg.cid, pg.path)
+        if self.pager is pg:
+            self.reload_page(pg.cid, pg.path)
+
+    def refetch(self, cid, path):
+        """What the tree has under path, fetched again when it's open (forgotten when it isn't)."""
+        self.kids.pop((cid, path), None)
+        if (cid, path) in self.open:
+            self.fetch_kids(cid, path)
+
+    def record_form(self, pg, e, keys, rec=None):
+        """New (keys []), edit one (rec: its values) or edit several rows, on the right. Only the fields you
+        change are written: a new row gets the database's defaults for the rest."""
+        clear(self.form_page)
+        self.stack.set_visible_child_name("form")
+        c = self.conn(pg.cid)
+        where = self.selected_name() or "/".join(pg.path)
+        many = len(keys) > 1
+        page = box(True, 10)
+        for edge in ("top", "start", "end", "bottom"):
+            getattr(page, f"set_margin_{edge}")(24)
+        title = f"Edit {len(keys)} {e.noun}s" if many else f"Edit {e.noun}" if keys else f"New {e.noun}"
+        page.append(label(title, "heading"))
+        page.append(label(f"{c['name']} · {where}", "dim", ellipsize=True))
+        hint = e.many if many else e.hint
+        if hint:
+            page.append(label(("Sets " if many and not e.json else "") + hint + (" — the rest stay as they are."
+                              if many and not e.json else ""), "dim", wrap=True))
+        fields = []
+        if e.json:
+            text = rec if rec is not None else "{\n  \n}" if not keys else "{}"
+            doc = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, accepts_tab=False, top_margin=4,
+                               bottom_margin=4, vexpand=True)
+            doc.add_css_class("query")
+            doc.get_buffer().set_text(text)
+            ds = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+            ds.set_size_request(-1, 320)
+            ds.set_child(doc)
+            page.append(ds)
+            first = doc
+        else:
+            grid = Gtk.Grid(column_spacing=14, row_spacing=8)
+            for r, f in enumerate(e.fields):
+                if many and e.files:   # several files: the one field is where they move to
+                    f = db.Field("folder", e.many)
+                value = (rec or {}).get(f.name) if keys and not many else ""
+                ff = FormField(f, value, enabled=not (many and f.name in ("field", "member")))
+                fields.append(ff)
+                note = "computed" if f.fixed else f"default {f.default}" if not keys and f.default else f.type
+                name = box(True, 2, label(f.name, "form-label", ellipsize=True), label(note, "form-type", ellipsize=True))
+                name.set_valign(Gtk.Align.START)
+                name.set_hexpand(False)   # the text boxes get the width: a long type / default is cut instead
+                for w in (name.get_first_child(), name.get_last_child()):
+                    w.set_max_width_chars(26)
+                    w.set_tooltip_text(w.get_text())
+                grid.attach(name, 0, r, 1, 1)
+                grid.attach(ff.widget, 1, r, 1, 1)
+                if ff.null:
+                    grid.attach(ff.null, 2, r, 1, 1)
+            page.append(grid)
+            first = next((ff.view for ff in fields if ff.view.get_sensitive()), None)
+            if not keys:
+                page.append(label("Fields left as they are aren't written: the database fills them (its default, "
+                                  "or NULL).", "dim", wrap=True))
+
+        def save():
+            if e.json:
+                buf = doc.get_buffer()
+                values = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+            else:
+                values = {("file" if ff.f.name == "folder" else ff.f.name): ff.value() for ff in fields if ff.touched}
+                if keys and not values:
+                    return self.say("nothing changed", "bad")
+            self.job(pg.cid, lambda d: d.update(pg.path, keys, values) if keys else d.insert(pg.path, values),
+                     lambda msg: self.changed_rows(pg, msg))
+        self.save_form = save   # Ctrl+Enter (key())
+        buttons = box(False, 8, button("Save", save, "primary", tooltip="Ctrl+Enter"),
+                      button("Cancel", lambda: self.stack.set_visible_child_name("browse"), "flat", tooltip="Esc"))
+        if e.files and len(keys) == 1:   # one file: its contents can be replaced by one from this PC
+            buttons.append(Gtk.Box(hexpand=True))
+            buttons.append(button("Replace with a file…", lambda: self.replace_file(pg.cid, pg.path[0], keys[0], pg),
+                                  tooltip="upload a file from this PC in its place: same name, new contents"))
+        buttons.set_margin_top(8)
+        page.append(buttons)
+        self.form_page.append(page)
+        if first:
+            GLib.idle_add(lambda: first.grab_focus() and False)
+        # a text view first measures its height before it has its width (a name wrapped a few letters a line)
+        # and doesn't ask again once it has one: measured again as soon as the boxes have their width, each
+        # box fits its text
+        def fit():
+            if page.get_parent() is None or self.stack.get_visible_child_name() != "form":   # left already
+                return False
+            if any(not ff.view.get_width() for ff in fields):
+                return True
+            for ff in fields:
+                ff.widget.queue_resize()
+            return False
+        if fields:
+            GLib.timeout_add(40, fit)
+
+    def upload_files(self, cid, path):
+        """Upload… in a bucket / folder's file list: the files picked, into it."""
+        def chosen(d, res):
+            try:
+                files = [f.get_path() for f in d.open_multiple_finish(res)]
+            except GLib.Error:
+                return
+            pg = self.pager
+
+            def up(drv):
+                for src in files:
+                    drv.upload(path, src)
+                return f"uploaded {len(files)} file{'s' * (len(files) != 1)}"
+            self.job(cid, up, lambda msg: self.changed_rows(pg, msg) if pg and pg.path == path else
+                     (self.say(msg), self.refetch(cid, path)))
+        Gtk.FileDialog().open_multiple(self.window, None, chosen)
+
+    def replace_file(self, cid, bucket, key, pg=None):
+        """Replace with a file…: an S3 file's contents uploaded again from one picked here, under its own name.
+        Then the file list (pg) or the file's own page shows the new one."""
+        def chosen(d, res):
+            try:
+                src = d.open_finish(res).get_path()
+            except GLib.Error:
+                return
+
+            def done(msg):
+                if pg:
+                    return self.changed_rows(pg, msg)
+                self.say(msg)
+                if self.sel and self.sel[1] and self.sel[1].path[:2] == (bucket, key):
+                    self.picked((cid, self.sel[1].path))   # its size, date and preview again
+            self.job(cid, lambda drv: drv.replace(bucket, key, src), done)
+        Gtk.FileDialog(title=f"Replace {os.path.basename(key)} with").open(self.window, None, chosen)
 
     # ---- S3 / Redis actions ----------------------------------------------------------------------
     def s3_download(self, cid, node):
@@ -1194,6 +1730,7 @@ class Databases(View):
                 GLib.idle_add(lambda: (self.test_note.set_text(msg), self.test_note.set_css_classes([kind])) and False)
             threading.Thread(target=go, daemon=True).start()
 
+        self.save_form = save
         buttons = box(False, 8, button("Save", save, "primary"), button("Test", test),
                       button("Cancel", lambda: self.stack.set_visible_child_name("browse"), "flat", tooltip="Esc"))
         if c:
@@ -1207,6 +1744,12 @@ class Databases(View):
                           f"use it and closes after {db.IDLE // 60} minutes unused.", "dim", wrap=True))
         self.form_page.append(page)
         GLib.idle_add(lambda: fields["name"].grab_focus() and False)
+
+    def form_key(self, _c, keyval, _code, state):
+        if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) and state & Gdk.ModifierType.CONTROL_MASK and self.save_form:
+            self.save_form()
+            return True
+        return False
 
     def paste_url(self, text, fields):
         if "://" not in text:
@@ -1253,7 +1796,7 @@ class Databases(View):
             return self.say("pick a connection first", "bad")
         cid, node = self.sel
         ctx = {"id": cid, "selected": self.selected_name(), "query": self.query_text(),
-               "columns": ", ".join(c.get_title() for c in self.table.get_columns()) if node and node.leaf else ""}
+               "columns": ", ".join(c.get_title() for c in self.data_columns()) if node and node.leaf else ""}
         subprocess.Popen(["uwsm", "app", "--", "python3", os.path.join(HERE, "dbaskgui.py")],
                          env={**os.environ, "DBASK_CONTEXT": json.dumps(ctx)}, start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1312,6 +1855,13 @@ class Databases(View):
             return True
         if self.typing():
             return False
+        focus = self.window.get_focus()
+        if keyval == Gdk.KEY_Delete and focus and (focus is self.table or focus.is_ancestor(self.table)) and self.editor():
+            self.delete_rows()   # the table's picked rows
+            return True
+        if keyval == Gdk.KEY_Delete and self.many and self.many[0] != "none":
+            self.many_delete()
+            return True
         if self.stack.get_visible_child_name() == "diagram" and self.diagram.key_pressed(keyval):
             return True
         row = self.tree.get_selected_row()

@@ -731,6 +731,17 @@ shows up in it under its hostname; no LocalSend package on the PC.
   announced fails instead of being kept (an empty JPG opened in the browser: there was no picture to read
   its type from). Uploads with or without a length (chunked) both work. A message shows with Copy. Activity lists both
   ways with progress, Cancel, Open, Show in Files.
+- **A phone without the app** (`b`, Phone without the app): a code to scan opens LocalSend in the phone's
+  browser (`local/lib/lsend/web.html`, served by the service on the same port; the browser warns about this
+  PC's own certificate once: Advanced → Proceed). While that page is open the phone is in Devices (a globe),
+  and both ways work as with the app: what the PC sends shows on the page to Save (the browser's own
+  download, each file with a one-time key) or Decline; Choose files / a message on the page land in `~/Downloads`
+  without an Accept here (only who scanned this PC's code has the page; the app's transfers still ask). The code lasts until you log out; the page
+  keeps it for that tab only. Closing the page takes the phone off the list. On the page, each Send files
+  is a transfer of its own (progress, speed, time left, Cancel), so several run at once; Activity lists both
+  ways, newest first.
+- **Several at once:** transfers no longer wait for each other, in either direction or from either kind of
+  device (the app's ask each on their own card).
 - **Safety:** HTTPS with this PC's own certificate (`~/.local/share/lsend`, made once, never in the repo);
   only private-network addresses are answered; before sending, the device's certificate must match the
   fingerprint it announced; an upload needs its session's token from the address that asked; received

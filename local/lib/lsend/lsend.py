@@ -5,6 +5,11 @@
 #   lsend enable|disable    the user service (setup/install.sh enables it)
 #   lsend status            this PC's name, the devices seen
 #   lsend send <file>…      opens the window with these files picked (Files' "Send to phone")
+# A phone without the app: the window's code opens web.html (beside this file) in its browser, from this same
+# HTTPS server; while that page is open the phone is a device like the others ("browser"). Sending to it
+# offers the files on the page (Save / Decline), each fetched with a one-time key (so its download list keeps
+# no address that works again); what it sends is taken without asking (only who scanned this PC's code has
+# the page), then the same upload as the app's.
 # Safe by default: HTTPS with this PC's own certificate (~/.local/share/lsend, never in the repo); every
 # transfer to this PC is asked first in the window; only private-network addresses are answered; a
 # device's certificate must match the fingerprint it announced before anything is sent to it; uploads
@@ -12,7 +17,7 @@
 # The window (local/lib/panels/lsendgui.py) talks to the service over a Unix socket, JSON lines:
 # it sends {"op": …} requests and gets every event; nothing polls (blocking sockets, no timers).
 import hashlib, http.client, http.server, ipaddress, json, mimetypes, os, secrets, socket, socketserver
-import ssl, struct, subprocess, sys, threading, time, urllib.parse
+import queue, ssl, struct, subprocess, sys, threading, time, urllib.parse
 from datetime import datetime, timezone
 
 HOME = os.path.expanduser("~")
@@ -23,6 +28,8 @@ UNITS = f"{HOME}/.config/systemd/user"
 GUI = f"{HOME}/.local/lib/panels/lsendgui.py"
 GROUP, PORT = "224.0.0.167", 53317
 API = "/api/localsend/v2"
+WEB_PAGE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "web.html")
+KEEPALIVE = 20               # seconds between a browser page's pings: a closed page is noticed by them
 ASK_TIMEOUT = 90             # seconds an incoming request waits for Accept / Decline
 SEND_ASK_TIMEOUT = 120       # seconds we wait for the phone's user to accept ours
 PROGRESS_EVERY = 0.25        # seconds between progress events
@@ -98,6 +105,36 @@ def unique(path):
     return f"{base} ({n}){ext}"
 
 
+def lan_ip():
+    """This PC's address on the network the phone is on (the default route's), if it's a private one."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("192.0.2.1", 9))   # no packet is sent: it only picks the route
+        ip = s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+    return ip if private(ip) else None
+
+
+def web_token():
+    """The browser page's code: kept in $XDG_RUNTIME_DIR (in memory, gone at logout), so a service restart
+    doesn't shut out a page that's open."""
+    path = os.path.join(os.path.dirname(SOCK), "lsend-web.token")
+    try:
+        with open(path) as f:
+            if token := f.read().strip():
+                return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(18)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+    return token
+
+
 def notify(title, body=""):
     subprocess.Popen(["notify-send", "-a", "LocalSend", "-i", "folder-download", title, body],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -112,6 +149,8 @@ class Service:
         self.incoming = {}       # session id -> {from, files, state, tokens, event, answer…}
         self.outgoing = {}       # job id -> {device, files, state…}
         self.watchers = []       # the window's connections
+        self.web_token = web_token()   # in the code the window shows: opens the browser page
+        self.pages = {}          # browser device fingerprint -> {queue (its events), offers: fid -> offer}
         self.client_ctx = ssl.create_default_context()
         # a device's certificate is self-signed: no CA can vouch for it; it's checked against the
         # fingerprint the device announced instead (pinned), before anything is sent
@@ -143,7 +182,9 @@ class Service:
 
     def snapshot(self):
         with self.lock:
-            return {"ev": "state", "me": {"alias": alias(), "fingerprint": self.fingerprint},
+            ip = lan_ip()
+            return {"ev": "state", "me": {"alias": alias(), "fingerprint": self.fingerprint,
+                                          "web": f"https://{ip}:{PORT}/#{self.web_token}" if ip else None},
                     "devices": list(self.devices.values()),
                     "incoming": [self.public_session(s) for s in self.incoming.values()],
                     "outgoing": [dict(j) for j in self.outgoing.values()]}
@@ -308,6 +349,7 @@ class Service:
                 sources[fid] = path
         if not files:
             return
+        web = dev.get("protocol") == "web"
         job = {"id": secrets.token_hex(6), "to": dev["alias"], "fingerprint": dev["fingerprint"],
                "files": [{"name": f["fileName"], "size": f["size"]} for f in files.values()],
                "total": sum(f["size"] for f in files.values()), "done_bytes": 0, "state": "asking",
@@ -315,7 +357,10 @@ class Service:
         with self.lock:
             self.outgoing[job["id"]] = job
         self.emit({"ev": "outgoing", "job": dict(job)})
-        threading.Thread(target=self.send_job, args=(job, dev, files, sources), daemon=True).start()
+        if web:
+            self.offer(job, dev, files, sources)
+        else:
+            threading.Thread(target=self.send_job, args=(job, dev, files, sources), daemon=True).start()
 
     def send_job(self, job, dev, files, sources):
         def update(**kw):
@@ -382,26 +427,125 @@ class Service:
         except (OSError, ValueError, KeyError, http.client.HTTPException) as e:
             update(state="failed", error=str(e) or type(e).__name__)
 
+    # -- a phone's browser (web.html) --
+    def web_ok(self, token):
+        return secrets.compare_digest(str(token or "").encode(), self.web_token.encode())
+
+    def page_open(self, page, name, ip, wfile):
+        """A page's event stream (Server-Sent Events): it's a device while this runs. Pings every
+        KEEPALIVE seconds are how a closed page is noticed (the write fails)."""
+        fp = f"WEB-{page}"
+        q = queue.Queue()
+        with self.lock:
+            self.pages[fp] = {"queue": q, "offers": {}}
+            self.devices[fp] = {"fingerprint": fp, "alias": str(name or "Phone")[:64], "model": "browser",
+                                "type": "browser", "ip": ip, "port": PORT, "protocol": "web", "seen": time.time()}
+        self.devices_changed()
+        try:
+            wfile.write(f"data: {json.dumps({'type': 'hello', 'pc': alias()})}\n\n".encode())
+            wfile.flush()
+            while True:
+                try:
+                    ev = q.get(timeout=KEEPALIVE)
+                except queue.Empty:
+                    ev = None
+                if ev == "bye":
+                    break
+                wfile.write(f"data: {json.dumps(ev)}\n\n".encode() if ev else b": ping\n\n")
+                wfile.flush()
+        except OSError:
+            pass
+        finally:
+            with self.lock:
+                page_ = self.pages.pop(fp, None)
+                self.devices.pop(fp, None)
+            for o in (page_ or {}).get("offers", {}).values():   # what it never saved: failed, not left asking
+                if o["job"]["state"] in ("asking", "sending"):
+                    o["job"].update(state="failed", error="the page was closed")
+                    self.emit({"ev": "outgoing", "job": dict(o["job"])})
+            self.devices_changed()
+
+    def page_close(self, page):
+        with self.lock:
+            pg = self.pages.get(f"WEB-{page}")
+        if pg:
+            pg["queue"].put("bye")
+
+    def offer(self, job, dev, files, sources):
+        """Files for a browser page: shown there to Save or Decline; each fetched once, with its own key."""
+        with self.lock:
+            pg = self.pages.get(dev["fingerprint"])
+        if not pg:
+            job.update(state="failed", error="the page was closed")
+            self.emit({"ev": "outgoing", "job": dict(job)})
+            return
+        shown = []
+        for fid, f in files.items():
+            o = {"job": job, "name": os.path.basename(f["fileName"]), "size": f["size"], "src": sources[fid],
+                 "key": secrets.token_urlsafe(18), "done": False}
+            pg["offers"][fid] = o
+            shown.append({"id": fid, "name": o["name"], "size": o["size"], "key": o["key"]})
+        pg["queue"].put({"type": "offer", "job": job["id"], "text": job.get("text"), "files": [] if job.get("text")
+                         is not None else shown})
+
+    def offer_answer(self, page, jid, accept):
+        with self.lock:
+            pg = self.pages.get(f"WEB-{page}")
+            job = self.outgoing.get(jid)
+        if not pg or not job or job["state"] != "asking" or job["fingerprint"] != f"WEB-{page}":
+            return
+        if not accept:
+            job["state"] = "declined"
+        elif job.get("text") is not None:
+            job.update(state="done", done_bytes=job["total"])
+        else:
+            job["state"] = "sending"
+        self.emit({"ev": "outgoing", "job": dict(job)})
+
+    def offered(self, fid, key):
+        """The offer a download asks for, if its key is right; the key works until the file has gone whole."""
+        with self.lock:
+            for pg in self.pages.values():
+                o = pg["offers"].get(fid)
+                if o and not o["done"] and o["job"]["state"] == "sending" and \
+                        secrets.compare_digest(o["key"].encode(), str(key or "").encode()):
+                    return o
+        return None
+
+    def served(self, o, n, whole):
+        job = o["job"]
+        job["done_bytes"] += n
+        if whole:
+            o["done"] = True
+            with self.lock:
+                left = [x for pg in self.pages.values() for x in pg["offers"].values() if x["job"] is job and not x["done"]]
+            if not left:
+                job.update(state="done", done_bytes=job["total"])
+        self.emit({"ev": "outgoing", "job": dict(job)})
+
     # -- receiving --
-    def ask(self, info, files, ip):
-        """A device wants to send: the window asks (opened if it isn't); waits for the answer."""
+    def ask(self, info, files, ip, trusted=False):
+        """A device wants to send: the window asks (opened if it isn't); waits for the answer. trusted: the
+        browser page, opened with the code shown on this PC, so it's this PC's user: taken without asking."""
         sid = secrets.token_hex(8)
         s = {"id": sid, "from": str(info.get("alias") or ip)[:64], "ip": ip, "state": "asking",
              "files": [{"id": f.get("id"), "name": str(f.get("fileName")), "size": int(f.get("size") or 0),
                         "type": f.get("fileType")} for f in files.values()],
              "total": sum(int(f.get("size") or 0) for f in files.values()), "done_bytes": 0,
-             "answered": threading.Event(), "accept": False}
+             "answered": threading.Event(), "accept": trusted}
+        if trusted:
+            s["answered"].set()
         texts = [f for f in files.values() if f.get("fileType") == "text/plain" and f.get("preview")]
         if texts and len(files) == 1:
             s["text"] = str(texts[0]["preview"])
-        with self.lock:
-            busy = any(x["state"] in ("asking", "receiving") for x in self.incoming.values())
-            if busy:
-                return 409, None
+        with self.lock:   # several at once: each session has its own tokens, files and progress
             self.incoming[sid] = s
             opened = bool(self.watchers)
-        self.emit({"ev": "incoming", "session": self.public_session(s)})
-        if not opened:
+        if not trusted:   # an "asking" card would bring the window up for nothing
+            self.emit({"ev": "incoming", "session": self.public_session(s)})
+        if trusted and "text" in s and not opened:   # a message: nowhere else to read it
+            notify(f"Message from {s['from']}", s["text"][:300])
+        elif not opened and not trusted:
             subprocess.Popen(["uwsm", "app", "--", "python3", GUI], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             notify(f"{s['from']} wants to send you something", "Accept or decline in LocalSend (Super + Ctrl + D)")
@@ -486,6 +630,13 @@ class Service:
         job = self.outgoing.get(sid)
         if job and job["state"] in ("asking", "sending"):
             job["cancel"] = True
+            if str(job["fingerprint"]).startswith("WEB-"):   # a browser's: its offer withdrawn
+                job["state"] = "cancelled"
+                with self.lock:
+                    pg = self.pages.get(job["fingerprint"])
+                if pg:
+                    pg["queue"].put({"type": "withdrawn", "job": sid})
+                self.emit({"ev": "outgoing", "job": dict(job)})
 
     def clear(self):
         """Forget finished transfers (the window's Clear)."""
@@ -658,9 +809,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
         svc, ip = self.server.service, self.client_address[0]
         if not private(ip):
             return self.reply(403)
-        if urllib.parse.urlparse(self.path).path in (f"{API}/info", "/api/localsend/v1/info"):
+        url = urllib.parse.urlparse(self.path)
+        q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if url.path in (f"{API}/info", "/api/localsend/v1/info"):
             return self.reply(200, svc.info())
+        if url.path == "/":   # the browser page; what it does needs the code in its address
+            with open(WEB_PAGE, "rb") as f:
+                return self.raw(200, f.read(), "text/html; charset=utf-8")
+        if url.path == "/web/events" and svc.web_ok(q.get("t")) and q.get("page"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            self.request.settimeout(None)   # quiet for long stretches: the pings find a closed page
+            return svc.page_open(q["page"], q.get("name"), ip, self.wfile)
+        if url.path == "/web/file":
+            o = svc.offered(q.get("f"), q.get("k"))
+            if not o:
+                return self.reply(404)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(o["size"]))
+            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{urllib.parse.quote(o['name'])}")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            sent = 0
+            with open(o["src"], "rb") as f:
+                while data := f.read(1 << 20):
+                    self.wfile.write(data)
+                    sent += len(data)
+                    svc.served(o, len(data), sent == o["size"])
+            if not o["size"]:
+                svc.served(o, 0, True)
+            return
         self.reply(404)
+
+    def raw(self, status, data, ctype):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         svc, ip = self.server.service, self.client_address[0]
@@ -691,6 +884,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if url.path == f"{API}/cancel":
                 svc.cancel(q.get("sessionId"), ip)
                 return self.reply(200)
+            if url.path.startswith("/web/"):   # the browser page's: all need its code
+                if not svc.web_ok(q.get("t")):
+                    return self.reply(403)
+                if url.path == "/web/prepare":   # what it wants to send: asked like the app's
+                    m = self.body(8 << 20)
+                    if not isinstance(m.get("files"), dict) or not m["files"]:
+                        return self.reply(400)
+                    status, body = svc.ask(m.get("info") or {}, m["files"], ip, trusted=True)
+                    return self.reply(status, body)
+                if url.path == "/web/answer":
+                    svc.offer_answer(q.get("page"), q.get("job"), q.get("accept") == "1")
+                    return self.reply(200)
+                if url.path == "/web/bye":
+                    svc.page_close(q.get("page"))
+                    return self.reply(200)
         except (ValueError, KeyError, TypeError, StopIteration):
             return self.reply(400)
         self.reply(404)

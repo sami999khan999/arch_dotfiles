@@ -1,0 +1,326 @@
+<!doctype html>
+<!-- web.html — LocalSend for a phone without the app: served by lsend.py at https://<PC>:53317/#<code> (the
+     code the LocalSend window shows). While it's open the phone is a device in the window: what the PC sends
+     shows here to Save or Decline, and Send files / a message go straight to the PC (only who scanned its code
+     has this page). Each pick is a transfer of its own, so several run at once; Activity lists both ways.
+     The code is kept for this tab only (sessionStorage: a reload works, closing the tab forgets it) and taken
+     out of the address; each file from the PC is fetched with its own one-time key. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#1a1b26">
+<title>LocalSend</title>
+<style>
+  :root { --base: #1a1b26; --overlay: #292e42; --line: #3b4261; --muted: #565f89; --sub: #a9b1d6; --text: #c0caf5;
+          --accent: #6b8fe0; --alert: #f7768e; --amber: #e0af68; --green: #9ece6a; --deep: #16161e; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--base); color: var(--text);
+               font: 15px/1.4 "JetBrains Mono", ui-monospace, monospace; -webkit-tap-highlight-color: transparent; }
+  main { max-width: 36em; margin: 0 auto; padding: 0 16px calc(32px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px;
+           padding: calc(14px + env(safe-area-inset-top)) 0 12px; background: var(--base); border-bottom: 1px solid var(--line); }
+  header svg { width: 20px; height: 20px; color: var(--accent); flex: none; }
+  header h1 { margin: 0; font-size: 16px; color: var(--text); }
+  #who { margin-left: auto; display: flex; align-items: center; gap: 7px; color: var(--sub); font-size: 13px;
+         overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #dot { width: 8px; height: 8px; flex: none; background: var(--amber); }
+  #dot.on { background: var(--green); }
+  #dot.off { background: var(--alert); }
+  h2 { display: flex; align-items: center; gap: 10px; margin: 22px 0 10px; font-size: 13px; font-weight: normal;
+       color: var(--accent); }
+  h2::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+  button { background: var(--accent); color: var(--base); border: 0; padding: 11px 16px; font: inherit; cursor: pointer; }
+  button.flat { background: var(--overlay); color: var(--text); }
+  button.quiet { background: none; color: var(--muted); padding: 8px 10px; }
+  button:disabled { opacity: .5; }
+  #choose { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 16px;
+            background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--text);
+            border: 1px dashed color-mix(in srgb, var(--accent) 70%, transparent); }
+  #choose:active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  #choose svg { width: 30px; height: 30px; color: var(--accent); }
+  #choose b { font-size: 16px; }
+  #choose span { color: var(--muted); font-size: 13px; }
+  .say { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .say button { width: 100%; }
+  textarea { display: block; width: 100%; min-height: 5.6em; max-height: 40vh; background: var(--deep); color: var(--text);
+             border: 1px solid var(--line); font: inherit; padding: 11px 12px; resize: none; overflow-y: hidden; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  .card { display: flex; gap: 12px; padding: 12px; margin-bottom: 8px; border-left: 2px solid transparent;
+          background: color-mix(in srgb, var(--overlay) 45%, transparent); }
+  .card.asking { border-left-color: var(--amber); background: color-mix(in srgb, var(--overlay) 70%, transparent); }
+  .card.failed { border-left-color: var(--alert); }
+  .card .icon { width: 20px; height: 20px; flex: none; margin-top: 1px; }
+  .card .icon.up { color: var(--accent); }
+  .card .icon.down { color: var(--green); }
+  .card .body { flex: 1; min-width: 0; }
+  .card .what { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .sub { color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+  .card .names { color: var(--sub); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .msg { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; padding: 8px 10px;
+               border-left: 2px solid var(--line); background: var(--deep); user-select: text; }
+  .card .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .card .actions button { flex: 1; }
+  .bar { height: 3px; background: var(--overlay); margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .ok { color: var(--green); } .bad { color: var(--alert); } .wait { color: var(--amber); } .run { color: var(--accent); }
+  .empty { color: var(--muted); font-size: 13px; padding: 18px 0; text-align: center; line-height: 1.6; }
+  .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; line-height: 1.6; }
+  #pick { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    <h1>LocalSend</h1>
+    <div id="who"><span id="dot"></span><span id="pc">connecting…</span></div>
+  </header>
+
+  <h2>Send to the PC</h2>
+  <button id="choose">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+    <b>Send files</b><span id="whereto">photos, videos, anything · into its Downloads</span>
+  </button>
+  <div class="say">
+    <textarea id="text" rows="3" placeholder="or a message, a link…"></textarea>
+    <button id="say" class="flat">Send</button>
+  </div>
+
+  <h2>Activity</h2>
+  <div id="list"><p class="empty" id="empty">Nothing yet.<br>Files from the PC show up here to save.</p></div>
+  <p class="foot">Keep this page open while sending.<br>Closing it takes the phone off the PC's list.</p>
+</main>
+<input id="pick" type="file" multiple>
+<script>
+const $ = (id) => document.getElementById(id);
+// the code: from the address once (then out of it), else from this tab's own storage (a reload)
+let token = location.hash.slice(1);
+try { if (token) sessionStorage.setItem("t", token); else token = sessionStorage.getItem("t") || ""; } catch {}
+history.replaceState(null, "", "/");
+const page = crypto.getRandomValues(new Uint32Array(2)).join("");
+const q = (o) => new URLSearchParams({ t: token, page, ...o }).toString();
+let pc = "the PC", name = "Phone";
+
+const UP = '<svg class="icon up" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>';
+const DOWN = '<svg class="icon down" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7zM5 18v2h14v-2z"/></svg>';
+const MSG = '<svg class="icon up" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z"/></svg>';
+
+const size = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(0)} KB` :
+                    n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
+const clock = (s) => s < 60 ? `${Math.ceil(s)} s` : s < 3600 ? `${Math.floor(s / 60)} min ${Math.ceil(s % 60)} s`
+                                                     : `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min`;
+
+// a card in Activity: what (bold), who / how big, its state; the newest on top
+function card(icon, what, sub) {
+  $("empty")?.remove();
+  const c = document.createElement("div");
+  c.className = "card";
+  c.innerHTML = `${icon}<div class="body"><div class="what"></div><div class="sub"><span class="info"></span>` +
+                `<span class="sep">  ·  </span><span class="state"></span></div></div>`;
+  c.querySelector(".what").textContent = what;
+  c.querySelector(".info").textContent = sub;
+  $("list").prepend(c);
+  return c;
+}
+function status(c, text, cls) {
+  const s = c.querySelector(".state");
+  s.textContent = text;
+  s.className = "state " + (cls || "");
+  c.classList.toggle("failed", cls === "bad");
+}
+function actions(c, ...buttons) {
+  c.querySelector(".actions")?.remove();
+  if (!buttons.length) return;
+  const a = document.createElement("div");
+  a.className = "actions";
+  a.append(...buttons);
+  c.querySelector(".body").append(a);
+}
+function btn(text, cls, fn) {
+  const b = document.createElement("button");
+  b.textContent = text;
+  if (cls) b.className = cls;
+  b.onclick = fn;
+  return b;
+}
+
+// ---- this phone on the PC's list: as long as this stream is open ----
+async function start() {
+  if (!token) {
+    $("pc").textContent = "no code";
+    $("dot").className = "off";
+    $("list").innerHTML = '<p class="empty">Scan the code in LocalSend on the PC<br>(Phone without the app) again.</p>';
+    $("choose").disabled = $("say").disabled = true;
+    return;
+  }
+  try {   // the phone's model, where the browser tells it (Chrome on Android)
+    const ua = await navigator.userAgentData?.getHighEntropyValues(["model", "platform"]);
+    name = ua?.model || ua?.platform || (/iPhone|iPad/.test(navigator.userAgent) ? "iPhone" : "Phone");
+  } catch {}
+  const es = new EventSource(`/web/events?${q({ name })}`);
+  es.onmessage = (m) => event(JSON.parse(m.data));
+  es.onerror = () => { $("dot").className = ""; $("pc").textContent = "reconnecting…"; };
+  addEventListener("pagehide", () => navigator.sendBeacon(`/web/bye?${q({})}`));
+}
+
+const offers = {};
+function event(ev) {
+  if (ev.type === "hello") {
+    pc = ev.pc;
+    $("dot").className = "on";
+    $("pc").textContent = pc;
+    $("whereto").textContent = `photos, videos, anything · into ${pc}'s Downloads`;
+  } else if (ev.type === "offer") {
+    offered(ev);
+  } else if (ev.type === "withdrawn" && offers[ev.job]) {
+    actions(offers[ev.job]);
+    offers[ev.job].classList.remove("asking");
+    status(offers[ev.job], "cancelled on the PC", "bad");
+  }
+}
+
+// ---- from the PC: Save (each file the browser's own download, with its one-time key) or Decline ----
+function offered(ev) {
+  const text = ev.text != null;
+  const total = ev.files.reduce((n, f) => n + f.size, 0);
+  const what = text ? "Message" : ev.files.length === 1 ? ev.files[0].name : `${ev.files.length} files`;
+  const c = card(text ? MSG.replace("up", "down") : DOWN, what, text ? `from ${pc}` : `from ${pc}  ·  ${size(total)}`);
+  c.classList.add("asking");
+  status(c, "wants to send", "wait");
+  if (text) {
+    const m = document.createElement("div");
+    m.className = "msg";
+    m.textContent = ev.text;
+    c.querySelector(".body").append(m);
+  } else if (ev.files.length > 1) {
+    const n = document.createElement("div");
+    n.className = "names";
+    n.textContent = ev.files.slice(0, 6).map((f) => f.name).join(", ") + (ev.files.length > 6 ? ` and ${ev.files.length - 6} more` : "");
+    c.querySelector(".body").append(n);
+  }
+  const answer = (yes) => fetch(`/web/answer?${q({ job: ev.job, accept: yes ? "1" : "0" })}`, { method: "POST" });
+  const save = btn(text ? "Copy" : ev.files.length > 1 ? "Save all" : "Save", "", async () => {
+    actions(c);
+    c.classList.remove("asking");
+    await answer(true);
+    if (text) {
+      try { await navigator.clipboard.writeText(ev.text); status(c, "copied", "ok"); } catch { status(c, "received", "ok"); }
+      return;
+    }
+    status(c, "saving…", "run");
+    for (const f of ev.files) {
+      const a = document.createElement("a");
+      a.href = `/web/file?${new URLSearchParams({ f: f.id, k: f.key })}`;
+      a.download = f.name;
+      a.click();
+      await new Promise((r) => setTimeout(r, 400));   // one after another: the browser takes them all
+    }
+    status(c, "saved: see the browser's downloads", "ok");
+  });
+  const no = btn("Decline", "flat", () => {
+    actions(c);
+    c.classList.remove("asking");
+    status(c, "declined");
+    answer(false);
+  });
+  actions(c, save, no);
+  offers[ev.job] = c;
+  if (navigator.vibrate) navigator.vibrate(60);
+}
+
+// ---- to the PC: each pick a transfer of its own, its files one after another; several picks at once ----
+async function prepare(files) {
+  const r = await fetch(`/web/prepare?${q({})}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ info: { alias: name }, files }) });
+  if (r.status === 204) return { shown: true };
+  if (r.status !== 200) throw new Error(r.status === 403 ? "declined on the PC" : `failed (HTTP ${r.status})`);
+  return r.json();
+}
+
+async function send(list) {
+  const total = list.reduce((n, f) => n + f.size, 0);
+  const c = card(UP, list.length === 1 ? list[0].name : `${list.length} files`, `to ${pc}  ·  ${size(total)}`);
+  c.querySelector(".body").insertAdjacentHTML("beforeend", '<div class="bar"><i></i></div>');
+  if (list.length > 1) {
+    const n = document.createElement("div");
+    n.className = "names";
+    n.textContent = list.slice(0, 6).map((f) => f.name).join(", ") + (list.length > 6 ? ` and ${list.length - 6} more` : "");
+    c.querySelector(".bar").before(n);
+  }
+  status(c, "starting", "wait");
+  const files = {};
+  list.forEach((f, i) => { files[`f${i}`] = { id: `f${i}`, fileName: f.name, size: f.size,
+                                            fileType: f.type || "application/octet-stream" }; });
+  let session, req = null, stopped = false;
+  actions(c, btn("Cancel", "quiet", () => {
+    stopped = true;
+    req?.abort();
+    if (session) fetch(`/api/localsend/v2/cancel?${new URLSearchParams({ sessionId: session.sessionId })}`, { method: "POST" });
+  }));
+  try { session = await prepare(files); } catch (e) { actions(c); return status(c, e.message, "bad"); }
+  const started = performance.now();
+  let done = 0;
+  for (const [i, f] of list.entries()) {
+    const ok = await new Promise((resolve) => {
+      req = new XMLHttpRequest();   // fetch can't tell an upload's progress
+      req.open("POST", `/api/localsend/v2/upload?${new URLSearchParams({ sessionId: session.sessionId,
+                                                                          fileId: `f${i}`, token: session.files[`f${i}`] })}`);
+      req.upload.onprogress = (e) => {
+        const got = done + e.loaded, secs = (performance.now() - started) / 1000, rate = got / Math.max(secs, .001);
+        c.querySelector(".bar i").style.width = `${100 * got / Math.max(total, 1)}%`;
+        const left = secs > 1 && rate > 0 ? `  ·  ${clock((total - got) / rate)} left` : "";
+        status(c, `${Math.floor(100 * got / Math.max(total, 1))} %  ·  ${size(rate)}/s${left}`, "run");
+      };
+      req.onload = () => resolve(req.status === 200);
+      req.onerror = req.onabort = () => resolve(false);
+      req.send(f);
+    });
+    if (!ok) {
+      actions(c);
+      return status(c, stopped ? "cancelled" : `failed at ${f.name}`, stopped ? "" : "bad");
+    }
+    done += f.size;
+  }
+  actions(c);
+  c.querySelector(".bar").remove();
+  const secs = (performance.now() - started) / 1000;
+  status(c, `sent${secs > 2 ? ` in ${clock(secs)}` : ""}`, "ok");
+}
+
+$("choose").onclick = () => $("pick").click();
+$("pick").onchange = () => {
+  const list = [...$("pick").files];
+  $("pick").value = "";
+  if (list.length) send(list);   // not awaited: another pick starts its own transfer meanwhile
+};
+
+$("say").onclick = async () => {
+  const text = $("text").value.trim();
+  if (!text) return;
+  $("text").value = "";
+  $("text").style.height = "";   // back to its own size
+  const c = card(MSG, "Message", `to ${pc}`);
+  const m = document.createElement("div");
+  m.className = "msg";
+  m.textContent = text;
+  c.querySelector(".body").append(m);
+  status(c, "sending", "wait");
+  const data = new TextEncoder().encode(text);
+  try {
+    await prepare({ m: { id: "m", fileName: "message.txt", size: data.length, fileType: "text/plain", preview: text } });
+    status(c, "sent", "ok");
+  } catch (e) { status(c, e.message, "bad"); }
+};
+$("text").addEventListener("input", () => {   // grows with what's typed, up to its max
+  $("text").style.height = "auto";
+  $("text").style.height = `${$("text").scrollHeight + 2}px`;
+  $("text").style.overflowY = $("text").scrollHeight > $("text").clientHeight + 2 ? "auto" : "hidden";
+});
+
+start();
+</script>
+</body>
+</html>

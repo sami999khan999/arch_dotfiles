@@ -4,12 +4,13 @@
 # The window of lsend (local/lib/lsend/lsend.py), the service that does the networking: it connects to
 # the service's socket and shows what it says — the devices seen, the requests to accept, the transfers.
 # Opened by the service when the phone sends something and the window isn't up. Event-driven: a thread
-# reads the socket, nothing polls.
+# reads the socket, nothing polls. Phone without the app shows a code: the phone's browser opens lsend's page
+# and is a device ("browser") while it's open.
 import gc, json, os, socket, subprocess, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import (Gdk, Gio, GLib, Gtk, Pango, PanelApp, View, box, button, clear, collect, label, rule_heading,
-                    scrolled)
+from gtkkit import (Gdk, Gio, GLib, Gtk, Pango, PanelApp, View, box, button, clear, collect, label, qr,
+                    rule_heading, scrolled)
 
 HOME = os.path.expanduser("~")
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "lsend.sock")
@@ -18,8 +19,8 @@ FILES = f"{HOME}/.local/lib/panels/filesgui.py"
 G_SEND = "\U000f048a"
 G_PHONE, G_DESKTOP, G_LAPTOP, G_TABLET = "\U000f011c", "\U000f0379", "\U000f0322", "\U000f04f6"
 G_DOWN, G_UP, G_FILE, G_FOLDER, G_CROSS = "\U000f01da", "\U000f0552", "\U000f0214", "\U000f0256", "\U000f0156"
-G_MESSAGE, G_SCAN = "\U000f0369", "\U000f0450"
-TYPE_GLYPH = {"mobile": G_PHONE, "desktop": G_DESKTOP, "laptop": G_LAPTOP, "tablet": G_TABLET}
+G_MESSAGE, G_SCAN, G_WEB, G_QR = "\U000f0369", "\U000f0450", "\U000f059f", "\U000f0432"
+TYPE_GLYPH = {"mobile": G_PHONE, "desktop": G_DESKTOP, "laptop": G_LAPTOP, "tablet": G_TABLET, "browser": G_WEB}
 STATE_TEXT = {"asking": "waiting for an answer", "receiving": "receiving", "sending": "sending", "done": "done",
               "declined": "declined", "cancelled": "cancelled", "failed": "failed"}
 STATE_CLASS = {"asking": "amber", "receiving": "accent", "sending": "accent", "done": "green", "failed": "red"}
@@ -31,11 +32,12 @@ CSS = """
 .devices list > row:selected .dev-glyph { color: #6b8fe0; }
 .dev-name { font-weight: 700; }
 .dev-empty .big { color: #3b4261; font-size: 26pt; }
+.web-code { padding: 0 0 6px 0; }
 .pane { padding: 14px 20px; }
 .drop { border: 1px dashed alpha(#3b4261, .9); padding: 14px 16px; }
 .drop.hover { border-color: #6b8fe0; background: alpha(#6b8fe0, .06); }
-.drop-empty { padding: 10px 0 4px 0; }
-.drop-empty .big { color: #3b4261; font-size: 22pt; }
+.drop-empty { padding: 2px 0; }
+.drop-empty .big { color: #3b4261; font-size: 20pt; min-width: 36px; }
 .drop.hover .drop-empty .big { color: #6b8fe0; }
 .picked list > row { padding: 4px 6px; }
 .picked .x { padding: 0 6px; min-height: 0; color: #565f89; }
@@ -83,7 +85,7 @@ class LSend(View):
     interval = 0
     css = CSS
     hints = [("Ctrl+O", "add files"), ("Ctrl+V", "paste"), ("Enter", "send"), ("y/n", "accept / decline"),
-             ("r", "scan"), ("Esc", "close")]
+             ("r", "scan"), ("b", "browser code"), ("Esc", "close")]
 
     def __init__(self, paths=()):
         super().__init__()
@@ -100,27 +102,34 @@ class LSend(View):
         self.dev_list.connect("row-selected", self.device_picked)
         self.dev_empty = box(True, 10, label(G_PHONE, "big", xalign=0.5),
                              label("No devices yet", "sub", xalign=0.5),
-                             label("Open LocalSend on the phone, on the same Wi-Fi, then scan.", "dim", xalign=0.5,
+                             label("Open LocalSend on the phone, on the same Wi-Fi, then scan. No app on it? "
+                                   "Phone without the app, below.", "dim", xalign=0.5,
                                    wrap=True), classes=("dev-empty",))
         self.dev_empty.set_margin_top(40)
         self.dev_empty.get_last_child().set_justify(Gtk.Justification.CENTER)
         self.dev_empty.get_last_child().set_max_width_chars(28)   # wraps instead of widening the column
         self.scan_btn = button(f"{G_SCAN}  Scan", self.scan, tooltip="r")
         self.scan_btn.set_focusable(False)
+        self.web_btn = button(f"{G_QR}  Phone without the app", self.toggle_web, "flat", tooltip="b")
+        self.web_btn.set_focusable(False)
+        self.web_box = box(True, 10)   # the code, while it's asked for (above Send)
         left = box(True, 10, rule_heading("Devices"), self.dev_empty, scrolled(self.dev_list), self.scan_btn,
-                   classes=("devices",))
+                   self.web_btn, classes=("devices",))
         left.set_size_request(300, -1)
         left.set_hexpand(False)   # a device's long name doesn't widen the column
 
         self.picked_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.picked_list.add_css_class("picked")
-        # empty: a centred target saying what to do; with files: their list and a footer with the total
-        self.drop_msg = box(True, 6, label(G_UP, "big", xalign=0.5), label("Drop files or folders here", "sub", xalign=0.5),
-                            box(False, 6, button(f"{G_FILE}  Files…", lambda: self.pick(False), tooltip="Ctrl+O"),
-                                button(f"{G_FOLDER}  Folder…", lambda: self.pick(True), tooltip="Ctrl+Shift+O")),
-                            label("or paste them (Ctrl+V)", "dim", xalign=0.5), classes=("drop-empty",))
-        self.drop_msg.get_last_child().get_prev_sibling().set_halign(Gtk.Align.CENTER)
-        self.drop_msg.get_last_child().get_prev_sibling().set_margin_top(6)
+        # empty: one row saying what to do (Activity below keeps the height); with files: their list and a
+        # footer with the total
+        pick_btns = [button(f"{G_FILE}  Files…", lambda: self.pick(False), tooltip="Ctrl+O"),
+                     button(f"{G_FOLDER}  Folder…", lambda: self.pick(True), tooltip="Ctrl+Shift+O")]
+        say = box(True, 2, label("Drop files or folders here", "sub"), label("or paste them (Ctrl+V)", "dim"))
+        say.set_hexpand(True)
+        say.set_valign(Gtk.Align.CENTER)
+        self.drop_msg = box(False, 12, label(G_UP, "big"), say, *pick_btns, classes=("drop-empty",))
+        for b in pick_btns:
+            b.set_valign(Gtk.Align.CENTER)
         self.picked_total = label("", "dim")
         add_files = button(f"{G_FILE}  Files…", lambda: self.pick(False), "flat", tooltip="Ctrl+O")
         add_folder = button(f"{G_FOLDER}  Folder…", lambda: self.pick(True), "flat", tooltip="Ctrl+Shift+O")
@@ -130,7 +139,7 @@ class LSend(View):
         self.picked_foot = box(False, 6, self.picked_total, Gtk.Box(hexpand=True), add_files, add_folder,
                                button("Clear", self.clear_picked, "flat", "danger"), classes=("drop-foot",))
         self.drop = box(True, 8, self.drop_msg, self.picked_scroll, self.picked_foot, classes=("drop",))
-        for b in [*self.drop_msg.get_last_child().get_prev_sibling(), *self.picked_foot]:
+        for b in [*pick_btns, *self.picked_foot]:
             if isinstance(b, Gtk.Button):
                 b.set_focusable(False)
         target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
@@ -154,7 +163,7 @@ class LSend(View):
         self.clear_activity.set_focusable(False)
         head = rule_heading("Activity")
         head.append(self.clear_activity)
-        right = box(True, 10, rule_heading("Send"), self.drop, send_row, head, self.activity_empty,
+        right = box(True, 10, self.web_box, rule_heading("Send"), self.drop, send_row, head, self.activity_empty,
                     scrolled(self.activity), classes=("pane",))
         right.set_hexpand(True)
 
@@ -263,6 +272,28 @@ class LSend(View):
             if d["fingerprint"] == self.target:
                 self.dev_list.select_row(row)
         self.update_send()
+
+    def toggle_web(self):
+        """The code that opens lsend's page in the phone's browser: then the phone is in the list."""
+        if self.web_box.get_first_child():
+            clear(self.web_box)
+            return
+        url = (self.me or {}).get("web")
+        if not url:
+            self.web_box.append(label("This PC has no address on a private network: the phone can't reach it.",
+                                      "red", wrap=True))
+            return
+        text = box(True, 6,
+                   label("Scan with the phone's camera", "bold"),
+                   label("On the same Wi-Fi. The page is LocalSend in its browser, no app: while it's open the "
+                         "phone is in Devices, both ways.", "sub", wrap=True),
+                   label("The browser warns that the connection isn't private (this PC's own certificate): "
+                         "Advanced → Proceed.", "dim", wrap=True),
+                   button("Hide", self.toggle_web, "flat"))
+        text.get_last_child().set_halign(Gtk.Align.START)
+        text.set_hexpand(True)
+        self.web_box.append(rule_heading("Phone without the app"))
+        self.web_box.append(box(False, 16, qr(url, 170), text, classes=("web-code",)))
 
     def device_picked(self, _l, row):
         if row is not None:
@@ -473,6 +504,8 @@ class LSend(View):
             return False
         elif keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             self.send()
+        elif k == Gdk.KEY_b:
+            self.toggle_web()
         elif k == Gdk.KEY_r:
             self.scan()
         elif k in (Gdk.KEY_y, Gdk.KEY_n) and self.asking():

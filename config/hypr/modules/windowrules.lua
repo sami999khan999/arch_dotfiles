@@ -130,6 +130,7 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.pair)$" }, size = { 680, 670 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.mirror)$" }, size = { 760, 640 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.lsend)$" }, size = { 1000, 690 } })
 -- the phone's screen (mirror, scrcpy): floats at the phone's own shape, beside what you work on
 hl.window_rule({ match = { class = "^(scrcpy)$" }, float = true, center = true })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux)$" }, size = { 860, 620 } })

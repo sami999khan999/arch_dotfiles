@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 # storagegui.py — Storage (Super + Ctrl + F): what fills the disks and what can go. Running it again closes it.
 #
-#   top      the SSD (/) and the HDD (/mnt/data): used / free
+#   top      the SSD (/) and the HDD (/mnt/data) side by side: used / free; then the total that can be freed
 #   rows     what can be freed, each with its size, measured in threads when the panel opens:
 #            Docker build cache, images no container uses, stopped containers; node_modules of projects in
 #            ~/code untouched for STALE_DAYS (codesync never backs them up: a reinstall brings them back);
 #            the pacman cache (old versions, uninstalled packages); ~/.cache's folders; the Trash
+#            Rows with nothing in them fold into "Already clean" at the end.
 #   Clean    twice within 3 s. A row with a list (node_modules, ~/.cache) unfolds to clean one at a time.
+#            Clean all (twice) cleans every row in turn; the package cache's terminal opens first.
 #            The pacman cache needs root: paccache runs in the terminal popup (termgui.py), asking for the password.
 #
 # Never touches /mnt/data (codesync's .code-trash is codesync's) or Docker volumes (they hold databases).
@@ -14,7 +16,7 @@ import json, os, re, shutil, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, level, run, scrolled
+from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, level, rule_heading, run, scrolled
 
 HOME = os.path.expanduser("~")
 CODE = f"{HOME}/code"
@@ -28,23 +30,31 @@ UNITS = {"B": 1, "KB": 1e3, "MB": 1e6, "GB": 1e9, "TB": 1e12, "KIB": 1024, "MIB"
          "TIB": 1024 ** 4}
 
 CSS = """
-.disk { padding: 4px 0 10px 0; }
+.disk { padding: 12px 14px; border: 1px solid alpha(#3b4261, .7); background: alpha(#292e42, .35); }
 .disk levelbar trough { background: #292e42; border: none; padding: 0; min-height: 8px; }
 .disk levelbar block { min-height: 8px; border: none; }
 .disk levelbar block.empty { background: transparent; }
 .disk levelbar.green block.filled { background: #9ece6a; }
 .disk levelbar.yellow block.filled { background: #e0af68; }
 .disk levelbar.red block.filled { background: #f7768e; }
+.summary { padding: 2px 0 4px 0; border-bottom: 1px solid alpha(#3b4261, .7); }
+.total { font-size: 17pt; font-weight: 700; color: #e0af68; }
+.total.none { color: #9ece6a; }
+.share trough { background: #292e42; border: none; padding: 0; min-height: 3px; }
+.share block { min-height: 3px; border: none; }
+.share block.empty { background: transparent; }
+.share block.filled { background: #e0af68; }
 .item-where { color: #565f89; font-size: 9pt; }
 .item-disk { color: #a9b1d6; font-size: 9pt; font-weight: 700; }
 .item-where button, .sub-row .open { padding: 0 6px; min-height: 0; color: #6b8fe0; background: transparent; }
 .item-where button:hover, .sub-row .open:hover { color: #c0caf5; }
-.item { padding: 10px 0; border-bottom: 1px solid alpha(#3b4261, .7); }
+.item { padding: 12px 0; border-bottom: 1px solid alpha(#3b4261, .7); }
 .item-title { font-weight: 700; }
-.item-size { font-weight: 700; color: #e0af68; min-width: 80px; }
+.item-size { font-weight: 700; color: #e0af68; min-width: 90px; }
 .item-size.small { color: #565f89; }
-.sub-row { padding: 3px 0 3px 26px; }
+.sub-row { padding: 3px 0 3px 30px; }
 .sub-row button { padding: 0 8px; min-height: 0; }
+.done-row { padding: 3px 0 3px 4px; }
 .fold { min-width: 16px; min-height: 0; padding: 0 2px; border: none; background: transparent; color: #565f89; }
 .fold:hover { color: #c0caf5; background: transparent; }
 """
@@ -158,6 +168,8 @@ class Storage(View):
         self.lists = {}          # item key -> [(label, path(s), bytes, note)] for the rows that unfold
         self.open = set()        # items unfolded
         self.armed = None        # (key, time): Clean pressed once
+        self.all_timer = 0       # Clean all pressed once: the timer that disarms it
+        self.cleaning = False    # Clean all at work
         self.pool = ThreadPoolExecutor(4)
         self.drives = {m: drive_of(m) for m, _ in DISKS}   # once: the disks don't change while it's open
         devs = {device_of(m): name.split(" (")[0] for m, name in DISKS if os.path.ismount(m)}
@@ -199,9 +211,18 @@ class Storage(View):
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def build(self):
-        self.disks = box(True, 6)
+        self.disks = box(False, 12)
+        self.disks.set_homogeneous(True)   # the SSD and the HDD side by side, as wide as each other
+        self.total_l = label("", "total")
+        self.total_note = label("", "dim")
+        self.all_b = button("Clean all", lambda: self.clean_all(), "flat", "danger",
+                            tooltip="every row at once (twice within 3 s); the package cache asks for your password")
+        self.all_b.set_focusable(False)
+        self.all_b.set_valign(Gtk.Align.CENTER)
+        note = box(True, 2, self.total_l, self.total_note)
+        note.set_hexpand(True)
         self.body = box(True, 0)
-        page = box(True, 12, self.disks, scrolled(self.body))
+        page = box(True, 14, self.disks, box(False, 12, note, self.all_b, classes=("summary",)), scrolled(self.body))
         for edge in ("top", "start", "end", "bottom"):
             getattr(page, f"set_margin_{edge}")(18)
         self.paint_disks()
@@ -282,54 +303,85 @@ class Storage(View):
             pct = used / total * 100 if total else 0
             bar = Gtk.LevelBar(min_value=0, max_value=100, value=pct, hexpand=True)
             bar.add_css_class(level(pct))
-            head = box(False, 10, label(name, "bold"), label(mount, "dim"), label(""),
-                       label(f"{human(used)} used · {human(free)} free of {human(total)}", "dim"))
-            head.get_first_child().get_next_sibling().get_next_sibling().set_hexpand(True)
-            what = label(self.drives.get(mount, ""), "dim")
-            self.disks.append(box(True, 6, head, *([what] if what.get_text() else []), bar, classes=("disk",)))
+            short, _, role = name.partition(" (")
+            head = box(False, 8, label(short, "bold"), label(f"{role.rstrip(')')} · {mount}", "dim", ellipsize=True),
+                       label(f"{pct:.0f}%", "bold", {"green": "green", "yellow": "amber", "red": "red"}[level(pct)]))
+            card = box(True, 6, head, bar, label(f"{human(used)} used · {human(free)} free of {human(total)}", "sub"),
+                       classes=("disk",))
+            if self.drives.get(mount):
+                card.append(label(self.drives[mount], "item-where", ellipsize=True))
+            self.disks.append(card)
 
     def paint(self):
         clear(self.body)
-        total = sum(s for s in self.sizes.values() if s)
         busy = any(s is None for s in self.sizes.values())
-        self.set_subtitle(("measuring… " if busy else "") + f"{human(total)} can be freed")
-        for key, title, what, how, paths in self.items():
-            size = self.sizes.get(key)
-            sub = self.lists.get(key) or []
-            unfolds = key in ("node-modules", "cache") and sub
-            fold = button("" if key in self.open else "", lambda key=key: self.toggle(key), "fold")
-            if not unfolds:   # kept, unseen: every row's title starts at the same place
-                fold.set_opacity(0)
-                fold.set_sensitive(False)
-            fold.set_focusable(False)
-            text = box(True, 2, label(title, "item-title"), label(f"{what} · {how}", "dim", wrap=True), self.where(paths))
-            text.set_hexpand(True)
-            size_l = label("measuring…" if size is None else human(size), "item-size", xalign=1.0)
-            if size is not None and size < 50_000_000:
-                size_l.add_css_class("small")
-            sure = self.armed and self.armed[0] == key and time.time() - self.armed[1] < 3
-            clean = button("Click again" if sure else "Clean", lambda key=key: self.clean(key),
-                           *(("armed",) if sure else ("flat", "danger")))
-            clean.set_sensitive(bool(size))
-            clean.set_focusable(False)
-            row = box(False, 12, fold, text, size_l, clean, classes=("item",))
-            row.set_valign(Gtk.Align.START)
-            self.body.append(row)
-            if unfolds and key in self.open:
-                for name, paths, bytes_, note in sub:
-                    k = (key, name)
-                    sure = self.armed and self.armed[0] == k and time.time() - self.armed[1] < 3
-                    b = button("Click again" if sure else "Delete", lambda k=k, paths=paths: self.clean_one(k, paths),
-                               *(("armed",) if sure else ("flat", "danger")))
-                    b.set_focusable(False)
-                    b.set_sensitive(bool(paths))
-                    n = label(name, ellipsize=True)
-                    folder = os.path.dirname(paths[0]) if key == "node-modules" and paths else (paths or [""])[0]
-                    o = button("Open", lambda f=folder: self.open_folder(f), "open", tooltip=folder.replace(HOME, "~"))
-                    o.set_focusable(False)
-                    o.set_sensitive(bool(folder))
-                    self.body.append(box(False, 12, n, label(note, "dim"), label(human(bytes_), "dim", xalign=1.0), o, b,
-                                         classes=("sub-row",)))
+        total = sum(s for s in self.sizes.values() if s)
+        failed = {k for k, rows in self.lists.items() if any(r[1] is None for r in rows)}   # couldn't measure
+        todo = [it for it in self.items() if self.sizes.get(it[0]) != 0 or it[0] in failed]
+        done = [it for it in self.items() if it not in todo]
+        self.set_subtitle("measuring…" if busy else self.subtitle)
+        self.total_l.set_text(f"{human(total)} can be freed" if total or busy else "Nothing to clean")
+        self.total_l.remove_css_class("none")
+        if not total and not busy:
+            self.total_l.add_css_class("none")
+        places = sum(1 for k, *_ in self.items() if self.sizes.get(k))
+        self.total_note.set_text("cleaning…" if self.cleaning else "measuring the rest…" if busy else
+                                 f"in {places} place{'s' * (places != 1)}: Clean each below, or Clean all"
+                                 if places else "every place below is already empty")
+        self.all_b.set_visible(bool(total) or busy)
+        self.all_b.set_sensitive(bool(total) and not busy and not self.cleaning)
+        biggest = max([s for s in self.sizes.values() if s] or [1])
+        for key, title, what, how, paths in todo:
+            self.body.append(self.item_row(key, title, what, how, paths, biggest))
+            if key in self.open and key in ("node-modules", "cache"):
+                for name, sub_paths, bytes_, note in self.lists.get(key) or []:
+                    self.body.append(self.sub_row(key, name, sub_paths, bytes_, note))
+        if done:
+            self.body.append(rule_heading("Already clean", str(len(done)), spaced=True))
+            for _key, title, *_ in done:
+                self.body.append(box(False, 10, label("\uf00c", "green"), label(title, "dim", ellipsize=True),
+                                     label("0 B", "dim"), classes=("done-row",)))
+
+    def item_row(self, key, title, what, how, paths, biggest):
+        size = self.sizes.get(key)
+        unfolds = key in ("node-modules", "cache") and self.lists.get(key)
+        fold = button("\uf078" if key in self.open else "\uf054", lambda key=key: self.toggle(key), "fold")
+        if not unfolds:   # kept, unseen: every row's title starts at the same place
+            fold.set_opacity(0)
+            fold.set_sensitive(False)
+        fold.set_focusable(False)
+        where = self.where(paths)
+        where.append(label(f"· {how}", "item-where"))
+        text = box(True, 3, label(title, "item-title"), label(what, "dim", wrap=True), where)
+        text.set_hexpand(True)
+        size_l = label("measuring…" if size is None else human(size), "item-size", xalign=1.0)
+        if size is not None and size < 50_000_000:
+            size_l.add_css_class("small")
+        share = Gtk.LevelBar(min_value=0, max_value=1, value=(size or 0) / biggest, css_classes=["share"])
+        share.set_size_request(90, -1)
+        sized = box(True, 6, size_l, share)
+        sized.set_valign(Gtk.Align.CENTER)
+        sure = self.armed and self.armed[0] == key and time.time() - self.armed[1] < 3
+        clean = button("Click again" if sure else "Clean", lambda key=key: self.clean(key),
+                       *(("armed",) if sure else ("flat", "danger")))
+        clean.set_sensitive(bool(size) and not self.cleaning)
+        clean.set_focusable(False)
+        clean.set_valign(Gtk.Align.CENTER)
+        return box(False, 14, fold, text, sized, clean, classes=("item",))
+
+    def sub_row(self, key, name, paths, bytes_, note):
+        k = (key, name)
+        sure = self.armed and self.armed[0] == k and time.time() - self.armed[1] < 3
+        b = button("Click again" if sure else "Delete", lambda k=k, paths=paths: self.clean_one(k, paths),
+                   *(("armed",) if sure else ("flat", "danger")))
+        b.set_focusable(False)
+        b.set_sensitive(bool(paths) and not self.cleaning)
+        folder = os.path.dirname(paths[0]) if key == "node-modules" and paths else (paths or [""])[0]
+        o = button("Open", lambda f=folder: self.open_folder(f), "open", tooltip=folder.replace(HOME, "~"))
+        o.set_focusable(False)
+        o.set_sensitive(bool(folder))
+        return box(False, 12, label(name, ellipsize=True), label(note, "dim"), label(human(bytes_), "dim", xalign=1.0),
+                   o, b, classes=("sub-row",))
 
     def toggle(self, key):
         self.open ^= {key}
@@ -351,30 +403,81 @@ class Storage(View):
         title = next(t for k, t, *_ in self.items() if k == key)
         if not self.confirm(key, title):
             return
-        if key == "pacman":   # root: in the terminal popup, where sudo asks for the password
-            script = ('printf "\\033[38;2;107;143;224mpackage cache\\033[0m old versions and uninstalled packages\\n\\n"; '
-                      'sudo sh -c "paccache -rk1 && paccache -ruk0"; s=$?; '
-                      'printf "\\n\\033[2m── done (%s) · Enter to close ──\\033[0m" $s; read _')
-            subprocess.Popen(["uwsm", "app", "--", sys.executable, TERM, "package cache", "--", "sh", "-c", script],
-                             start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            GLib.timeout_add_seconds(20, lambda: self.measure("pacman") or False)
+        if key == "pacman":
+            self.clean_pacman()
             return
-        cmds = {"docker-cache": ["docker", "builder", "prune", "-af"], "docker-images": ["docker", "image", "prune", "-af"],
-                "docker-stopped": ["docker", "container", "prune", "-f"]}
-        paths = [p for _n, ps, _b, _note in self.lists.get(key, []) for p in (ps or [])]
         self.say(f"cleaning {title}…", seconds=120)
 
         def work():
-            if key == "trash":
-                ok, msg = self.empty_trash(), ["couldn't delete all of it"]
-            elif key in cmds:
-                r = subprocess.run(cmds[key], capture_output=True, text=True, timeout=1800)
-                ok, msg = r.returncode == 0, (r.stderr or r.stdout).strip().splitlines()[-1:] or [""]
-            else:
-                ok, msg = self.remove(paths), [""]
-            GLib.idle_add(lambda: (self.say(f"{title}: cleaned" if ok else f"{title}: {msg[0]}", "ok" if ok else "bad"),
+            ok, msg = self.run_clean(key)
+            GLib.idle_add(lambda: (self.say(f"{title}: cleaned" if ok else f"{title}: {msg}", "ok" if ok else "bad"),
                                    self.measure(key)) and False)
         self.pool.submit(work)
+
+    def clean_pacman(self):
+        """Root: in the terminal popup, where sudo asks for the password."""
+        script = ('printf "\\033[38;2;107;143;224mpackage cache\\033[0m old versions and uninstalled packages\\n\\n"; '
+                  'sudo sh -c "paccache -rk1 && paccache -ruk0"; s=$?; '
+                  'printf "\\n\\033[2m── done (%s) · Enter to close ──\\033[0m" $s; read _')
+        subprocess.Popen(["uwsm", "app", "--", sys.executable, TERM, "package cache", "--", "sh", "-c", script],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        GLib.timeout_add_seconds(20, lambda: self.measure("pacman") or False)
+
+    def run_clean(self, key):
+        """Cleans one row (not the package cache), in a worker thread: (ok, why not)."""
+        cmds = {"docker-cache": ["docker", "builder", "prune", "-af"], "docker-images": ["docker", "image", "prune", "-af"],
+                "docker-stopped": ["docker", "container", "prune", "-f"]}
+        if key == "trash":
+            return self.empty_trash(), "couldn't delete all of it"
+        if key in cmds:
+            try:
+                r = subprocess.run(cmds[key], capture_output=True, text=True, timeout=1800)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                return False, str(e)
+            return r.returncode == 0, ((r.stderr or r.stdout).strip().splitlines()[-1:] or [""])[0]
+        paths = [p for _n, ps, _b, _note in self.lists.get(key, []) for p in (ps or [])]
+        return self.remove(paths), "couldn't delete all of it"
+
+    def clean_all(self):
+        """Every row with something in it; the first press arms the button, the second within 3 s cleans."""
+        if "armed" not in self.all_b.get_css_classes():
+            self.all_b.add_css_class("armed")
+            self.all_b.set_label("Click again")
+            self.say("press again to clean everything listed")
+            self.all_timer = GLib.timeout_add(3000, self.disarm_all)
+            return
+        GLib.source_remove(self.all_timer)
+        self.disarm_all()
+        titles = {k: t for k, t, *_ in self.items()}
+        keys = [k for k in titles if self.sizes.get(k)]
+        if "pacman" in keys:   # first: its password is asked while the rest is cleaned
+            keys.remove("pacman")
+            self.clean_pacman()
+        self.cleaning = True
+        self.paint()
+
+        def work():
+            failed = []
+            for i, key in enumerate(keys, 1):
+                GLib.idle_add(lambda t=titles[key], i=i: self.say(f"cleaning {t} ({i} of {len(keys)})…", seconds=1800)
+                              and False)
+                if not self.run_clean(key)[0]:
+                    failed.append(titles[key])
+            GLib.idle_add(self.cleaned_all, failed)
+        self.pool.submit(work)
+
+    def disarm_all(self):
+        self.all_b.remove_css_class("armed")
+        self.all_b.set_label("Clean all")
+        self.all_timer = 0
+        return False
+
+    def cleaned_all(self, failed):
+        self.cleaning = False
+        self.say(f"couldn't clean: {', '.join(failed)}" if failed else "everything cleaned", "bad" if failed else "ok")
+        self.measure_all()
+        self.paint_disks()
+        return False
 
     def clean_one(self, k, paths):
         if not self.confirm(k, k[1]):

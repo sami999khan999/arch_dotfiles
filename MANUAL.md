@@ -766,6 +766,11 @@ way runs as a transient user unit (`mirror-share`, `mirror-phone`), so it carrie
   in the phone's browser by itself (`adb reverse`: the PC's port 53321 is the phone's `localhost`), less lag
   than Wi-Fi. Unplug and plug in again to reopen it. adb runs its own server and key for the share, both gone
   at the end. Not at the same time as the phone on this PC over USB (two adb servers would fight over it).
+- **Files, both ways** (instead of LocalSend, while the phone is connected): the page's Files button (in the
+  `≡` bar) sends the phone's files to `~/Downloads` (Choose files; progress per file; names kept, never
+  outside `~/Downloads`, a GiB of space always left), and lists what the PC offers: Send files… in the panel
+  (or `mirror send FILE…`), then Save on the phone. A saved file is fetched into the page first, so the
+  phone's download list never holds an address with the share's code. Offers last as long as the share.
 - **The phone on this PC** (Android, `w` / `u`): once on the phone, turn on Developer options (About phone →
   tap Build number 7 times) and USB debugging. Over Wi-Fi: Show code, then on the phone Developer options →
   Wireless debugging → Pair device with QR code (or Pair with pairing code, and type its address and code in

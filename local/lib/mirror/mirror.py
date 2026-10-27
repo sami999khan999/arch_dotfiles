@@ -11,6 +11,7 @@
 #   mirror start share|phone …   the same, as a transient user unit (mirror-share / mirror-phone): the panel
 #                                (local/lib/panels/mirrorgui.py, Super + Ctrl + C) starts them this way
 #   mirror stop [share|phone]    ends one, or both
+#   mirror send FILE…            offers files to the phone watching (its page's Files): the panel's Send files
 #   mirror output NAME           which screen the phone sees, while sharing
 #   mirror status | bar          what's on; the bar's JSON
 # Nothing kept, either side. Everything of a session lives in $XDG_RUNTIME_DIR/mirror (tmpfs, 0700) and is
@@ -19,6 +20,9 @@
 #     (port 53321, private networks only, one phone at a time) to a page using noVNC; the page has no
 #     cookies or storage, is never cached, and takes the token out of its address once read. The sound
 #     is the default output's monitor, raw PCM over a WebSocket. Stops by itself IDLE seconds without a phone.
+#     Files both ways through the same page (Files): the phone's upload lands in ~/Downloads (named as lsend
+#     names them: no way out of it); files offered here (`mirror send`, over files.sock) are listed on the page
+#     and fetched into the phone's memory then saved, so no address with the token lands in its downloads.
 #     Extended: the page tells its size first; the screen is made at that size, then wayvnc started on it.
 #     Order matters: Hyprland 0.56.2 crashes (SEGV in CScreenshareFrame::transform) when a capture client asks
 #     for a frame of a screen that's gone, so the screen is never removed, nor resized, while wayvnc runs on
@@ -44,6 +48,9 @@ QR_HINT = 20                # seconds after which a QR code no phone has answere
 RATE, CHANNELS = 48000, 2   # the sound: s16le
 PHONE_SCREEN = "PHONE"     # the extended screen's name (a headless output)
 SCALES = (1, 1.25, 1.5, 1.6, 2, 2.4, 2.5, 3)   # what Hyprland accepts when the size divides evenly
+sys.path.insert(0, os.path.expanduser("~/.local/lib/lsend"))
+from lsend import DOWNLOADS, safe_name, unique   # received files land and are named as lsend's
+
 WS_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -138,6 +145,8 @@ class Share:
         self.viewer = None          # the phone's address while it's connected
         self.links = 0              # its open VNC connections (a page reload overlaps two)
         self.last_seen = time.monotonic()
+        self.offers = {}            # id -> (path, name, size): files offered to the phone (mirror send)
+        self.listeners = set()      # the page's /events sockets, told of each new offer
 
     def setup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -263,9 +272,9 @@ class Share:
             method, target, _ = lines[0].split(" ", 2)
             headers = {k.strip().lower(): v.strip() for k, _, v in (l.partition(":") for l in lines[1:] if l)}
             path, _, query = target.partition("?")
-            if method != "GET":
+            if method != ("POST" if path == "/upload" else "GET"):
                 return await self.reply(writer, 405, b"")
-            if path in ("/vnc", "/sound", "/screen", "/hello"):
+            if path in ("/vnc", "/sound", "/screen", "/hello", "/upload", "/file", "/events"):
                 if not secrets.compare_digest(query.partition("&")[0].encode(), f"t={self.token}".encode()):
                     return await self.reply(writer, 403, b"")
                 if self.viewer and peer != self.viewer:   # one phone at a time
@@ -279,11 +288,17 @@ class Share:
                                             "application/json")
                 if path == "/screen":
                     return await self.reply(writer, 200, self.next_output().encode(), "text/plain")
+                if path == "/upload":
+                    return await self.receive(reader, writer, headers, urllib.parse.parse_qs(query))
+                if path == "/file":
+                    return await self.send_file(writer, urllib.parse.parse_qs(query)["id"][0])
                 if headers.get("upgrade", "").lower() != "websocket":
                     return await self.reply(writer, 400, b"")
                 await self.accept_ws(writer, headers)
                 if path == "/vnc":
                     await self.bridge_vnc(peer, reader, writer)
+                elif path == "/events":
+                    await self.events(reader, writer)
                 elif self.sound:
                     await self.stream_sound(reader, writer)
                 return
@@ -296,7 +311,7 @@ class Share:
 
     async def reply(self, writer, code, body, ctype="text/plain"):
         reason = {200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
-                  409: "Conflict"}[code]
+                  409: "Conflict", 507: "Insufficient Storage"}[code]
         writer.write(f"HTTP/1.1 {code} {reason}\r\nContent-Type: {ctype}\r\nContent-Length: {len(body)}\r\n"
                      "Cache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n"
                      "Connection: close\r\n\r\n".encode() + body)
@@ -376,6 +391,74 @@ class Share:
                 self.publish()
                 notify("The phone stopped watching this screen")
 
+    # -- files --
+    async def receive(self, reader, writer, headers, args):
+        """A file from the phone, into ~/Downloads: written beside its place under a hidden name, moved there
+        only once it's all in (a cut-off upload leaves nothing)."""
+        size = int(headers["content-length"])
+        if shutil.disk_usage(DOWNLOADS).free < size + (1 << 30):   # a GiB kept free
+            return await self.reply(writer, 507, b"")
+        target = unique(os.path.join(DOWNLOADS, safe_name(args["name"][0])))
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        part = os.path.join(os.path.dirname(target), f".{os.path.basename(target)}.mirror-part")
+        try:
+            with open(part, "wb") as f:
+                left = size
+                while left:
+                    data = await reader.read(min(left, 1 << 20))
+                    if not data:
+                        raise OSError("cut off")
+                    f.write(data)
+                    left -= len(data)
+            os.replace(part, target)   # a new file in ~/Downloads, not a dotfiles link
+        finally:
+            if os.path.exists(part):
+                os.remove(part)
+        notify(f"Received {os.path.basename(target)} from the phone")
+        await self.reply(writer, 200, json.dumps({"saved": os.path.basename(target)}).encode(), "application/json")
+
+    async def send_file(self, writer, fid):
+        if fid not in self.offers:
+            return await self.reply(writer, 404, b"")
+        path, name, size = self.offers[fid]
+        writer.write(f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {size}\r\n"
+                     "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n".encode())
+        with open(path, "rb") as f:
+            while data := f.read(1 << 20):
+                writer.write(data)
+                await writer.drain()
+
+    async def events(self, reader, writer):
+        """The page's line to here: every file offered so far, then each new one as it comes."""
+        for fid, (_path, name, size) in self.offers.items():
+            send(writer, json.dumps({"id": fid, "name": name, "size": size}).encode(), 1)
+        self.listeners.add(writer)
+        try:
+            async for _ in self.frames(reader, writer):
+                pass
+        finally:
+            self.listeners.discard(writer)
+
+    async def control(self, reader, writer):
+        """files.sock: `mirror send` offers files, one JSON line of paths; answered with how many."""
+        try:
+            paths = json.loads(await reader.readline())
+            n = 0
+            for path in paths:
+                if os.path.isfile(path):
+                    fid = secrets.token_urlsafe(8)
+                    self.offers[fid] = (path, os.path.basename(path), os.path.getsize(path))
+                    msg = json.dumps({"id": fid, "name": os.path.basename(path), "size": os.path.getsize(path)})
+                    for w in list(self.listeners):
+                        send(w, msg.encode(), 1)
+                    n += 1
+            writer.write(json.dumps({"offered": n, "watching": bool(self.listeners)}).encode() + b"\n")
+            await writer.drain()
+        except (OSError, ValueError):
+            pass
+        finally:
+            writer.close()
+
     async def stream_sound(self, reader, writer):
         rec = await asyncio.create_subprocess_exec(
             "parec", "-d", "@DEFAULT_MONITOR@", "--raw", "--format=s16le", f"--rate={RATE}",
@@ -426,6 +509,7 @@ class Share:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, server.close)
         watcher = asyncio.create_task(self.watch(server))
+        files = await asyncio.start_unix_server(self.control, os.path.join(self.dir, "files.sock"))
         self.publish()
         if self.usb:
             threading.Thread(target=self.connect_usb, daemon=True).start()
@@ -434,6 +518,7 @@ class Share:
         except asyncio.CancelledError:
             pass
         watcher.cancel()
+        files.close()
 
     def run(self):
         try:
@@ -449,6 +534,25 @@ def send(writer, data, op=2):
     head = bytes([0x80 | op, n]) if n < 126 else (bytes([0x80 | op, 126]) + struct.pack(">H", n) if n < 1 << 16
                                                    else bytes([0x80 | op, 127]) + struct.pack(">Q", n))
     writer.write(head + data)
+
+
+def send_files(paths):
+    """mirror send: the files offered to the phone through the share's files.sock."""
+    if not read_state("share"):
+        print("mirror: not sharing: switch on Share this screen first", file=sys.stderr)
+        return 1
+    s = socket.socket(socket.AF_UNIX)
+    try:
+        s.connect(os.path.join(RUN, "share", "files.sock"))
+        s.sendall(json.dumps([os.path.abspath(p) for p in paths]).encode() + b"\n")
+        answer = json.loads(s.makefile().readline())
+    except (OSError, ValueError):
+        print("mirror: the share didn't answer", file=sys.stderr)
+        return 1
+    finally:
+        s.close()
+    print(f"{answer['offered']} file(s) offered" + ("" if answer["watching"] else ": the phone sees them once its page opens Files"))
+    return 0 if answer["offered"] else 1
 
 
 def who(peer):
@@ -661,6 +765,8 @@ def main(argv):
         if s := read_state("share"):
             s["output"] = args[0]
             write_state("share", s)
+    elif cmd == "send" and args:
+        return send_files(args)
     elif cmd == "status":
         return status()
     elif cmd == "bar":
@@ -670,7 +776,7 @@ def main(argv):
             print('{"text": ""}')
     else:
         print("usage: mirror share [--output NAME | --extend] [--usb] [--no-sound] | phone usb | phone qr NAME PASSWORD | "
-              "phone code HOST:PORT CODE | start share|phone … | stop [share|phone] | output NAME | status",
+              "phone code HOST:PORT CODE | start share|phone … | stop [share|phone] | output NAME | send FILE… | status",
               file=sys.stderr)
         return 2
     return 0

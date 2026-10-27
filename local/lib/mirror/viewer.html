@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- viewer.html — this PC's screen on the phone, served by mirror.py (mirror share) at https://<PC>:53321/#<token>.
      noVNC draws the screen and sends touches (tap = click, long press = right click, two fingers = scroll,
-     drag = drag); the bar on top: keyboard, Esc, Tab, Super, next screen, sound, end. As a second screen
+     drag = drag); the bar on top: keyboard, Esc, Tab, Super, next screen, sound, files, end. Files: the
+     phone's files up to the PC's ~/Downloads, and the PC's (offered with mirror send) down, each fetched into
+     memory and saved from there, so no address with the token is left in the phone's downloads. As a second screen
      (mirror share --extend) the page says its size first (/hello), so the PC makes that screen to fit. Leaves nothing in the
      browser: no cookies, no storage, never cached (no-store), the token taken out of the address once read. -->
 <html lang="en">
@@ -13,7 +15,7 @@
 <title>PC screen</title>
 <style>
   :root { --base: #1a1b26; --overlay: #292e42; --line: #3b4261; --muted: #565f89; --text: #c0caf5;
-          --accent: #6b8fe0; --alert: #f7768e; --amber: #e0af68; }
+          --accent: #6b8fe0; --alert: #f7768e; --amber: #e0af68; --green: #9ece6a; }
   html, body { margin: 0; height: 100%; background: var(--base); color: var(--text); overflow: hidden;
                font: 15px "JetBrains Mono", ui-monospace, monospace; -webkit-tap-highlight-color: transparent; }
   #screen { position: fixed; inset: 0; }
@@ -31,6 +33,21 @@
   #cover p { margin: 0; color: var(--muted); max-width: 30em; line-height: 1.5; }
   #cover button { background: var(--accent); color: var(--base); border: 0; padding: 12px 26px; font: inherit; }
   #cover.bad h1 { color: var(--alert); }
+  #files { position: fixed; top: 44px; left: 50%; transform: translateX(-50%); z-index: 2; display: none;
+           width: min(30em, calc(100vw - 32px)); max-height: calc(100vh - 60px); overflow-y: auto;
+           background: var(--base); border: 1px solid var(--line); padding: 14px 16px; }
+  #files.open { display: block; }
+  #files h2 { margin: 0 0 8px; font-size: 13px; font-weight: normal; color: var(--muted); }
+  #files h2 + * { margin-bottom: 14px; }
+  #files .row { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  #files .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #files .size, #files .note { color: var(--muted); font-size: 13px; }
+  #files .done { color: var(--green); }
+  #files .bad { color: var(--alert); }
+  #files button { background: var(--accent); color: var(--base); border: 0; padding: 8px 14px; font: inherit; }
+  #files button.flat { background: var(--overlay); color: var(--text); }
+  #pick { display: none; }
+  #fls.new { color: var(--amber); }
 </style>
 </head>
 <body>
@@ -38,8 +55,15 @@
 <div id="bar" class="hidden">
   <button id="kbd">Keys</button><button id="esc">Esc</button><button id="tab">Tab</button>
   <button id="super">Super</button><button id="next">Screen</button><button id="snd">Sound</button>
-  <button id="end">End</button><button id="grip">≡</button>
+  <button id="fls">Files</button><button id="end">End</button><button id="grip">≡</button>
 </div>
+<div id="files">
+  <h2>To the PC (its Downloads folder)</h2>
+  <div><button id="up">Choose files</button><div id="sent"></div></div>
+  <h2>From the PC</h2>
+  <div id="offers"></div>
+</div>
+<input id="pick" type="file" multiple>
 <textarea id="keys" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 <div id="cover">
   <h1>PC screen</h1>
@@ -153,13 +177,100 @@ $("snd").onclick = () => (sound ? stopSound() : startSound());
 $("grip").onclick = () => $("bar").classList.toggle("hidden");
 $("end").onclick = () => { stopSound(); rfb?.disconnect(); };
 
+// ---- files ----
+const size = (n) => n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(0)} KB` :
+                    n < 1 << 30 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
+
+function row(name, n) {
+  const r = document.createElement("div");
+  r.className = "row";
+  const t = document.createElement("span");
+  t.className = "name";
+  t.textContent = name;
+  const z = document.createElement("span");
+  z.className = "size";
+  z.textContent = size(n);
+  r.append(t, z);
+  return r;
+}
+
+$("fls").onclick = () => { $("files").classList.toggle("open"); $("fls").classList.remove("new"); };
+$("up").onclick = () => $("pick").click();
+$("pick").onchange = () => {
+  for (const file of $("pick").files) upload(file);
+  $("pick").value = "";
+};
+
+function upload(file) {
+  const r = row(file.name, file.size), state = r.querySelector(".size");
+  $("sent").append(r);
+  const req = new XMLHttpRequest();   // fetch can't tell an upload's progress
+  req.open("POST", `/upload?t=${encodeURIComponent(token)}&name=${encodeURIComponent(file.name)}`);
+  req.upload.onprogress = (e) => { state.textContent = `${Math.floor(100 * e.loaded / e.total)} %`; };
+  req.onload = () => {
+    const ok = req.status === 200;
+    state.textContent = ok ? "sent" : req.status === 507 ? "PC is full" : "failed";
+    state.className = ok ? "size done" : "size bad";
+  };
+  req.onerror = () => { state.textContent = "failed"; state.className = "size bad"; };
+  req.send(file);
+}
+
+// what the PC offers: told over a WebSocket as it happens, fetched only when Save is tapped
+function offer(o) {
+  if (!$("offers").querySelector(".row")) $("offers").textContent = "";
+  const r = row(o.name, o.size), save = document.createElement("button");
+  save.textContent = "Save";
+  save.className = "flat";
+  save.onclick = async () => {
+    save.disabled = true;
+    const state = r.querySelector(".size");
+    try {
+      const res = await fetch(`/file?t=${encodeURIComponent(token)}&id=${encodeURIComponent(o.id)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error();
+      const reader = res.body.getReader(), parts = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value);
+        got += value.length;
+        state.textContent = `${Math.floor(100 * got / o.size)} %`;
+      }
+      const url = URL.createObjectURL(new Blob(parts));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = o.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      state.textContent = "saved";
+      state.className = "size done";
+    } catch {
+      state.textContent = "failed";
+      state.className = "size bad";
+    }
+    save.disabled = false;
+  };
+  r.append(save);
+  $("offers").append(r);
+  if (!$("files").classList.contains("open")) $("fls").classList.add("new");
+}
+
+function listen() {
+  const sock = new WebSocket(ws("/events"));
+  sock.onmessage = (m) => offer(JSON.parse(m.data));
+  sock.onclose = () => { if (rfb) setTimeout(listen, 3000); };   // back with the screen; all offers again
+  $("offers").innerHTML = '<p class="note">Nothing yet: send files from the Mirror panel on the PC.</p>';
+}
+
 $("go").onclick = async () => {
   if (!token) return cover("No code", "Scan the code shown on the PC again.", false);
   try { await document.documentElement.requestFullscreen({ navigationUI: "hide" }); } catch {}
   try { await screen.orientation.lock("landscape"); } catch {}
   try { wake = await navigator.wakeLock.request("screen"); } catch {}
-  connect();
-  startSound();   // needs this tap: browsers start sound only from one
+  await connect();
+  startSound();
+  listen();   // needs this tap: browsers start sound only from one
 };
 </script>
 </body>

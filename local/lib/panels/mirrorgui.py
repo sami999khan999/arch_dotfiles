@@ -8,6 +8,8 @@
 #   This PC on the phone: a switch; the code to scan opens the screen in the phone's browser (no app). The phone
 #     shows this screen, or is a second screen beside it (a screen of its own, at the phone's size); over
 #     Wi-Fi, or the USB cable (USB debugging: the page then opens on the phone by itself).
+#     Files both ways through the same page: Send files… offers them to the phone (mirror send); the phone's
+#     come into ~/Downloads.
 #   The phone on this PC: over Wi-Fi (scan a code in the phone's Wireless debugging, or type its pairing
 #     code) or USB; scrcpy shows it in a window, mouse and keyboard drive it.
 #
@@ -16,7 +18,7 @@
 import json, os, secrets, subprocess, sys, threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import (Gdk, GLib, Gtk, View, box, button, clear, dropdown, label, recolor, run,
+from gtkkit import (Gdk, GLib, Gtk, View, box, button, clear, dropdown, label, qr, run,
                     scrolled, setting_row, switch)
 
 MIRROR = os.path.expanduser("~/.local/bin/mirror")
@@ -40,18 +42,6 @@ def outputs():
         return [m["name"] for m in json.loads(out)]
     except (OSError, ValueError):
         return []
-
-
-def qr(text, px=190):
-    """A QR code as a picture: dark on light, which every phone camera reads."""
-    png = subprocess.run(["qrencode", "-t", "PNG", "-s", "8", "-m", "2", "-o", "-",
-                          "--foreground=" + recolor("#1a1b26").lstrip("#"),
-                          "--background=" + recolor("#c0caf5").lstrip("#"), text], capture_output=True).stdout
-    pic = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
-    pic.set_size_request(px, px)
-    pic.set_can_shrink(True)
-    pic.set_valign(Gtk.Align.START)
-    return pic
 
 
 class Mirror(View):
@@ -153,6 +143,9 @@ class Mirror(View):
                                               dropdown([(n, n) for n in names], current, self.set_output)))
         if not s:
             return
+        self.share_box.append(setting_row(
+            "Files", "Both ways through the page (its Files button): the phone's land in ~/Downloads; these show "
+            "on the phone to save", button("Send files…", self.send_files, "flat")))
         if s.get("usb") is not None:
             self.share_box.append(self.usb_card(s))
             return
@@ -241,7 +234,7 @@ class Mirror(View):
     def done(self, code, err, then):
         if code:
             self.say(err.splitlines()[-1] if err else "mirror failed", "bad", 6)
-        if then:
+        elif then:
             then()
         self.refresh()
 
@@ -265,6 +258,17 @@ class Mirror(View):
         else:
             self.shown = None
             self.refresh()
+
+    def send_files(self):
+        def chosen(d, res):
+            try:
+                paths = [f.get_path() for f in d.open_multiple_finish(res)]
+            except GLib.Error:
+                return   # cancelled
+            self.mirror("send", *[p for p in paths if p],
+                        then=lambda: self.say(f"Offered to the phone: {len(paths)} file{'s' * (len(paths) != 1)} "
+                                              "(its Files button)"))
+        Gtk.FileDialog(title="Send to the phone", modal=True).open_multiple(self.window, None, chosen)
 
     def set_usb(self, value):
         self.usb = value == "usb"

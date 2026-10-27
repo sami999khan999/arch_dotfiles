@@ -7,7 +7,7 @@
 # closes it too; Hyprland floats, sizes and centres every "panels.*" window (modules/windowrules.lua).
 # Style: the Control Center cards' look everywhere (icon + title, blue underline, blue rule headings,
 # amber keys / classes, green-amber-red levels, key hints) on translucent #16161e.
-import gc, os
+import gc, os, subprocess
 # GTK's default Vulkan renderer runs on Mesa's hasvk here (Haswell iGPU), which drew flickering white
 # dots over re-filled text (the shortcut search). The GL renderer draws it cleanly. Must be set
 # before GTK starts; an explicit GSK_RENDERER in the environment still wins.
@@ -392,6 +392,18 @@ def scrolled(child, vexpand=True):
     s = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=vexpand)
     s.set_child(child)
     return s
+
+
+def qr(text, px=190):
+    """A QR code as a picture (qrencode): dark on light, which every phone camera reads."""
+    png = subprocess.run(["qrencode", "-t", "PNG", "-s", "8", "-m", "2", "-o", "-",
+                          "--foreground=" + recolor("#1a1b26").lstrip("#"),
+                          "--background=" + recolor("#c0caf5").lstrip("#"), text], capture_output=True).stdout
+    pic = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
+    pic.set_size_request(px, px)
+    pic.set_can_shrink(True)
+    pic.set_valign(Gtk.Align.START)
+    return pic
 
 
 def install_css(extra=""):

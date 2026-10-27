@@ -360,12 +360,14 @@ class Storage(View):
             GLib.timeout_add_seconds(20, lambda: self.measure("pacman") or False)
             return
         cmds = {"docker-cache": ["docker", "builder", "prune", "-af"], "docker-images": ["docker", "image", "prune", "-af"],
-                "docker-stopped": ["docker", "container", "prune", "-f"], "trash": ["gio", "trash", "--empty"]}
+                "docker-stopped": ["docker", "container", "prune", "-f"]}
         paths = [p for _n, ps, _b, _note in self.lists.get(key, []) for p in (ps or [])]
         self.say(f"cleaning {title}…", seconds=120)
 
         def work():
-            if key in cmds:
+            if key == "trash":
+                ok, msg = self.empty_trash(), ["couldn't delete all of it"]
+            elif key in cmds:
                 r = subprocess.run(cmds[key], capture_output=True, text=True, timeout=1800)
                 ok, msg = r.returncode == 0, (r.stderr or r.stdout).strip().splitlines()[-1:] or [""]
             else:
@@ -396,6 +398,22 @@ class Storage(View):
             shutil.rmtree(real, ignore_errors=True)
             ok = ok and not os.path.exists(real)
         return ok
+
+    @staticmethod
+    def empty_trash():
+        """Empties the Trash itself: `gio trash --empty` needs gvfs, which this desktop doesn't have."""
+        for sub in ("files", "info", "expunged"):
+            folder = os.path.join(TRASH, sub)
+            for name in os.listdir(folder) if os.path.isdir(folder) else []:
+                p = os.path.join(folder, name)
+                if os.path.isdir(p) and not os.path.islink(p):
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+        return not os.listdir(os.path.join(TRASH, "files")) if os.path.isdir(os.path.join(TRASH, "files")) else True
 
     def key(self, keyval, state):
         if keyval == Gdk.KEY_F5:

@@ -871,7 +871,7 @@ on disk and on which drive ("on the SSD"; **Open** shows the folder in Files; Do
   backs them up, `pnpm install` brings them back. The arrow lists them, to delete one project's.
 - **Package cache**: older versions of installed packages (the newest kept) and uninstalled ones
   (`paccache -rk1`, `paccache -ruk0`), in the terminal popup where sudo asks for the password.
-- **~/.cache** (the arrow lists its folders, to delete one) and the **Trash** (`gio trash --empty`).
+- **~/.cache** (the arrow lists its folders, to delete one) and the **Trash** (what Files and the image viewer deleted: its files and their records).
 It deletes only inside `~/.cache` and `node_modules` folders in `~/code`; never `/mnt/data` (codesync's
 `.code-trash` is codesync's).
 

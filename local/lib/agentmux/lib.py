@@ -774,8 +774,8 @@ def account_usage(harness, account, live=False):
     now with the account's own login, unless its token has expired: the agent renews it when it next
     runs, and renewing it here could race a running one and log it out. Otherwise what was read last:
     Claude Code keeps its own in .claude.json, agentmux keeps every live answer (USAGE_CACHE). A window
-    whose reset time has passed is back at 0. "today": {window: [percent, reset, read at]} where each stood at
-    midnight (day_start), {} before the first reading of the day."""
+    whose reset time has passed is back at 0. "today": {window: [percent, reset, read at, day began]} where
+    each stood as its day began (day_start), {} before the first reading of that day."""
     from datetime import datetime
     key = f"{harness}/{account}"
     try:
@@ -867,31 +867,46 @@ def account_usage(harness, account, live=False):
         return {}
     now = time.time()
     windows = [(list(w) + [""])[:4] for w in windows]   # a cache from before "what it covers"
-    day = cache.get(key, {}).get("day") or {}
+    day = (cache.get(key, {}).get("day") or {}).get("start", {})
     return {"windows": [(n, 0.0, 0, c) if r and r < now else (n, p, r, c) for n, p, r, c in windows], "at": at,
-            "today": day.get("start", {}) if day.get("date") == time.strftime("%Y-%m-%d") else {}}
+            "today": {n: day[n] for n, _, r, _ in windows if n in day and same_day(day[n], r, now)}}
+
+
+def day_begin(reset, now=None):
+    """When a window's day began: the last time before now at its reset's time of day (a weekly limit
+    that resets Sunday 19:00 has days from 19:00 to 19:00, the last one ending as it resets); midnight
+    for a window not counting yet."""
+    now = now or time.time()
+    if not reset or reset <= now:
+        return time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
+    return reset + (now - reset) // 86400 * 86400   # whole days back from the reset
+
+
+def same_day(start, reset, now):
+    """Whether a day_start reading is of the window's current day (its reset time wobbles by moments)."""
+    return len(start) > 3 and abs(start[3] - day_begin(reset, now)) < 3600
 
 
 def day_start(old, windows, at):
-    """Where each window stood at midnight: {"date", "start": {name: [percent, reset, read at]}}. The
-    reading nearest midnight: the last one before it or today's first (the usage timer reads every
-    account at 00:00, so usually that one; a PC that was off or asleep reads when it's back). A window
-    that has reset since the last reading stood at 0 when it did. The Accounts panel's daily budget
-    counts from it, and says "since" when the nearest reading is far from midnight."""
-    today = time.strftime("%Y-%m-%d")
-    if (old.get("day") or {}).get("date") == today:
-        return old["day"]
+    """Where each window stood as its day began (day_begin): {"start": {name: [percent, reset, read at,
+    day began]}}. The reading nearest that: the last one before it or the day's first (the usage timer
+    reads every account then, so usually that one; a PC that was off or asleep reads when it's back). A
+    window that has reset since the last reading stood at 0 when it did. The Accounts panel's daily
+    budget counts from it, and says "since" when the nearest reading is far from the day's start."""
     now, before = time.time(), {w[0]: w for w in old.get("windows", [])}
-    midnight = time.mktime(time.strptime(today, "%Y-%m-%d"))
+    kept = (old.get("day") or {}).get("start", {})
     start = {}
     for name, pct, reset, *_ in windows:
-        prev = before.get(name)
+        if name in kept and same_day(kept[name], reset, now):
+            start[name] = kept[name]
+            continue
+        began, prev = day_begin(reset, now), before.get(name)
         if prev and prev[2] and prev[2] < now:   # it reset after that reading: 0 from then
             then = [0.0, reset, prev[2]]
         else:
             then = [prev[1], prev[2], old.get("at", 0)] if prev else None
-        start[name] = then if then and midnight - then[2] <= at - midnight else [pct, reset, at]
-    return {"date": today, "start": start}
+        start[name] = (then if then and began - then[2] <= at - began else [pct, reset, at]) + [began]
+    return {"start": start}
 
 
 # ---- what a thread runs on: its model, how far its account is into its limit --------------------

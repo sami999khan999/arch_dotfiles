@@ -275,22 +275,22 @@ def until(ts):
 
 
 def budget(pct, reset, start):
-    """A long window's (weekly, monthly) even share, to make it last, counted from midnight: what was
-    left then over the days from then to its reset (all of it on the last day), so using today doesn't
-    shrink today's share. start: [percent, reset, read at] at midnight (lib.day_start), {} / None
-    before today's first reading. Returns (a day's share, used since then, then: when that reading was
-    taken if it's far from midnight, else None)."""
-    midnight = time.mktime(time.strptime(time.strftime("%Y-%m-%d"), "%Y-%m-%d"))
+    """A long window's (weekly, monthly) even share, to make it last: what was left as the day began
+    (at the reset's time of day, lib.day_begin) over the whole days from then to its reset (all of it on
+    the last), so using today doesn't shrink today's share. start: [percent, reset, read at, day began]
+    then (lib.day_start), {} / None before the day's first reading. Returns (a day's share, used since
+    then, since: when the day began, or when that reading was taken if it's far from that)."""
+    began = lib.day_begin(reset)
     # the same window (its reset time wobbles by moments between answers), else it reset today
     same = start and abs(start[1] - reset) < 3600
     begun = (start[0] if same else 0.0) if start else pct
-    share = (100 - begun) / max((reset - midnight) / 86400, 1.0)
-    at = start[2] if same and len(start) > 2 else midnight   # a reading from before "read at": as midnight's
-    return share, max(pct - begun, 0.0), at if abs(at - midnight) > 3600 else None
+    share = (100 - begun) / max(round((reset - began) / 86400), 1)
+    at = start[2] if same else began
+    return share, max(pct - begun, 0.0), at if abs(at - began) > 3600 else began
 
 
 def since(ts):
-    """When the day's first reading was, for "used since …": "08:10" today, "Tue 18:40" before."""
+    """When the budget's day began, for "used since …": "08:10" today, "Tue 18:40" before."""
     at = time.localtime(ts)
     when = f"{at.tm_hour:02}:{at.tm_min:02}"
     return when if time.strftime("%Y-%m-%d", at) == time.strftime("%Y-%m-%d") else f"{DAYS[at.tm_wday]} {when}"
@@ -462,14 +462,15 @@ class Account(Picker):
         return col
 
     def today(self, name, pct, reset, start):
-        """A day's share of a long window, to make it last to the reset, and how much today has used."""
+        """A day's share of a long window, to make it last to the reset, and how much today (from the
+        reset's time of day) has used."""
         share, used, then = budget(pct, reset, start)
         rest = share - used
         colour = level(used / share * 100 if share else 100)
         head = box(False, 8, label("daily budget", "sub"), label(f"{share:.1f}% a day", "bold"))
         head.get_first_child().set_hexpand(True)
         state = f"{rest:.1f}% left today" if rest >= 0.05 else f"{-rest:.1f}% over today" if rest < -0.05 else "used up today"
-        foot = box(False, 8, label(f"{used:.1f}% used " + (f"since {since(then)}" if then else "today"), colour), label(state, colour if rest < 0.05 else "setting-sub"))
+        foot = box(False, 8, label(f"{used:.1f}% used since {since(then)}", colour), label(state, colour if rest < 0.05 else "setting-sub"))
         foot.get_first_child().set_hexpand(True)
         return box(True, 6, head, self.bar(used, share, colour), foot, classes=("usage", "today"))
 

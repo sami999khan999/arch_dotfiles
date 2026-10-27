@@ -66,8 +66,9 @@
   agentmux account default <name> [h]
                                the account new threads start on
   agentmux usage <h> [account] an account's usage asked live (a thread's turn ended), the sidebars redrawn
-  agentmux usage all           every account's, asked live (agentmux-usage.timer, at midnight: where the
-                               Accounts panel's daily budget counts from)
+  agentmux usage all           every account's, asked live (agentmux-usage.timer, as each account's day
+                               begins, at its weekly reset's time of day: where the Accounts panel's
+                               daily budget counts from)
   agentmux usage enable        that timer (setup/install.sh enables it)
   agentmux account pick        the Accounts panel (Ctrl+Alt+K): usage, the default, the shown thread's
   agentmux account switch [thread] [name]
@@ -471,52 +472,64 @@ def refresh_usage(harness, account):
 
 UNITS = os.path.expanduser("~/.config/systemd/user")
 USAGE_SERVICE = """[Unit]
-Description=agentmux: every account's usage at midnight, where the daily budget counts from
+Description=agentmux: every account's usage as its day begins, where the daily budget counts from
 
 [Service]
 Type=oneshot
 ExecStart=%h/.local/bin/agentmux usage all
 Nice=10
 """
-USAGE_TIMER = """[Unit]
-Description=agentmux usage at midnight
 
-[Timer]
-OnCalendar=*-*-* 00:00:30
-Persistent=true
 
-[Install]
-WantedBy=timers.target
-"""
+def usage_timer():
+    """The timer's unit: it fires at each account's day start (its weekly / monthly reset's time of day,
+    lib.day_begin; to the minute, its reset wobbles by moments), 00:00 for a window not counting yet."""
+    times = set()
+    for h in lib.ACCOUNT_AGENTS:
+        for a in lib.accounts(h):
+            for name, _, reset, _ in lib.account_usage(h, a).get("windows", []):
+                if name in ("weekly", "monthly"):
+                    at = time.localtime(round(reset / 60) * 60 + 30) if reset else None
+                    times.add(f"{at.tm_hour:02}:{at.tm_min:02}:30" if at else "00:00:30")
+    return ("[Unit]\nDescription=agentmux usage as each account's day begins\n\n[Timer]\n"
+            + "".join(f"OnCalendar=*-*-* {t}\n" for t in sorted(times or {"00:00:30"}))
+            + "Persistent=true\n\n[Install]\nWantedBy=timers.target\n")
+
+
+def usage_units():
+    """Write the timer's units where they've changed, systemd reloaded for them; True if any had."""
+    os.makedirs(UNITS, exist_ok=True)
+    changed = False
+    for unit, text in (("agentmux-usage.service", USAGE_SERVICE), ("agentmux-usage.timer", usage_timer())):
+        path = os.path.join(UNITS, unit)
+        try:
+            if open(path).read() == text:
+                continue
+        except OSError:
+            pass
+        with open(path, "w") as f:
+            f.write(text)
+        changed = True
+    if changed:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    return changed
 
 
 def usage(args):
     """agentmux usage <h> [account] | all | enable."""
     if args[:1] == ["enable"]:   # install.sh runs this on every dotsync: systemd is reloaded only for new units
-        os.makedirs(UNITS, exist_ok=True)
-        changed = False
-        for unit, text in (("agentmux-usage.service", USAGE_SERVICE), ("agentmux-usage.timer", USAGE_TIMER)):
-            path = os.path.join(UNITS, unit)
-            try:
-                if open(path).read() == text:
-                    continue
-            except OSError:
-                pass
-            with open(path, "w") as f:
-                f.write(text)
-            changed = True
-        if changed:
-            subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-        if changed or subprocess.run(["systemctl", "--user", "is-enabled", "-q", "agentmux-usage.timer"]).returncode:
+        if usage_units() or subprocess.run(["systemctl", "--user", "is-enabled", "-q", "agentmux-usage.timer"]).returncode:
             subprocess.run(["systemctl", "--user", "enable", "--now", "agentmux-usage.timer"], check=True,
                            capture_output=True)
-        return print("agentmux: every account's usage read at midnight")
+        return print("agentmux: every account's usage read as its day begins")
     if args[:1] == ["all"]:   # all at once: one slow answer doesn't hold up the others
         from concurrent.futures import ThreadPoolExecutor
         installed = {k for k, _ in lib.installed_harnesses()}
         keys = [(h, a) for h in lib.ACCOUNT_AGENTS if h in installed for a in lib.accounts(h)]
         with ThreadPoolExecutor(max(len(keys), 1)) as pool:
             list(pool.map(lambda k: lib.account_usage(*k, live=True), keys))
+        if usage_units():   # a reset's time of day moved (a new week, an account added): the timer follows
+            subprocess.run(["systemctl", "--user", "restart", "agentmux-usage.timer"], capture_output=True)
         return poke()
     refresh_usage(args[0], args[1] if len(args) > 1 else "main")
 

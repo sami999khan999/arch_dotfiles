@@ -333,10 +333,17 @@ def argv_of(item):
 def is_open(item, clients, counts):
     """True if what this item opens was open already before the opening started: the same VS Code folder;
     an app's window (the Control Center autostart opened, a panel), each one standing for one item of its
-    class (counts: open windows per class, used up as they're matched). A Chrome window or a terminal is
-    never 'the same'."""
+    class (counts: open windows per class, used up as they're matched); a terminal in the same folder, each
+    standing for one (counts[("kitty", folder)]: else every Continue added the session's terminals again,
+    and the next session kept them all). A Chrome window is never 'the same'."""
     kind = item["kind"]
-    if kind in ("chrome", "kitty"):
+    if kind == "chrome":
+        return False
+    if kind == "kitty":
+        key = ("kitty", item.get("cwd"))
+        if counts.get(key, 0) > 0:
+            counts[key] -= 1
+            return True
         return False
     if kind == "code":
         name = os.path.basename(item.get("folder") or "")
@@ -412,6 +419,9 @@ def open_items(items, stop, progress):
     counts = {}
     for c in clients:
         counts[c["class"]] = counts.get(c["class"], 0) + 1
+        if c["class"] == "kitty":
+            key = ("kitty", shell_cwd(c["pid"]))
+            counts[key] = counts.get(key, 0) + 1
     for i, item in enumerate(items):
         if stop():
             return

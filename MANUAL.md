@@ -1030,7 +1030,7 @@ are open, on which workspace, with what in them — and opened again in one go.
   shows its apps' icons and how many windows; a click opens it to its windows. `×` takes a window out,
   *+ Add a window* puts an open window or an app into that workspace. While a setup opens they all unfold,
   so each window's progress shows.
-- **Keys:** `Enter` open · `r` record the desktop as it is now as a new setup (then type its name) · `n` a new
+- **Keys:** `Enter` (or a double-click; a click only selects) open · `r` record the desktop as it is now as a new setup (then type its name) · `n` a new
   empty one · `a` add: an open window, a whole workspace (all its windows), or an app (the workspace groups'
   and the app hotkeys') · `u` update it from the desktop now · `F2` rename · `Delete` delete (`u` and `Delete`
   ask once: the button turns red, the same again within 3 s does it). On Last session, *Save as setup* keeps it.
@@ -1038,8 +1038,8 @@ are open, on which workspace, with what in them — and opened again in one go.
   calmed down (under half busy, 15 s at most), each straight onto its workspace: the screen never moves, and
   the backdrop goes dark until everything is open, so nothing flickers behind the panel. The rows show
   waiting → opening… → open (how long it took). It adds to what's open: what's there already is left alone
-  (that VS Code folder, a single-window app like Discord or a panel); a Chrome window or a terminal always
-  opens. Closing the panel (`Esc`, a click outside it) stops the restore; you're free to move around.
+  (that VS Code folder, a terminal in that folder, a single-window app like Discord or a panel); a Chrome
+  window always opens. Closing the panel (`Esc`, a click outside it) stops the restore; you're free to move around.
 - **After a login:** if the last Log out / Restart / Shutdown (the power menu: the session-end panel saves what's
   open before it closes anything) left windows open, Setups opens with Last session selected: `Enter` opens it
   again, another setup can be picked instead, `Esc` leaves everything closed. Asked once either way; Last

@@ -8,7 +8,7 @@
 #   right  the selected one's workspaces, folded: a click shows its windows (× takes one out, + Add a window
 #          puts an open window or an app in that workspace)
 #
-# Keys: Enter open · r record the desktop as a new setup · n new empty setup · a add (an open window, a whole
+# Keys: Enter (or a double-click) open · r record the desktop as a new setup · n new empty setup · a add (an open window, a whole
 # workspace, an app) · u update from the desktop · F2 rename · Delete delete (u and Delete ask once).
 # Opening is sessionlib's: one window at a time, the next once the last one is up and the CPU has calmed
 # down, each on its workspace while you stay on yours (the backdrop goes dark until it's done; closing the panel
@@ -126,6 +126,8 @@ class Setups(View):
             sessionlib.answered()   # offered once: opened or not, it isn't asked about again
         self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, css_classes=["setup-list"])
         self.list.connect("row-selected", self.row_selected)
+        # a click only selects (it opened the setup at once); Enter, a double-click or Open opens it
+        self.list.set_activate_on_single_click(False)
         self.list.connect("row-activated", lambda *_: self.open_selected())
         self.list.set_margin_top(8)
         record = button("Record current", lambda: self.record(), "flat", tooltip="The desktop now, as a new setup (r)")

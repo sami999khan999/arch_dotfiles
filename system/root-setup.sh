@@ -44,11 +44,15 @@ else
   echo "   no ufw: skipped"
 fi
 
-echo "== 3. Snapshots readable by you (the Updates panel lists them): snapper's root config"
+echo "== 3. Snapshots readable by you (the Updates panel lists them), 10 kept: snapper's root config"
 if [ -f /etc/snapper/configs/root ]; then
   owner=$(stat -c %U "$REPO")   # the dotfiles' owner, not root (pkexec / sudo)
-  snapper -c root set-config "ALLOW_USERS=$owner" "SYNC_ACL=yes"
-  echo "   $owner may list root's snapshots"
+  # a pre and a post snapshot per pacman run: 10 is the last 5 updates to roll back to, plus up to 4 marked
+  # important (kernel updates). The default 50 keep every replaced file of 25 updates on the SSD; its space limit does
+  # nothing without quotas (QGROUP), so the count is the only limit
+  snapper -c root set-config "ALLOW_USERS=$owner" "SYNC_ACL=yes" "NUMBER_LIMIT=10" "NUMBER_LIMIT_IMPORTANT=4"
+  snapper -c root cleanup number   # now, not at the daily cleanup
+  echo "   $owner may list root's snapshots; the last 10 kept (+ 4 kernel updates)"
 else
   echo "   no snapper root config: skipped"
 fi

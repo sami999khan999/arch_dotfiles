@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); LocalSend and Mirror through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); LocalSend and Mirror through the firewall; snapshots listable, 10 kept; Docker closed to the network + its on/off switch; the data drive, where it's attached
 pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
@@ -745,8 +745,9 @@ shows up in it under its hostname; no LocalSend package on the PC.
 `Super + Ctrl + C` opens Mirror: this PC's screen on the phone, or the phone's screen on this PC, each driven
 from the other side, and nothing of it kept on either. The bar shows a screen-and-phone icon while either is on
 (blue: waiting for the phone; amber: the phone is watching this screen, or is shown here); a click opens the
-panel. `mirror` (`local/lib/mirror/mirror.py`) does the work; each way runs as a transient user unit
-(`mirror-share`, `mirror-phone`), so it carries on with the panel closed. `mirror stop` ends both.
+panel. The panel has a tab each way (`1`, `2`). `mirror` (`local/lib/mirror/mirror.py`) does the work; each
+way runs as a transient user unit (`mirror-share`, `mirror-phone`), so it carries on with the panel closed.
+`mirror stop` ends both.
 
 - **This PC on the phone** (`s`): switch on Share this screen and scan the code with the phone. The screen
   opens in the phone's browser, with no app: tap = click, long press = right click, two fingers = scroll,
@@ -754,6 +755,17 @@ panel. `mirror` (`local/lib/mirror/mirror.py`) does the work; each way runs as a
   Screen (the next screen; or pick it in the panel), Sound (on from the start: the PC's sound plays on the
   phone) and End. Only one phone at a time; the PC gets a notification when it connects and when it leaves.
   Sharing stops by itself after 10 minutes with no phone watching.
+- **The phone as a second screen** (`e`, or The phone shows → A second screen, then Share this screen): the
+  phone gets a screen of its own instead of a copy of this one: a headless output named `PHONE`, made at the
+  phone's own size (landscape, scaled to about 720 rows) right of this screen once the page connects. Move
+  windows and workspaces to it as to any screen; when sharing stops the screen goes and its windows come back.
+  Hyprland 0.56.2 crashes if a screen is removed while a capture (wayvnc) is still open on it, so `mirror`
+  always stops wayvnc and waits for it before removing or resizing that screen.
+- **Over the USB cable** (`c`, or Connect by → USB cable, before Share this screen; either way above): no
+  Wi-Fi and no code to scan. With USB debugging on (see below), plug the phone in and allow it; the page opens
+  in the phone's browser by itself (`adb reverse`: the PC's port 53321 is the phone's `localhost`), less lag
+  than Wi-Fi. Unplug and plug in again to reopen it. adb runs its own server and key for the share, both gone
+  at the end. Not at the same time as the phone on this PC over USB (two adb servers would fight over it).
 - **The phone on this PC** (Android, `w` / `u`): once on the phone, turn on Developer options (About phone →
   tap Build number 7 times) and USB debugging. Over Wi-Fi: Show code, then on the phone Developer options →
   Wireless debugging → Pair device with QR code (or Pair with pairing code, and type its address and code in
@@ -855,8 +867,9 @@ looks when it opens (`F5` again).
 **Snapshots**: snap-pac snapshots the system before and after every pacman run and grub-btrfs lists them in
 the boot menu. After a bad update: reboot, open GRUB's **Arch Linux snapshots** submenu, boot the one from
 before it (read-only: check it works), then **Open btrfs-assistant** → Snapper → Restore, and reboot. `/home`
-isn't in them: only the system goes back. Listing them here needs `system/root-setup.sh` once (it lets you
-read snapper's root config).
+isn't in them: only the system goes back. The last 10 are kept (5 updates, a pre and a post each), plus up to 4
+kernel updates; snapper's daily cleanup deletes older ones. Listing them here and that limit need
+`system/root-setup.sh` once.
 
 ## Storage
 

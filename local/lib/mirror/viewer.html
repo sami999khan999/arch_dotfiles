@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- viewer.html — this PC's screen on the phone, served by mirror.py (mirror share) at https://<PC>:53321/#<token>.
      noVNC draws the screen and sends touches (tap = click, long press = right click, two fingers = scroll,
-     drag = drag); the bar on top: keyboard, Esc, Tab, Super, next screen, sound, end. Leaves nothing in the
+     drag = drag); the bar on top: keyboard, Esc, Tab, Super, next screen, sound, end. As a second screen
+     (mirror share --extend) the page says its size first (/hello), so the PC makes that screen to fit. Leaves nothing in the
      browser: no cookies, no storage, never cached (no-store), the token taken out of the address once read. -->
 <html lang="en">
 <head>
@@ -65,8 +66,16 @@ function cover(title, text, button) {
   $("go").style.display = button ? "" : "none";
 }
 
-function connect() {
+async function connect() {
   $("cover").style.display = "none";
+  // the size in real pixels, landscape: an extended screen is made at it, before wayvnc starts on it
+  const dpr = devicePixelRatio || 1;
+  const w = Math.round(Math.max(screen.width, screen.height) * dpr / 2) * 2;
+  const h = Math.round(Math.min(screen.width, screen.height) * dpr / 2) * 2;
+  try {
+    const r = await fetch(`/hello?t=${encodeURIComponent(token)}&w=${w}&h=${h}`, { cache: "no-store" });
+    if ((await r.json()).extend) $("next").style.display = "none";
+  } catch {}
   rfb = new RFB($("screen"), ws("/vnc"), { wsProtocols: ["binary"] });
   rfb.scaleViewport = true;
   rfb.qualityLevel = 6;

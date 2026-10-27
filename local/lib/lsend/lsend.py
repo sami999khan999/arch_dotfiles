@@ -117,6 +117,9 @@ class Service:
         # fingerprint the device announced instead (pinned), before anything is sent
         self.client_ctx.check_hostname = False
         self.client_ctx.verify_mode = ssl.CERT_NONE
+        # LocalSend asks the sender for its certificate too (mutual TLS) and checks it against the fingerprint
+        # we announced: without one the phone ends the handshake (TLSV13_ALERT_CERTIFICATE_REQUIRED)
+        self.client_ctx.load_cert_chain(self.cert, self.key)
 
     def info(self):
         return {"alias": alias(), "version": "2.1", "deviceModel": "Linux", "deviceType": "desktop",

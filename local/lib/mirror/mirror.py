@@ -1,6 +1,10 @@
 # mirror.py — screen sharing with the phone, both ways, controlled from the other side, leaving nothing behind.
 #   mirror share [--output NAME] [--no-sound]   this PC's screen on the phone (in the browser, no app):
 #                                               watch it, touch it, type, hear it
+#   mirror share --extend [--no-sound]          the phone as a second screen instead: a screen of its own
+#                                               (a headless output, at the phone's size) beside this one
+#   mirror share … --usb                        over the USB cable, not Wi-Fi: the page opens on the phone
+#                                               by itself (USB debugging; adb reverse makes it localhost)
 #   mirror phone usb | qr NAME PASSWORD | code HOST:PORT CODE
 #                                               the phone's screen in a window here (scrcpy), mouse and keyboard
 #                                               drive it; Wi-Fi pairs with Android's Wireless debugging
@@ -15,11 +19,15 @@
 #     (port 53321, private networks only, one phone at a time) to a page using noVNC; the page has no
 #     cookies or storage, is never cached, and takes the token out of its address once read. The sound
 #     is the default output's monitor, raw PCM over a WebSocket. Stops by itself IDLE seconds without a phone.
+#     Extended: the page tells its size first; the screen is made at that size, then wayvnc started on it.
+#     Order matters: Hyprland 0.56.2 crashes (SEGV in CScreenshareFrame::transform) when a capture client asks
+#     for a frame of a screen that's gone, so the screen is never removed, nor resized, while wayvnc runs on
+#     it: wayvnc is stopped and waited for first. (Fixed upstream after 0.56.2.)
 #   phone → PC: scrcpy (sound too, Android 11+) with the clipboard sync off (the phone's clipboard would land
 #     in the clipboard history); a fresh adb key per session, so a phone that kept "always allow" holds a key
 #     that's gone; Wireless debugging is switched off on the phone at the end.
 import asyncio, base64, hashlib, ipaddress, json, mimetypes, os, secrets, shutil, signal, socket, ssl, struct
-import subprocess, sys, time
+import subprocess, sys, threading, time, urllib.parse
 
 RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}", "mirror")
 BAR = os.path.join(os.path.dirname(RUN), "mirror-bar.json")
@@ -29,10 +37,13 @@ NOVNC = "/usr/share/webapps/novnc"   # the AUR package's place
 HERE = os.path.dirname(os.path.realpath(__file__))
 IDLE = 600                  # seconds sharing waits with no phone watching before it stops
 ADB_PORT = "5038"           # our own adb server, apart from any other (Android Studio's is 5037)
+SHARE_ADB_PORT = "5039"     # sharing over USB's own one, apart from the phone's (they'd fight over the phone)
 PHONE_WAIT = 180            # seconds to wait for the phone to pair / connect / allow USB debugging
 MDNS_GRACE = 6              # seconds mDNS gets to announce the phone's connect port before its ports are tried
 QR_HINT = 20                # seconds after which a QR code no phone has answered suggests the pairing code
 RATE, CHANNELS = 48000, 2   # the sound: s16le
+PHONE_SCREEN = "PHONE"     # the extended screen's name (a headless output)
+SCALES = (1, 1.25, 1.5, 1.6, 2, 2.4, 2.5, 3)   # what Hyprland accepts when the size divides evenly
 WS_GUID = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -112,14 +123,21 @@ def outputs():
 
 # ---- this PC on the phone ------------------------------------------------------------------------------
 class Share:
-    def __init__(self, output, sound):
+    def __init__(self, output, sound, extend=False, usb=False):
         self.dir = os.path.join(RUN, "share")
-        self.output, self.sound = output, sound
+        self.output, self.sound, self.extend, self.usb = output, sound, extend, usb
+        self.usb_step = "Starting" if usb else None
+        self.adb_home = os.path.join(RUN, "share-adb")   # adb's HOME over USB: a fresh key, gone at the end
+        self.adb_env = adb_env(self.adb_home, SHARE_ADB_PORT)
+        self.serial = None
+        self.vnc = os.path.join(self.dir, "vnc.sock")
+        self.ctl = os.path.join(self.dir, "ctl.sock")
+        self.size = None            # the extended screen's size, once the phone told it
+        self.wayvnc = None
         self.token = secrets.token_urlsafe(18)
         self.viewer = None          # the phone's address while it's connected
         self.links = 0              # its open VNC connections (a page reload overlaps two)
         self.last_seen = time.monotonic()
-        self.procs = []
 
     def setup(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -131,14 +149,18 @@ class Share:
                        check=True, capture_output=True)
         self.ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.ctx.load_cert_chain(cert, key)
-        self.vnc = os.path.join(self.dir, "vnc.sock")
-        self.ctl = os.path.join(self.dir, "ctl.sock")
+        if self.extend:
+            self.output = PHONE_SCREEN   # made once the phone says its size (hello)
+        else:
+            self.start_wayvnc()
+
+    def start_wayvnc(self):
         conf = os.path.join(self.dir, "wayvnc.conf")
         open(conf, "w").close()     # not ~/.config/wayvnc: nothing of the user's applies
         cmd = ["wayvnc", "-C", conf, "-S", self.ctl, "-u", "-r", "-f", "30"]
         if self.output:
             cmd += ["-o", self.output]
-        self.procs.append(subprocess.Popen(cmd + [self.vnc]))
+        self.wayvnc = subprocess.Popen(cmd + [self.vnc])
         for _ in range(50):
             if os.path.exists(self.vnc):
                 break
@@ -146,23 +168,87 @@ class Share:
         else:
             raise RuntimeError("wayvnc didn't start")
 
+    def stop_wayvnc(self):
+        """wayvnc gone for good, its capture with it: only then may its screen go (see the top)."""
+        if self.wayvnc:
+            self.wayvnc.terminate()
+            try:
+                self.wayvnc.wait(3)
+            except subprocess.TimeoutExpired:
+                self.wayvnc.kill()
+                self.wayvnc.wait()
+            self.wayvnc = None
+        for path in (self.vnc, self.ctl):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def extended_screen(self, w, h):
+        """The phone's screen, at its size (landscape), scaled so it reads like a small laptop's: about 720
+        rows of logical pixels. Made again, wayvnc first stopped, only when the size changed."""
+        w, h = max(w, h), min(w, h)
+        if self.size == (w, h) and self.wayvnc and self.wayvnc.poll() is None:
+            return
+        self.stop_wayvnc()
+        if self.size is None:
+            hyprctl("output", "create", "headless", PHONE_SCREEN)
+        fits = [s for s in SCALES if (w / s).is_integer() and (h / s).is_integer()] or [1]
+        scale = min(fits, key=lambda s: abs(h / s - 720))
+        hyprctl("eval", f'hl.monitor({{ output = "{PHONE_SCREEN}", mode = "{w}x{h}@60", '
+                        f'position = "auto-right", scale = {scale} }})')
+        self.size = (w, h)
+        self.start_wayvnc()
+
     def state(self):
         ip = lan_ip()
         return {"url": f"https://{ip}:{PORT}/#{self.token}" if ip else None, "output": self.output,
-                "sound": self.sound, "viewer": self.viewer, "pid": os.getpid()}
+                "sound": self.sound, "extend": self.extend, "usb": self.usb_step,
+                "viewer": self.viewer and who(self.viewer),
+                "pid": os.getpid()}
 
     def publish(self):
         self.output = (read_state("share") or {}).get("output", self.output)   # `mirror output` may have changed it
         write_state("share", self.state())
 
+    # -- over USB --
+    def connect_usb(self):
+        """Each time the phone is plugged in (and allows USB debugging): its localhost:PORT reaches this
+        server (adb reverse), and the page opens in its browser. Waits on adb, never polls."""
+        shutil.rmtree(self.adb_home, ignore_errors=True)
+        os.makedirs(self.adb_home, mode=0o700)
+        run_adb(self.adb_env, "start-server")
+        while True:
+            self.set_usb_step("Plug the phone in and allow USB debugging (leave \"Always allow\" off)")
+            if run_adb(self.adb_env, "wait-for-usb-device", timeout=None).returncode:
+                return   # the server went: sharing is ending
+            self.serial = next((l.split("\t")[0] for l in run_adb(self.adb_env, "devices").stdout.splitlines()[1:]
+                                if l.endswith("\tdevice")), None)
+            if not self.serial:
+                time.sleep(1)
+                continue
+            run_adb(self.adb_env, "-s", self.serial, "reverse", f"tcp:{PORT}", f"tcp:{PORT}")
+            # quoted for the phone's shell: the token follows a #
+            run_adb(self.adb_env, "-s", self.serial, "shell", "am", "start", "-a", "android.intent.action.VIEW",
+                    "-d", f"'https://localhost:{PORT}/#{self.token}'")
+            self.set_usb_step("Opened in the phone's browser: Advanced → Proceed if it warns, then Connect")
+            run_adb(self.adb_env, "-s", self.serial, "wait-for-disconnect", timeout=None)
+            self.serial = None
+
+    def set_usb_step(self, text):
+        self.usb_step = text
+        self.publish()
+
     def cleanup(self):
-        for p in self.procs:
-            p.terminate()
-        for p in self.procs:
-            try:
-                p.wait(3)
-            except subprocess.TimeoutExpired:
-                p.kill()
+        if self.usb:
+            if self.serial:
+                run_adb(self.adb_env, "-s", self.serial, "reverse", "--remove-all", timeout=5)
+            run_adb(self.adb_env, "kill-server", timeout=5)
+            shutil.rmtree(self.adb_home, ignore_errors=True)
+        self.stop_wayvnc()
+        if self.extend and self.size:   # after wayvnc is gone, never before (see the top)
+            time.sleep(0.5)   # and after Hyprland has dealt with its closed connection
+            hyprctl("output", "remove", PHONE_SCREEN)
         shutil.rmtree(self.dir, ignore_errors=True)
         write_state("share", None)
 
@@ -179,11 +265,18 @@ class Share:
             path, _, query = target.partition("?")
             if method != "GET":
                 return await self.reply(writer, 405, b"")
-            if path in ("/vnc", "/sound", "/screen"):
-                if not secrets.compare_digest(query.encode(), f"t={self.token}".encode()):
+            if path in ("/vnc", "/sound", "/screen", "/hello"):
+                if not secrets.compare_digest(query.partition("&")[0].encode(), f"t={self.token}".encode()):
                     return await self.reply(writer, 403, b"")
                 if self.viewer and peer != self.viewer:   # one phone at a time
                     return await self.reply(writer, 409, b"")
+                if path == "/hello":   # the page, before it connects: its size, for the extended screen
+                    if self.extend and not self.links:
+                        args = urllib.parse.parse_qs(query)
+                        w, h = (min(int(args[k][0]), 8192) for k in ("w", "h"))
+                        await asyncio.get_running_loop().run_in_executor(None, self.extended_screen, w, h)
+                    return await self.reply(writer, 200, json.dumps({"extend": self.extend}).encode(),
+                                            "application/json")
                 if path == "/screen":
                     return await self.reply(writer, 200, self.next_output().encode(), "text/plain")
                 if headers.get("upgrade", "").lower() != "websocket":
@@ -195,7 +288,7 @@ class Share:
                     await self.stream_sound(reader, writer)
                 return
             await self.static(writer, path)
-        except (OSError, ValueError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError,
+        except (OSError, ValueError, KeyError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError,
                 ssl.SSLError):
             pass
         finally:
@@ -261,7 +354,7 @@ class Share:
         if not self.links:
             self.viewer = peer
             self.publish()
-            notify(f"The phone ({peer}) is watching and controlling this screen")
+            notify(f"The phone ({who(peer)}) is watching and controlling this screen")
         self.links += 1
 
         async def down():
@@ -305,6 +398,8 @@ class Share:
     def next_output(self):
         """The page's Screen button: the next screen, in Hyprland's order."""
         names = outputs()
+        if self.extend:   # its own screen: nothing to cycle
+            return self.output
         self.output = (read_state("share") or {}).get("output", self.output)
         if len(names) > 1:
             self.output = names[(names.index(self.output) + 1) % len(names)] if self.output in names else names[1]
@@ -319,7 +414,7 @@ class Share:
                 notify("Screen sharing stopped: no phone for 10 minutes")
                 server.close()
                 return
-            if any(p.poll() is not None for p in self.procs):
+            if self.wayvnc and self.wayvnc.poll() is not None:
                 notify("Screen sharing stopped: wayvnc ended")
                 server.close()
                 return
@@ -332,6 +427,8 @@ class Share:
             loop.add_signal_handler(sig, server.close)
         watcher = asyncio.create_task(self.watch(server))
         self.publish()
+        if self.usb:
+            threading.Thread(target=self.connect_usb, daemon=True).start()
         try:
             await server.serve_forever()
         except asyncio.CancelledError:
@@ -354,6 +451,27 @@ def send(writer, data, op=2):
     writer.write(head + data)
 
 
+def who(peer):
+    """The phone, as the PC's notifications say it: over USB (adb reverse) it comes from localhost."""
+    return "USB" if ipaddress.ip_address(peer).is_loopback else peer
+
+
+def adb_env(home, port):
+    """adb with its own HOME (its key) and server port: nothing of it outside this session."""
+    return dict(os.environ, HOME=home, ANDROID_USER_HOME=os.path.join(home, ".android"), ANDROID_ADB_SERVER_PORT=port)
+
+
+def run_adb(env, *args, timeout=20):
+    try:
+        return subprocess.run(["adb", *args], env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 1, "", "timed out")
+
+
+def hyprctl(*args):
+    subprocess.run(["hyprctl", *args], capture_output=True)
+
+
 def set_output(name):
     subprocess.run(["wayvncctl", "-S", os.path.join(RUN, "share", "ctl.sock"), "output-set", name],
                    capture_output=True)
@@ -364,8 +482,7 @@ class Phone:
     def __init__(self, how, args):
         self.how, self.args = how, args
         self.home = os.path.join(RUN, "phone")   # adb's HOME: its key, made fresh, gone at the end
-        self.env = dict(os.environ, HOME=self.home, ANDROID_USER_HOME=os.path.join(self.home, ".android"),
-                        ANDROID_ADB_SERVER_PORT=ADB_PORT)
+        self.env = adb_env(self.home, ADB_PORT)
         self.serial = None
         self.scrcpy = None
 
@@ -376,10 +493,7 @@ class Phone:
                               "qr": self.args if self.how == "qr" else None})
 
     def adb(self, *args, timeout=20):
-        try:
-            return subprocess.run(["adb", *args], env=self.env, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return subprocess.CompletedProcess(args, 1, "", "timed out")
+        return run_adb(self.env, *args, timeout=timeout)
 
     def services(self):
         """adb's mDNS view: [(instance, type, host:port)]."""
@@ -515,7 +629,9 @@ def start(what, args):
 def stop(what):
     for w in ([what] if what else UNITS):
         subprocess.run(["systemctl", "--user", "stop", UNITS[w]], capture_output=True)
-        if read_state(w):   # it died without cleaning up
+        if left := read_state(w):   # it died without cleaning up; its wayvnc went with the unit
+            if left.get("extend"):
+                hyprctl("output", "remove", PHONE_SCREEN)
             write_state(w, None)
 
 
@@ -531,7 +647,7 @@ def main(argv):
     cmd, args = (argv[1] if len(argv) > 1 else "status"), argv[2:]
     if cmd == "share":
         output = args[args.index("--output") + 1] if "--output" in args else None
-        Share(output, "--no-sound" not in args).run()
+        Share(output, "--no-sound" not in args, "--extend" in args, "--usb" in args).run()
     elif cmd == "phone" and args and args[0] in ("usb", "qr", "code"):
         Phone(args[0], args[1:]).run()
     elif cmd == "start" and args and args[0] in UNITS:
@@ -539,6 +655,8 @@ def main(argv):
     elif cmd == "stop":
         stop(args[0] if args and args[0] in UNITS else None)
     elif cmd == "output" and args:
+        if (read_state("share") or {}).get("extend"):
+            return 0   # the phone's own screen: nothing to pick
         set_output(args[0])
         if s := read_state("share"):
             s["output"] = args[0]
@@ -551,7 +669,7 @@ def main(argv):
         except OSError:
             print('{"text": ""}')
     else:
-        print("usage: mirror share [--output NAME] [--no-sound] | phone usb | phone qr NAME PASSWORD | "
+        print("usage: mirror share [--output NAME | --extend] [--usb] [--no-sound] | phone usb | phone qr NAME PASSWORD | "
               "phone code HOST:PORT CODE | start share|phone … | stop [share|phone] | output NAME | status",
               file=sys.stderr)
         return 2

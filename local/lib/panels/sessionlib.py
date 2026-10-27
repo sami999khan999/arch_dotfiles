@@ -4,6 +4,8 @@
 #   sessionlib.py ask    at login (autostart.lua): if the last session left a list, the Setups panel
 #                        (setupsgui.py --login) asks whether to open it again
 #   sessionlib.py show   print the last session's list and the tabs Chrome last reported
+#   sessionlib.py restore  open the list start_restore wrote (as the transient unit setups-restore, so it
+#                        carries on when the panel closes; the panel follows RESTORE and stops the unit)
 #
 # An item is one window, with what reopens it as it was: a Chrome window and its tabs (from Chrome's own session
 # file, or the download manager's extension when its report is newer: TABS), a VS Code window and its folder
@@ -11,7 +13,7 @@
 # agentmux and its project, any other app by its workspace group's command or exactly how it was started.
 # Opening is one item at a time: the next once the last one's window is up and the CPU has calmed down
 # (open_gently), each window on the workspace it was on, while you stay on yours.
-import glob, json, os, re, shlex, struct, subprocess, sys, time
+import glob, json, os, re, shlex, signal, struct, subprocess, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
 import wsgroups
@@ -22,6 +24,13 @@ XDG_STATE = os.environ.get("XDG_STATE_HOME", os.path.join(HOME, ".local/state"))
 STATE = os.path.join(XDG_STATE, "session")
 SAVED = os.path.join(STATE, "saved.json")   # the last session, waiting to be offered at the next login
 ASKED = os.path.join(STATE, "asked.json")   # offered (restored or not): still listed, never asked about again
+RUNTIME = os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "setups")
+RESTORE = os.path.join(RUNTIME, "restore.json")   # the restore under way: its items and how far each got
+# Chrome windows being opened whose tab groups and pinned tabs are still to be put back: the extension's next
+# tab report (local/lib/downloads/native-host.py) finds each one's window and has the extension do it
+REGROUP = os.path.join(RUNTIME, "regroup.json")
+GROUP_COLOURS = ("grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange")   # Chrome's order
+UNIT = "setups-restore"
 TABS = os.path.join(XDG_STATE, "setups", "chrome-tabs.json")    # written by local/lib/downloads/native-host.py
 CHROME_SESSIONS = os.path.join(HOME, ".config/google-chrome/Default/Sessions")   # Chrome's own Session_* files
 AGENTMUX_STATE = os.path.join(XDG_STATE, "agentmux", "state.json")
@@ -111,8 +120,9 @@ def shell_cwd(pid):
 
 
 def chrome_windows():
-    """Chrome's open windows and their tabs: [{title, tabs: [{url, title, pinned, active}]}], or None. From the
-    extension's report if it's newer than Chrome's own session file, else from that file."""
+    """Chrome's open windows and their tabs: [{title, tabs: [{url, title, pinned, active, group}], groups: [{title,
+    color, collapsed}]}] (a tab's group: its index in groups, -1 for none), or None. From the extension's report if
+    it's newer than Chrome's own session file, else from that file."""
     try:
         reported = os.path.getmtime(TABS)
     except OSError:
@@ -132,7 +142,8 @@ def chrome_session(path):
     windows and their tabs, in the extension's shape. Incognito windows are never in it. The commands used
     (Chrome's session_service_commands.cc): 0 tab → window, 2 tab's place in its window, 6 a tab's
     navigation entry (a pickle: tab, index, url, title), 7 a tab's current entry, 8 a window's selected tab,
-    9 window type (0 = normal), 12 pinned, 16 tab closed, 17 window closed."""
+    9 window type (0 = normal), 12 pinned, 16 tab closed, 17 window closed, 25 a tab's group (tab, its token,
+    in one or not), 27 a group's look (a pickle: token, title, colour, collapsed)."""
     try:
         data = open(path, "rb").read()
     except OSError:
@@ -140,6 +151,7 @@ def chrome_session(path):
     if data[:4] != b"SNSS":
         return None
     window_of, place, entries, current, pinned, selected, kind = {}, {}, {}, {}, {}, {}, {}
+    group_of, looks = {}, {}   # tab -> its group's token; token -> {title, color, collapsed}
     closed_tabs, closed_windows = set(), set()
     pos = 8   # "SNSS", version
     while pos + 2 <= len(data):
@@ -167,6 +179,16 @@ def chrome_session(path):
                 closed_tabs.add(struct.unpack_from("<i", body)[0])
             elif cmd == 17 and len(body) >= 4:
                 closed_windows.add(struct.unpack_from("<i", body)[0])
+            elif cmd == 25 and len(body) >= 28:
+                tab, token, has = struct.unpack_from("<i", body)[0], body[8:24], struct.unpack_from("<i", body, 24)[0]
+                group_of[tab] = token if has else None
+            elif cmd == 27 and len(body) >= 28:
+                token, n = body[4:20], struct.unpack_from("<i", body, 20)[0]
+                p = 24 + ((2 * n + 3) & ~3)
+                colour, collapsed = struct.unpack_from("<Ii", body, p)
+                looks[token] = {"title": body[24:24 + 2 * n].decode("utf-16-le", "replace"),
+                                "color": GROUP_COLOURS[colour] if colour < len(GROUP_COLOURS) else "grey",
+                                "collapsed": bool(collapsed)}
         except struct.error:   # a command cut short (Chrome writing as we read): skip it
             continue
     windows = {}
@@ -176,14 +198,21 @@ def chrome_session(path):
         nav = entries[tab]
         url, title = nav.get(current.get(tab), nav[max(nav)])
         windows.setdefault(win, []).append((place.get(tab, 0), {"url": url, "title": title,
-                                                                 "pinned": pinned.get(tab, False)}))
+                                                                 "pinned": pinned.get(tab, False),
+                                                                 "token": group_of.get(tab)}))
     out = []
     for win, tabs in windows.items():
         tabs = [t for _, t in sorted(tabs, key=lambda x: x[0])]
         active = selected.get(win, 0)
+        tokens = []   # this window's groups, in tab order
         for i, t in enumerate(tabs):
             t["active"] = i == active
-        out.append({"title": tabs[min(active, len(tabs) - 1)]["title"], "tabs": tabs})
+            token = t.pop("token")
+            if token and token not in tokens:
+                tokens.append(token)
+            t["group"] = tokens.index(token) if token else -1
+        out.append({"title": tabs[min(active, len(tabs) - 1)]["title"], "tabs": tabs,
+                    "groups": [looks.get(t, {"title": "", "color": "grey", "collapsed": False}) for t in tokens]})
     return out
 
 
@@ -210,7 +239,9 @@ def detail_of(item):
             host = u.split("//", 1)[-1].split("/", 1)[0].removeprefix("www.")
             if host and host not in sites:
                 sites.append(host)
-        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (" · " + ", ".join(sites[:4]) if sites else "")
+        groups = len(item.get("groups") or [])
+        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (f" · {groups} group{'s' * (groups != 1)}" if groups else "") \
+            + (" · " + ", ".join(sites[:4]) if sites else "")
         return f"{item['title']} · {tabs}" if item.get("title") else tabs   # its current tab: which window it is
     if item["kind"] == "code":
         return tilde(item.get("folder")) or "no folder"
@@ -258,8 +289,13 @@ def capture(clients=None):
                 found[n] = max(free, key=lambda c: len(words(c["title"].removesuffix(suffix)) & mine))
                 free.remove(found[n])
             win = found[n] or chrome[0]
-            urls = [t["url"] for t in w.get("tabs", []) if t.get("url") and not t["url"].startswith("chrome://newtab")]
-            items.append(make_item("chrome", CHROME, win["workspace"]["name"], urls=urls,
+            kept = [t for t in w.get("tabs", []) if t.get("url") and not t["url"].startswith("chrome://newtab")]
+            # its tab groups and pinned tabs, by their place among the tabs kept
+            looks = w.get("groups") or []
+            groups = [dict(g, tabs=[i for i, t in enumerate(kept) if t.get("group", -1) == n]) for n, g in enumerate(looks)]
+            items.append(make_item("chrome", CHROME, win["workspace"]["name"], urls=[t["url"] for t in kept],
+                                   pinned=[i for i, t in enumerate(kept) if t.get("pinned")],
+                                   groups=[g for g in groups if g["tabs"]],
                                    title=w.get("title") or win["title"].removesuffix(suffix)))
         for c in free:   # a window Chrome didn't record is incognito: kept as one, its tabs never are
             items.append(make_item("chrome", CHROME, c["workspace"]["name"], urls=[], incognito=True))
@@ -354,6 +390,21 @@ def is_open(item, clients, counts):
     return False
 
 
+def before_open(item):
+    """What its window needs once it's up: a Chrome window's tab groups and pinned tabs, left in REGROUP for the
+    extension (Chrome's command line can't make them)."""
+    if item["kind"] == "chrome" and (item.get("groups") or item.get("pinned")):
+        os.makedirs(RUNTIME, exist_ok=True)
+        try:
+            pending = [p for p in json.load(open(REGROUP)) if time.time() - p["at"] < 120]
+        except (OSError, ValueError, KeyError, TypeError):
+            pending = []
+        pending.append({"at": time.time(), "urls": item.get("urls") or [], "pinned": item.get("pinned") or [],
+                        "groups": item.get("groups") or []})
+        with open(REGROUP, "w") as f:
+            json.dump(pending, f)
+
+
 def after_open(item):
     """What follows its window: agentmux shows the item's project."""
     if item["kind"] == "agentmux" and item.get("project"):
@@ -383,6 +434,7 @@ def open_gently(item, stop, timeout=30, calm=0.5, settle=15):
     home = (query("activeworkspace") or {}).get("name")
     cls = re.escape(item["class"])
     wsgroups.quietly(cls, item["workspace"])   # it opens on its workspace, the screen stays where it is
+    before_open(item)
     try:
         subprocess.Popen(["uwsm", "app", "--", *argv], cwd=cwd if cwd and os.path.isdir(cwd) else HOME,
                          start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -431,7 +483,86 @@ def open_items(items, stop, progress):
             continue
         progress(i, "busy", "opening…")
         took = open_gently(item, stop)
+        if took is None and stop():   # stopped while it was starting: it may still come up
+            progress(i, "wait", "stopped")
+            return
         progress(i, "stuck", "no window") if took is None else progress(i, "done", f"open · {took:.1f} s")
+
+
+# ---- a restore, in the background --------------------------------------------------------------------------
+def write_restore(job):
+    os.makedirs(RUNTIME, exist_ok=True)
+    with open(RESTORE + ".tmp", "w") as f:
+        json.dump(job, f)
+    os.replace(RESTORE + ".tmp", RESTORE)   # whole at once for the panel reading it (a runtime file, never a link)
+
+
+def restore_job():
+    """The last restore's job ({sid, name, items, states: {i: [state, text]}, state: starting / running /
+    done / stopped}), or None. One that died without saying so counts as stopped."""
+    try:
+        job = json.load(open(RESTORE))
+    except (OSError, ValueError):
+        return None
+    if job.get("state") == "starting" and time.time() - job.get("at", 0) > 15:   # the unit never got going
+        job["state"] = "stopped"
+    elif job.get("state") == "running":
+        try:
+            os.kill(job["pid"], 0)
+        except (OSError, KeyError):
+            job["state"] = "stopped"
+    return job
+
+
+def restoring():
+    """The restore under way, or None."""
+    job = restore_job()
+    return job if job and job["state"] in ("starting", "running") else None
+
+
+def start_restore(sid, name, items):
+    """Open the items in the transient user unit setups-restore: it outlives the panel (closing the panel no
+    longer stops it), stop_restore() stops it. The apps it opens are their own units (uwsm app), so
+    KillMode=process: stopping it never takes a window with it. False if it couldn't start."""
+    write_restore({"sid": sid, "name": name, "items": items, "states": {}, "state": "starting", "pid": 0,
+                   "at": time.time()})
+    subprocess.run(["systemctl", "--user", "reset-failed", UNIT], capture_output=True)
+    ok = subprocess.run(["systemd-run", "--user", "--quiet", "--collect", f"--unit={UNIT}", "-p", "KillMode=process",
+                         "-p", "TimeoutStopSec=10", sys.executable, os.path.abspath(__file__), "restore"],
+                        capture_output=True).returncode == 0
+    if not ok:
+        write_restore({"sid": sid, "name": name, "items": items, "states": {}, "state": "stopped", "pid": 0})
+    return ok
+
+
+def stop_restore():
+    subprocess.run(["systemctl", "--user", "stop", UNIT], capture_output=True)
+    job = restore_job()
+    if job and job["state"] in ("starting", "running"):   # it never got going, or died: say so
+        job["state"] = "stopped"
+        write_restore(job)
+
+
+def run_restore():
+    """The unit's work: open the job's items, writing each one's progress to RESTORE; SIGTERM (Stop) ends
+    it after the window being opened (its workspace rules put back first). A notification once all are open."""
+    job = restore_job()
+    if not job or job["state"] != "starting":
+        return 1
+    stopped = []
+    signal.signal(signal.SIGTERM, lambda *_: stopped.append(True))
+    job.update(state="running", pid=os.getpid())
+    write_restore(job)
+
+    def progress(i, state, text):
+        job["states"][str(i)] = [state, text]
+        write_restore(job)
+    open_items(job["items"], lambda: bool(stopped), progress)
+    job["state"] = "stopped" if stopped else "done"
+    write_restore(job)
+    if not stopped:
+        subprocess.run(["notify-send", "-t", "3000", "Setups", f"{job['name']} is open"], capture_output=True)
+    return 0
 
 
 # ---- the last session --------------------------------------------------------------------------------------
@@ -511,12 +642,14 @@ def main(argv):
         if last_session()[1]:
             panel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "setupsgui.py")
             os.execvp(sys.executable, [sys.executable, panel, "--login"])
+    elif argv[:1] == ["restore"]:
+        return run_restore()
     elif argv[:1] == ["show"]:
         session, asking = last_session()
         print(f"last session ({'to ask about' if asking else 'asked'}):", json.dumps(session, indent=1))
         print("chrome tabs:", json.dumps(chrome_windows(), indent=1))
     else:
-        print("usage: sessionlib.py ask|show")
+        print("usage: sessionlib.py ask|show|restore")
         return 1
 
 

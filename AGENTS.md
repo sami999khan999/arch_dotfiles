@@ -142,6 +142,18 @@ repo needs a step that recreates it (`install.sh`, `settingslib.py restore`, or 
 Per-PC on purpose: monitor modes (`settings.local.json`), `codesync/machine.json`, time zone, power
 profile, GPU services.
 
+### One-time steps a PC may still need — check, and remind the user
+
+At the start of a session, run each check; if it prints `NEEDED`, tell the user the command (it needs
+their password: they run it themselves in a terminal, never through `!` or a prompt you start).
+
+- **Chrome's Desktop Companion extension stuck below 1.4** (installed without an `update_url`, it never
+  updates, and its old background script never reports tabs to Setups). Check:
+  `python3 -c "import json,os;h=os.path.expanduser('~');i=open(h+'/.local/share/downloads/chrome/id').read().strip();s=json.load(open(h+'/.config/google-chrome/Default/Preferences'))['extensions']['settings'].get(i) or {};v=tuple(map(int,s.get('manifest',{}).get('version','0').split('.')));print('NEEDED' if v<(1,4) else 'ok')"`.
+  Fix — Chrome uninstalls and reinstalls it cleanly:
+  `sudo sh -c 'd=/etc/opt/chrome/policies; mv $d/managed/downloads.json $d/downloads.json.off && sleep 20 && mv $d/downloads.json.off $d/managed/downloads.json'`
+  (first `downloads enable`, so the extension served is the current one).
+
 ## Safety
 
 - `/dev/sda` is the Windows install: never mount it read-write, never modify it.

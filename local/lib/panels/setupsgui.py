@@ -10,15 +10,16 @@
 #
 # Keys: Enter (or a double-click) open · r record the desktop as a new setup · n new empty setup · a add (an open window, a whole
 # workspace, an app) · u update from the desktop · F2 rename · Delete delete (u and Delete ask once).
-# Opening is sessionlib's: one window at a time, the next once the last one is up and the CPU has calmed
-# down, each on its workspace while you stay on yours (the backdrop goes dark until it's done; closing the panel
-# stops it); what's open already is left alone. Setups live in
+# Opening is sessionlib's, in the background (the unit setups-restore): one window at a time, the next once the
+# last one is up and the CPU has calmed down, each on its workspace while you stay on yours; what's open already
+# is left alone. The panel follows it (the backdrop goes dark until it's done; Stop stops it); closed, the
+# restore carries on, and the panel opened again shows how far it got. Setups live in
 # ~/code/.projects/setups.json (the private project-list repo): pulled when the panel opens, committed and
 # pushed after each change, so both PCs have the same ones.
 import os, sys, threading, time, uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
+from gtkkit import Gdk, Gio, GLib, Gtk, View, box, button, clear, label, rule_heading, run, scrolled
 import sessionlib
 from sessionendgui import STATES
 
@@ -63,9 +64,8 @@ class Setups(View):
         self.session, asking = sessionlib.last_session()
         self.selected = LAST if self.session and (login or not self.setups) else \
             (self.setups[0]["id"] if self.setups else None)
-        self.opening = False
-        self.stopped = False
-        self.worker = None   # the thread opening a setup
+        self.opening = None     # the restore under way (sessionlib's job) while the panel follows it
+        self.monitor = None     # watching sessionlib.RESTORE for its progress
         self.picking = False
         self.renaming = None    # the Gtk.Entry while a name is typed
         self.armed = None       # (action, setup id) asked once: the same again within 3 s does it
@@ -74,9 +74,10 @@ class Setups(View):
         self.pick_ws = None     # the workspace the Add picker adds to (None: each window's own)
         self.groups = sessionlib.wsgroups.groups()
         self.status_rows = {}   # item index -> (glyph, status) while its workspace is shown open
-        self.hints = [("Enter", "restore"), ("Esc", "not now")] if login else \
+        self.normal_hints = [("Enter", "restore"), ("Esc", "not now")] if login else \
             [("Enter", "open"), ("r", "record"), ("n", "new"), ("a", "add"), ("u", "update"), ("F2", "rename"),
              ("Del", "delete"), ("Esc", "close")]
+        self.hints = self.normal_hints
         self.subtitle = "open again what was open before?" if login else "work environments, opened in one go"
 
     # ---- data --------------------------------------------------------------------------------------------
@@ -86,7 +87,9 @@ class Setups(View):
         return s.get("items") or [{"kind": "app", "detail": "", **a} for a in s.get("apps", [])]
 
     def current(self):
-        """(name, items, is it a saved setup) of the selected one."""
+        """(name, items, is it a saved setup) of the selected one; while a restore is under way, what it opens."""
+        if self.opening:
+            return self.opening["name"], self.opening["items"], False
         if self.selected == LAST and self.session:
             when = time.strftime("%a %H:%M", time.localtime(self.session.get("at", 0)))
             return f"Last session · {ACTIONS.get(self.session.get('action'), 'ended')} {when}", self.session_items(), False
@@ -109,19 +112,22 @@ class Setups(View):
     def pull(self):
         """In a thread: what the other PC changed; the list redrawn if anything did."""
         sessionlib.pull_setups()
-        fresh = sessionlib.load_setups()
-        if fresh != self.setups:
+        if sessionlib.load_setups() != self.setups:
             def apply():
-                if not self.opening and not self.renaming:
+                if self.opening or self.renaming:   # not now: once the restore / the name is done
+                    GLib.timeout_add(1000, apply)
+                    return False
+                fresh = sessionlib.load_setups()   # read again: a change made here since is in it too
+                if fresh != self.setups:
                     self.setups = fresh
                     if self.selected not in (LAST, None) and not self.setup(self.selected):
                         self.selected = self.setups[0]["id"] if self.setups else (LAST if self.session else None)
                     self.paint()
+                return False
             GLib.idle_add(apply)
 
     # ---- layout ------------------------------------------------------------------------------------------
     def build(self):
-        self.host.win.connect("close-request", self.closing)
         if self.login:
             sessionlib.answered()   # offered once: opened or not, it isn't asked about again
         self.list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE, css_classes=["setup-list"])
@@ -139,7 +145,12 @@ class Setups(View):
         self.detail = box(True, 0)
         for edge in ("start", "end", "top", "bottom"):
             getattr(self.detail, f"set_margin_{edge}")(18)
-        self.paint()
+        job = sessionlib.restoring()
+        if job:   # opened again while one is under way: follow it
+            self.selected = job["sid"]
+            self.follow(job)
+        else:
+            self.paint()
         threading.Thread(target=self.pull, daemon=True).start()
         page = scrolled(self.detail)
         page.set_hexpand(True)   # the detail takes the rest of the width (a wrapped line otherwise wraps per word)
@@ -194,8 +205,11 @@ class Setups(View):
         else:
             head.append(label(name, "bold", ellipsize=True))
             head.get_last_child().set_hexpand(True)
-        open_b = button("Restore" if self.selected == LAST else "Open", lambda: self.open_selected(), "primary")
-        open_b.set_sensitive(bool(items) and not self.opening)
+        if self.opening:
+            open_b = button("Stop", self.stop, "primary", tooltip="Nothing more opens; what's open stays")
+        else:
+            open_b = button("Restore" if self.selected == LAST else "Open", lambda: self.open_selected(), "primary")
+            open_b.set_sensitive(bool(items))
         if saved and not self.opening:
             for text, act, tip in (("Add", lambda: self.start_picking(), "An open window, a whole workspace, an app (a)"),
                                    ("Update", self.update, "Replace its windows with the desktop now (u)"),
@@ -216,6 +230,9 @@ class Setups(View):
             self.detail.append(box(False, 10, label("\U000f167a", "end-glyph", "dim"), label("agentmux", "sub"),
                                    label(", ".join(self.session["threads"]), "dim", ellipsize=True),
                                    label("back with agentmux", "dim", xalign=1.0), classes=("end-row",)))
+        if self.opening:
+            for i, (state, text) in self.opening["states"].items():
+                self.set_state(int(i), state, text)
 
     def workspaces(self, items, saved):
         """The workspaces to list: a setup's all ten (so an empty one can be filled) and any other it uses;
@@ -230,7 +247,7 @@ class Setups(View):
         """One workspace: a header (click: open / close) with its apps' icons and how many windows; open,
         its windows (× takes one out) and + Add a window. All open while the setup is opening."""
         mine = [i for i, it in enumerate(items) if it["workspace"] == ws]
-        shown = self.opening or ws in self.expanded.get(self.selected, set())
+        shown = bool(self.opening) or ws in self.expanded.get(self.selected, set())
         count = f"{len(mine)} window{'s' * (len(mine) != 1)}" if mine else "empty"
         line = box(False, 10, label(CHEVRON[shown], "end-glyph", "dim"),
                    label(ws_label(ws, self.groups), "accent" if mine else "dim"),
@@ -336,39 +353,54 @@ class Setups(View):
     # ---- actions -----------------------------------------------------------------------------------------
     def open_selected(self):
         name, items, _saved = self.current()
-        if self.opening or self.picking or self.renaming or not items:
+        if self.opening or self.picking or self.renaming or not items or sessionlib.restoring():
             return
-        self.opening = True
-        self.paint_detail()
-        self.hints = [("Esc", "stop")]
+        if not sessionlib.start_restore(self.selected, name, items):
+            self.say("couldn't start the restore (systemd-run failed)", "bad", 8)
+            return
+        self.follow(sessionlib.restore_job())
+
+    def follow(self, job):
+        """Show a restore under way, and follow its progress (sessionlib writes RESTORE after each step)."""
+        self.opening = job
+        self.paint()
+        self.hints = [("Esc", "close · it carries on")]
         self.host.show_hints()
         self.host.set_backdrop_opaque(True)   # the windows open behind it unseen, the screen stays still
+        self.monitor = Gio.File.new_for_path(sessionlib.RESTORE).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        self.monitor.connect("changed", self.restore_changed)
+        self.restore_changed()
 
-        def progress(i, state, text):
-            GLib.idle_add(self.set_state, i, state, text)
-            if state == "busy":
-                GLib.idle_add(self.set_subtitle, f"opening {i + 1} of {len(items)}")
-
-        def done():
-            self.set_subtitle(f"{name} is open")
+    def restore_changed(self, *_):
+        job = sessionlib.restore_job()
+        if not self.opening or not job:
+            return
+        self.opening = job
+        for i, (state, text) in job["states"].items():
+            self.set_state(int(i), state, text)
+        busy = [int(i) for i, (state, _t) in job["states"].items() if state == "busy"]
+        if busy:
+            self.set_subtitle(f"opening {busy[0] + 1} of {len(job['items'])}")
+        if job["state"] in ("done", "stopped"):
+            self.monitor.cancel()
+            self.monitor = None
             self.host.set_backdrop_opaque(False)
-            GLib.timeout_add(1500, lambda: self.close() or False)
+            if job["state"] == "done":
+                self.set_subtitle(f"{job['name']} is open")
+                GLib.timeout_add(1500, lambda: self.close() or False)
+                return
+            done = sum(state == "done" for state, _t in job["states"].values())
+            self.set_subtitle(f"stopped · {done} of {len(job['items'])} open")
+            self.opening = None
+            self.hints = self.normal_hints
+            self.host.show_hints()
+            self.paint()
 
-        def work():
-            sessionlib.open_items(items, lambda: self.stopped, progress)
-            if not self.stopped:
-                GLib.idle_add(done)
-        self.worker = threading.Thread(target=work, daemon=True)
-        self.worker.start()
-
-    def closing(self, *_):
-        """The panel closes (Esc, a click on the backdrop, done): a restore stops, nothing more opens.
-        The window being opened is waited for a moment (it checks every 0.25 s), so the workspace rules it
-        changed for its launch are put back before this process ends."""
-        self.stopped = True
-        if self.worker:
-            self.worker.join(2)
-        return False
+    def stop(self):
+        """Stop the restore: the window being opened is waited for (its workspace rules put back), nothing
+        more opens. systemctl waits for the unit, so in a thread; the panel hears it in RESTORE."""
+        threading.Thread(target=sessionlib.stop_restore, daemon=True).start()
+        self.set_subtitle("stopping…")
 
     def record(self, items=None):
         """The desktop now (or the Last session's list) as a new setup; its name typed next."""

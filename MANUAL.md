@@ -766,6 +766,11 @@ way runs as a transient user unit (`mirror-share`, `mirror-phone`), so it carrie
   Screen (the next screen; or pick it in the panel), Sound (on from the start: the PC's sound plays on the
   phone) and End. Only one phone at a time; the PC gets a notification when it connects and when it leaves.
   Sharing stops by itself after 10 minutes with no phone watching.
+- **Files, both ways** (instead of LocalSend, while the phone is connected): the page's Files button (in the
+  `≡` bar) sends the phone's files to `~/Downloads` (Choose files; progress per file; names kept, never
+  outside `~/Downloads`, a GiB of space always left), and lists what the PC offers: Send files… in the panel
+  (or `mirror send FILE…`), then Save on the phone. A saved file is fetched into the page first, so the
+  phone's download list never holds an address with the share's code. Offers last as long as the share.
 - **The phone as a second screen** (`e`, or The phone shows → A second screen, then Share this screen): the
   phone gets a screen of its own instead of a copy of this one: a headless output named `PHONE`, made at the
   phone's own size (landscape, scaled to about 720 rows) right of this screen once the page connects. Move
@@ -777,11 +782,6 @@ way runs as a transient user unit (`mirror-share`, `mirror-phone`), so it carrie
   in the phone's browser by itself (`adb reverse`: the PC's port 53321 is the phone's `localhost`), less lag
   than Wi-Fi. Unplug and plug in again to reopen it. adb runs its own server and key for the share, both gone
   at the end. Not at the same time as the phone on this PC over USB (two adb servers would fight over it).
-- **Files, both ways** (instead of LocalSend, while the phone is connected): the page's Files button (in the
-  `≡` bar) sends the phone's files to `~/Downloads` (Choose files; progress per file; names kept, never
-  outside `~/Downloads`, a GiB of space always left), and lists what the PC offers: Send files… in the panel
-  (or `mirror send FILE…`), then Save on the phone. A saved file is fetched into the page first, so the
-  phone's download list never holds an address with the share's code. Offers last as long as the share.
 - **The phone on this PC** (Android, `w` / `u`): once on the phone, turn on Developer options (About phone →
   tap Build number 7 times) and USB debugging. Over Wi-Fi: Show code, then on the phone Developer options →
   Wireless debugging → Pair device with QR code (or Pair with pairing code, and type its address and code in
@@ -819,7 +819,7 @@ pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…
   (`Space`); finished ones get Open, Show in Files; a failed or cancelled one Retry (same cookies, same
   referrer). A notification says when each finishes or fails. Unfinished downloads resume after a restart
   or a reboot (aria2's session in `~/.local/state/downloads`).
-- **Chrome:** an extension of ours (`local/lib/downloads/chrome/`) hands each download to the manager — the
+- **Chrome:** an extension of ours, *Desktop Companion* (`local/lib/downloads/chrome/`), hands each download to the manager — the
   link, the name Chrome would give it, the page it came from and the site's cookies (so logged-in downloads
   work) — over native messaging (`native-host.py`), then cancels Chrome's own. If the manager isn't running,
   Chrome keeps the download. `blob:` / `data:` downloads (made inside the page) stay in Chrome. A download
@@ -832,7 +832,11 @@ pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…
   with this PC's own key (`~/.local/share/downloads/chrome`, never in the repo) and registers the native
   host. `system/root-setup.sh` then force-installs the extension by Chrome policy, from the service on
   `127.0.0.1:53319` (localhost only); Chrome shows it as installed by your organisation. A change to the
-  extension needs its `version` raised in `manifest.json`, then `downloads enable`.
+  extension needs its `version` raised in `manifest.json`, then `downloads enable`; Chrome picks it up within
+  hours, or at once with Update in `chrome://extensions`. It finds updates through the manifest's `update_url`
+  (the policy's address only installs it): an install from before 1.4 has none and never updates. Reinstall
+  such a one by taking the policy away for a moment (Chrome watches the folder, uninstalls it, installs it again):
+  `sudo sh -c 'd=/etc/opt/chrome/policies; mv $d/managed/downloads.json $d/downloads.json.off && sleep 20 && mv $d/downloads.json.off $d/managed/downloads.json'`.
 - **The service:** reads aria2's state once a second only while something downloads; idle, it waits. It
   writes the bar's JSON (`$XDG_RUNTIME_DIR/downloads-bar.json`) and signals waybar (`RTMIN+12`) only when
   what the bar shows changes. `downloads status` lists what's there.
@@ -1129,7 +1133,9 @@ are open, on which workspace, with what in them — and opened again in one go.
   the backdrop goes dark until everything is open, so nothing flickers behind the panel. The rows show
   waiting → opening… → open (how long it took). It adds to what's open: what's there already is left alone
   (that VS Code folder, a terminal in that folder, a single-window app like Discord or a panel); a Chrome
-  window always opens. Closing the panel (`Esc`, a click outside it) stops the restore; you're free to move around.
+  window always opens. It runs in the background (the user unit `setups-restore`): closing the panel (`Esc`, a
+  click outside it) leaves it going, a notification says when everything is open, and the panel opened again
+  shows how far it got. *Stop* (where Open was) stops it after the window being opened; you're free to move around.
 - **After a login:** if the last Log out / Restart / Shutdown (the power menu: the session-end panel saves what's
   open before it closes anything) left windows open, Setups opens with Last session selected: `Enter` opens it
   again, another setup can be picked instead, `Esc` leaves everything closed. Asked once either way; Last
@@ -1139,10 +1145,13 @@ are open, on which workspace, with what in them — and opened again in one go.
   Folders are full paths: a project cloned to the same place (`projects clone`) opens on either PC.
 - **Chrome's tabs** come from Chrome's own session file (`~/.config/google-chrome/Default/Sessions/Session_*`, which
   Chrome keeps up to date as you browse): each window with its tabs, in order, shown with its current tab's title.
-  Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension also reports the tabs
+  Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension (Desktop Companion) also reports the tabs
   (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
   is `google-chrome-stable --new-window <its tabs>`; only the current tab loads, the others wait until you go to
-  them (the extension's dormant tabs, under Downloads).
+  them (the extension's dormant tabs, under Downloads). Its **tab groups** (title, colour, folded or not) and
+  **pinned tabs** come back too: the command line can't make them, so the extension does, a couple of seconds
+  after the window is up (Setups leaves them in `$XDG_RUNTIME_DIR/setups/regroup.json`; the extension's next
+  tab report finds the window by its tabs and the reply says what to group).
 - `python3 ~/.local/lib/panels/sessionlib.py show` prints the last session and the tabs Chrome last reported.
 
 ### System agent

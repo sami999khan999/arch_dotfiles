@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Downloads (this PC's download manager)",
-  "description": "Hands Chrome's downloads to the download manager (Super + Ctrl + J), which downloads them faster, tells Setups which tabs are open, and keeps background tabs dormant until visited.",
-  "version": "1.2",
-  "permissions": ["downloads", "cookies", "nativeMessaging", "tabs"],
+  "name": "Desktop Companion",
+  "description": "Connects Chrome to this PC: downloads go to its download manager (Super + Ctrl + J), Setups learns your windows, tabs and tab groups, and background tabs sleep until you visit them.",
+  "version": "1.5",
+  "update_url": "http://127.0.0.1:53319/update.xml",
+  "permissions": ["downloads", "cookies", "nativeMessaging", "tabs", "tabGroups"],
   "host_permissions": ["<all_urls>"],
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
   "background": { "service_worker": "background.js" }
 }

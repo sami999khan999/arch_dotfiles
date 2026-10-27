@@ -22,6 +22,7 @@
     "custom/wsgroups",
     "custom/window",
     "custom/divider",
+    "custom/mirror",
     "custom/downloads",
     "custom/codesync",
     "custom/setups",
@@ -72,6 +73,15 @@
     "interval": "once",
     "signal": 12,
     "on-click": "~/.local/lib/panels/downloadsgui.py"
+  },
+  // screen sharing with the phone (mirror): only while a share or a phone session is on; amber while the
+  // phone watches this screen or is shown here. mirror writes the JSON and signals each change
+  "custom/mirror": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/mirror-bar.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 13,
+    "on-click": "~/.local/lib/panels/mirrorgui.py"
   },
   "custom/codesync": {
     "exec": "~/.local/bin/codesync bar",

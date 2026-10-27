@@ -129,6 +129,9 @@ hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.shortcut
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.codesync)$" }, size = { 1180, 640 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.settings)$" }, size = { 1000, 680 } })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.pair)$" }, size = { 680, 670 } })
+hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.mirror)$" }, size = { 760, 640 } })
+-- the phone's screen (mirror, scrcpy): floats at the phone's own shape, beside what you work on
+hl.window_rule({ match = { class = "^(scrcpy)$" }, float = true, center = true })
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.agentmux)$" }, size = { 860, 620 } })
 -- agentmux's pickers (agentpickgui.py): New thread (which agent), Open project (folder browser)
 hl.window_rule({ match = { tag = "floating-window", class = "^(panels\\.newthread)$" }, size = { 620, 440 } })

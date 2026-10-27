@@ -7,5 +7,6 @@ elephant-providerlist
 elephant-symbols
 elephant-websearch
 google-chrome
+novnc
 visual-studio-code-bin
 wlrctl

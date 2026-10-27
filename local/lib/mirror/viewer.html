@@ -1,0 +1,157 @@
+<!doctype html>
+<!-- viewer.html — this PC's screen on the phone, served by mirror.py (mirror share) at https://<PC>:53321/#<token>.
+     noVNC draws the screen and sends touches (tap = click, long press = right click, two fingers = scroll,
+     drag = drag); the bar on top: keyboard, Esc, Tab, Super, next screen, sound, end. Leaves nothing in the
+     browser: no cookies, no storage, never cached (no-store), the token taken out of the address once read. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#1a1b26">
+<title>PC screen</title>
+<style>
+  :root { --base: #1a1b26; --overlay: #292e42; --line: #3b4261; --muted: #565f89; --text: #c0caf5;
+          --accent: #6b8fe0; --alert: #f7768e; --amber: #e0af68; }
+  html, body { margin: 0; height: 100%; background: var(--base); color: var(--text); overflow: hidden;
+               font: 15px "JetBrains Mono", ui-monospace, monospace; -webkit-tap-highlight-color: transparent; }
+  #screen { position: fixed; inset: 0; }
+  #bar { position: fixed; top: 0; left: 50%; transform: translateX(-50%); display: flex; gap: 2px; z-index: 2;
+         background: color-mix(in srgb, var(--base) 88%, transparent); border: 1px solid var(--line); border-top: 0; }
+  #bar.hidden button:not(#grip) { display: none; }
+  #bar button { background: none; color: var(--text); border: 0; padding: 9px 12px; font: inherit; }
+  #bar button:active, #bar button.on { background: var(--overlay); color: var(--accent); }
+  #bar #end { color: var(--alert); }
+  #grip { color: var(--muted) !important; }
+  #keys { position: fixed; left: -100px; top: 0; width: 1px; height: 1px; opacity: 0; }
+  #cover { position: fixed; inset: 0; z-index: 3; display: flex; flex-direction: column; gap: 14px;
+           align-items: center; justify-content: center; background: var(--base); text-align: center; padding: 24px; }
+  #cover h1 { margin: 0; font-size: 18px; font-weight: normal; color: var(--accent); }
+  #cover p { margin: 0; color: var(--muted); max-width: 30em; line-height: 1.5; }
+  #cover button { background: var(--accent); color: var(--base); border: 0; padding: 12px 26px; font: inherit; }
+  #cover.bad h1 { color: var(--alert); }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+<div id="bar" class="hidden">
+  <button id="kbd">Keys</button><button id="esc">Esc</button><button id="tab">Tab</button>
+  <button id="super">Super</button><button id="next">Screen</button><button id="snd">Sound</button>
+  <button id="end">End</button><button id="grip">≡</button>
+</div>
+<textarea id="keys" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+<div id="cover">
+  <h1>PC screen</h1>
+  <p>Tap to connect. Tap = click, long press = right click, two fingers = scroll. ≡ shows the keys.</p>
+  <button id="go">Connect</button>
+</div>
+<script type="module">
+import RFB from "./novnc/core/rfb.js";
+import KeyTable from "./novnc/core/input/keysym.js";
+import keysyms from "./novnc/core/input/keysymdef.js";
+
+// the token: read once, then gone from the address (and so from the history, if this isn't a private tab)
+const token = location.hash.slice(1);
+history.replaceState(null, "", "/");
+const ws = (path) => `wss://${location.host}${path}?t=${encodeURIComponent(token)}`;
+const $ = (id) => document.getElementById(id);
+let rfb = null, sound = null, wake = null;
+
+function cover(title, text, button) {
+  $("cover").style.display = "";
+  $("cover").className = "bad";
+  $("cover").querySelector("h1").textContent = title;
+  $("cover").querySelector("p").textContent = text;
+  $("go").style.display = button ? "" : "none";
+}
+
+function connect() {
+  $("cover").style.display = "none";
+  rfb = new RFB($("screen"), ws("/vnc"), { wsProtocols: ["binary"] });
+  rfb.scaleViewport = true;
+  rfb.qualityLevel = 6;
+  rfb.compressionLevel = 2;
+  rfb.focusOnClick = false;   // the phone's keyboard opens only from Keys
+  rfb.addEventListener("disconnect", (e) => {
+    rfb = null;
+    stopSound();
+    cover(e.detail.clean ? "Disconnected" : "Couldn't connect",
+          "Sharing may have stopped on the PC, or another phone is watching. Start it again there and scan the new code.",
+          false);
+  });
+}
+
+// ---- sound: raw 48 kHz s16le stereo, scheduled a little ahead ----
+function startSound() {
+  const ctx = new AudioContext({ sampleRate: 48000 });
+  const sock = new WebSocket(ws("/sound"));
+  sock.binaryType = "arraybuffer";
+  let next = 0;
+  sock.onmessage = (m) => {
+    const pcm = new Int16Array(m.data), n = pcm.length / 2;
+    const buf = ctx.createBuffer(2, n, 48000);
+    const l = buf.getChannelData(0), r = buf.getChannelData(1);
+    for (let i = 0; i < n; i++) { l[i] = pcm[2 * i] / 32768; r[i] = pcm[2 * i + 1] / 32768; }
+    const now = ctx.currentTime;
+    if (next < now + 0.03 || next > now + 0.3) next = now + 0.06;   // fell behind or drifted: start over
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(next);
+    next += buf.duration;
+  };
+  sound = { ctx, sock };
+  $("snd").classList.add("on");
+}
+
+function stopSound() {
+  if (!sound) return;
+  sound.sock.close();
+  sound.ctx.close();
+  sound = null;
+  $("snd").classList.remove("on");
+}
+
+// ---- keys ----
+function tap(keysym) {
+  if (!rfb) return;
+  rfb.sendKey(keysym, null, true);
+  rfb.sendKey(keysym, null, false);
+}
+
+// The phone's keyboard types into a hidden field; what changed in it becomes key presses. It starts full
+// of filler so Backspace always has something to delete (an empty field sends no event for it).
+const FILL = "_".repeat(64);
+const keys = $("keys");
+keys.value = FILL;
+let last = FILL;
+keys.addEventListener("input", () => {
+  const now = keys.value;
+  let same = 0;
+  while (same < last.length && same < now.length && last[same] === now[same]) same++;
+  for (let i = same; i < last.length; i++) tap(KeyTable.XK_BackSpace);
+  for (const ch of now.slice(same)) tap(ch === "\n" ? KeyTable.XK_Return : keysyms.lookup(ch.codePointAt(0)));
+  last = now;
+  if (now.length < 16 || now.length > 256) { keys.value = FILL; last = FILL; }
+});
+
+$("kbd").onclick = () => (document.activeElement === keys ? keys.blur() : keys.focus());
+$("esc").onclick = () => tap(KeyTable.XK_Escape);
+$("tab").onclick = () => tap(KeyTable.XK_Tab);
+$("super").onclick = () => tap(KeyTable.XK_Super_L);
+$("next").onclick = () => fetch(`/screen?t=${encodeURIComponent(token)}`, { cache: "no-store" });
+$("snd").onclick = () => (sound ? stopSound() : startSound());
+$("grip").onclick = () => $("bar").classList.toggle("hidden");
+$("end").onclick = () => { stopSound(); rfb?.disconnect(); };
+
+$("go").onclick = async () => {
+  if (!token) return cover("No code", "Scan the code shown on the PC again.", false);
+  try { await document.documentElement.requestFullscreen({ navigationUI: "hide" }); } catch {}
+  try { await screen.orientation.lock("landscape"); } catch {}
+  try { wake = await navigator.wakeLock.request("screen"); } catch {}
+  connect();
+  startSound();   // needs this tap: browsers start sound only from one
+};
+</script>
+</body>
+</html>

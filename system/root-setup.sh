@@ -29,13 +29,17 @@ else
   echo "   the download manager's extension isn't packed yet: run setup/install.sh, then this again"
 fi
 
-echo "== 2. Firewall: LocalSend (lsend) from this network only"
+echo "== 2. Firewall: LocalSend (lsend) and mirror from this network only"
 if command -v ufw >/dev/null; then
   for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do
     ufw allow proto tcp from "$net" to any port 53317 comment LocalSend >/dev/null
     ufw allow proto udp from "$net" to any port 53317 comment LocalSend >/dev/null
   done
   echo "   port 53317 (tcp + udp) open to private networks"
+  for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do
+    ufw allow proto tcp from "$net" to any port 53321 comment Mirror >/dev/null
+  done
+  echo "   port 53321 (tcp) open to private networks: mirror, this screen on the phone"
 else
   echo "   no ufw: skipped"
 fi

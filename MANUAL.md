@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); LocalSend through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); LocalSend and Mirror through the firewall; snapshots listable; Docker closed to the network + its on/off switch; the data drive, where it's attached
 pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
@@ -739,6 +739,41 @@ shows up in it under its hostname; no LocalSend package on the PC.
   PC and receives; it waits on its sockets, no timers. `lsend status` shows this PC's name and the devices
   seen. The firewall must let the phone in: `system/root-setup.sh` opens port 53317 (TCP + UDP) to private
   networks only. Another name than the hostname: `{"alias": "…"}` in `~/.local/share/lsend/settings.json`.
+
+## Mirror (screens with the phone)
+
+`Super + Ctrl + C` opens Mirror: this PC's screen on the phone, or the phone's screen on this PC, each driven
+from the other side, and nothing of it kept on either. The bar shows a screen-and-phone icon while either is on
+(blue: waiting for the phone; amber: the phone is watching this screen, or is shown here); a click opens the
+panel. `mirror` (`local/lib/mirror/mirror.py`) does the work; each way runs as a transient user unit
+(`mirror-share`, `mirror-phone`), so it carries on with the panel closed. `mirror stop` ends both.
+
+- **This PC on the phone** (`s`): switch on Share this screen and scan the code with the phone. The screen
+  opens in the phone's browser, with no app: tap = click, long press = right click, two fingers = scroll,
+  drag = drag. The bar at the top (`≡`) has Keys (the phone's keyboard types on the PC), Esc, Tab, Super,
+  Screen (the next screen; or pick it in the panel), Sound (on from the start: the PC's sound plays on the
+  phone) and End. Only one phone at a time; the PC gets a notification when it connects and when it leaves.
+  Sharing stops by itself after 10 minutes with no phone watching.
+- **The phone on this PC** (Android, `w` / `u`): once on the phone, turn on Developer options (About phone →
+  tap Build number 7 times) and USB debugging. Over Wi-Fi: Show code, then on the phone Developer options →
+  Wireless debugging → Pair device with QR code (or Pair with pairing code, and type its address and code in
+  the panel). The QR code needs the phone to be heard over mDNS: a router that keeps multicast from Wi-Fi
+  to wired devices hides it, and after 20 s the panel says to use the pairing code, which works there (the
+  phone's debugging port is then found by trying its ports). Over USB: plug it in, Connect, and allow USB debugging on the phone, leaving "Always allow" off.
+  The phone shows in a window (scrcpy) with its sound; the mouse and keyboard drive it. Close the window or
+  Stop (`x`) to end.
+- **Nothing kept:** everything a session needs is in `$XDG_RUNTIME_DIR/mirror` (in memory) and is deleted at
+  its end. On the phone, the page has no cookies or storage and is never cached, and its one-time code is
+  taken out of the address. Open it in a private tab (Chrome: a new Incognito tab, then the camera in its
+  address bar) and nothing at all stays; a normal tab keeps only the bare address in its history. The
+  certificate is made for that share only, so the browser warns that the connection isn't private: Advanced
+  → Proceed. On the PC, the phone's clipboard isn't synced (it would land in the clipboard history). adb uses
+  a fresh key and its own server each session, both gone at the end, and Wireless debugging is switched off
+  on the phone afterwards. Android still lists a Wi-Fi pairing under Paired devices until you forget it, but
+  that key can't be used again.
+- **Safety:** HTTPS on port 53321, answered only to private-network addresses, every connection needs the
+  share's one-time code; wayvnc listens on a Unix socket only. `system/root-setup.sh` opens 53321 (TCP) to
+  private networks.
 
 ## Downloads (download manager)
 

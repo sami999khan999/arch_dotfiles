@@ -3,6 +3,7 @@ alacritty
 alsa-firmware
 alsa-plugins
 alsa-utils
+android-tools
 aria2
 awesome-terminal-fonts
 awww
@@ -185,6 +186,7 @@ python-packaging
 python-psycopg
 python-pymongo
 python-redis
+qrencode
 realtime-privileges
 rebuild-detector
 reflector
@@ -193,6 +195,7 @@ rsync
 rustup
 s-nail
 satty
+scrcpy
 sg3_utils
 shelly
 slurp
@@ -227,6 +230,7 @@ vulkan-icd-loader
 vulkan-intel
 walker
 waybar
+wayvnc
 webkitgtk-6.0
 wget
 which

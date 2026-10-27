@@ -14,6 +14,7 @@ require("modules.decorations")
 require("modules.variables")
 require("modules.environment")
 require("modules.inputs")
+require("modules.mousekeys") -- before binds: the toggle
 require("modules.binds")
 require("modules.apps")
 require("modules.codepair")   -- before wsgroups: it sets PAIR_WS

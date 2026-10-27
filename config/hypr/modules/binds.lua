@@ -397,6 +397,7 @@ bind("SUPER + period",               panels .. "notifgui.py") -- Notifications (
 
 -- Toggles
 bind("SUPER + SHIFT + SPACE",        function() barFlip() end) -- Bar: show / hide on this screen for now
+bind("SUPER + ALT + M",              function() toggleMouseKeys() end) -- Mouse keys: arrows move the cursor (Shift fast, Ctrl precise), Space / Return click (Shift right, Ctrl middle), Page Up / Down scroll, Esc stops
 bind("SUPER + CTRL + SHIFT + SPACE", function()   -- Bar: always hidden on this workspace, or not (Settings → Top bar)
     local ws = hl.get_active_workspace()
     if ws then hl.exec_cmd("python3 ~/.local/lib/panels/settingslib.py bar-hide " .. ws.id) end

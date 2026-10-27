@@ -850,6 +850,20 @@ on repeat presses, and launches it if nothing is open. Find a window's class wit
 `hyprctl clients | grep class`, then `hyprctl reload`. Loaded by
 `config/hypr/modules/apps.lua`, run by `scripts/focus-or-launch.sh`.
 
+## Mouse keys (the cursor on the arrows)
+
+`Super + Alt + M` turns mouse keys on (an OSD says so); the same keys or `Esc` turn them off. While on:
+
+| Keys | Does |
+|---|---|
+| Arrows | move the cursor; held, it glides and speeds up; two at once go diagonally |
+| Shift / Ctrl + arrows | fast / one pixel at a time |
+| `Space` or `Return` | left click (Shift: right, Ctrl: middle) |
+| `Page Up` / `Page Down` | scroll |
+
+Every other key types as usual. A Hyprland submap (`config/hypr/modules/mousekeys.lua`): Hyprland moves
+the cursor, `wlrctl` (AUR) clicks and scrolls.
+
 ## Workspace groups
 
 `config/hypr/workspaces.conf` gives each kind of app its own workspace:

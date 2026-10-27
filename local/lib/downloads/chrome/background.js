@@ -5,6 +5,8 @@
 // running (or says no), Chrome just keeps downloading.
 // It also tells the host which tabs are open (each window's, incognito left out) whenever they change, at most
 // every 2 s: the Setups panel (local/lib/panels/setupsgui.py) records them with the rest of the desktop.
+// And a tab opened in the background (a Setups restore, a saved tab group, Chrome's own restore, a link opened
+// in a new tab) stays dormant — discarded, no page running — until you go to it, when Chrome loads it.
 // Packed per PC by `downloads enable`; a change here needs the version in manifest.json raised, or Chrome keeps
 // the old one.
 const HOST = "sami.downloads";
@@ -79,3 +81,28 @@ chrome.windows.onCreated.addListener(tabsChanged);
 chrome.windows.onRemoved.addListener(tabsChanged);
 chrome.runtime.onStartup.addListener(tabsChanged);
 chrome.runtime.onInstalled.addListener(tabsChanged);
+
+// ---- background tabs dormant until visited ------------------------------------------------------------------
+// A tab can only be discarded once its address is committed (discarding before that leaves it blank), so a new
+// background tab waits here for its first committed web address. about:blank and the like are left alone: a
+// page that opened one may be writing into it.
+const waking = new Set();
+
+function sleepTab(tab) {
+  if (tab.active || tab.discarded || !/^https?:/i.test(tab.url || "")) return false;
+  chrome.tabs.discard(tab.id).catch(() => {}); // gone, or Chrome won't (e.g. it's playing): it just loads
+  return true;
+}
+
+chrome.tabs.onCreated.addListener((tab) => {
+  if (!tab.active && !sleepTab(tab)) waking.add(tab.id);
+});
+chrome.tabs.onUpdated.addListener((id, change, tab) => {
+  if (waking.has(id) && change.url && (tab.active || sleepTab(tab))) waking.delete(id);
+});
+chrome.tabs.onActivated.addListener(({ tabId }) => waking.delete(tabId));
+chrome.tabs.onRemoved.addListener((id) => waking.delete(id));
+// Chrome's own restore may make its tabs before this worker is up: put every background tab to sleep
+chrome.runtime.onStartup.addListener(async () => {
+  for (const tab of await chrome.tabs.query({ active: false, discarded: false })) sleepTab(tab);
+});

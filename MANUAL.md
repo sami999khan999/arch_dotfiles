@@ -797,6 +797,9 @@ pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…
   Chrome keeps the download. `blob:` / `data:` downloads (made inside the page) stay in Chrome. A download
   that only works once (a one-time link) may fail in the manager: Retry won't help there, use the browser's
   Save as from the page.
+- **Background tabs stay dormant:** the same extension discards a tab opened in the background (a Setups
+  restore, a saved tab group, Chrome's own restore, a link opened in a new tab) as soon as its address is known:
+  no page runs until you go to it, then Chrome loads it. Until then it shows its address, not its title or icon.
 - **Setup:** `downloads enable` (run by `setup/install.sh`) starts `downloads.service`, packs the extension
   with this PC's own key (`~/.local/share/downloads/chrome`, never in the repo) and registers the native
   host. `system/root-setup.sh` then force-installs the extension by Chrome policy, from the service on
@@ -1106,7 +1109,8 @@ are open, on which workspace, with what in them — and opened again in one go.
   Chrome keeps up to date as you browse): each window with its tabs, in order, shown with its current tab's title.
   Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension also reports the tabs
   (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
-  is `google-chrome-stable --new-window <its tabs>`.
+  is `google-chrome-stable --new-window <its tabs>`; only the current tab loads, the others wait until you go to
+  them (the extension's dormant tabs, under Downloads).
 - `python3 ~/.local/lib/panels/sessionlib.py show` prints the last session and the tabs Chrome last reported.
 
 ### System agent

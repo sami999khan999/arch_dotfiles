@@ -266,26 +266,40 @@ local function pairUp(w)
     hl.exec_cmd("~/.local/bin/kitty-pair " .. w.address)
 end
 
--- A VS Code window opened where no screen shows (Setups opens windows quietly): pairing it moves the
--- focus there, and the screen with it. So it gets its kitty when its workspace is first shown.
+-- VS Code windows waiting for their kitty. A window opened where no screen shows (Setups opens windows
+-- quietly) waits for its workspace to be shown: pairing it moves the focus there, and the screen with
+-- it. They're paired one at a time: a kitty opens beside whichever window has the focus when it
+-- appears, and two kitty-pairs at once (a restore's VS Code windows, when the workspace is first
+-- shown) each focused their own VS Code, so one kitty landed inside the other pair.
 local unpaired = {}   -- address -> true
+local pairing = nil   -- the VS Code window whose kitty is on its way
+local PAIR_GIVEUP_MS = 10000   -- a kitty that never opens doesn't hold up the others
+local PAIR_SETTLE_MS = 900     -- after the kitty's focus hand-backs (250, 700 ms below)
 
-hl.on("workspace.active", function()
+local function pairNext()
+    if pairing then return end
     for address in pairs(unpaired) do
         local w = hl.get_window("address:" .. address)
         if not w or not onPairWs(w) then
             unpaired[address] = nil
         elseif w.workspace.visible then
-            unpaired[address] = nil
+            unpaired[address], pairing = nil, address
             pairUp(w)
+            hl.timer(function()
+                if pairing == address then pairing = nil; pairNext() end
+            end, { timeout = PAIR_GIVEUP_MS, type = "oneshot" })
+            return
         end
     end
-end)
+end
+
+hl.on("workspace.active", pairNext)
 
 hl.on("window.open", function(w)
     if not w or w.floating then return end
     if CODE[w.class] and onPairWs(w) then
-        if w.workspace.visible then pairUp(w) else unpaired[w.address] = true end
+        unpaired[w.address] = true
+        pairNext()
     elseif isPairTerm(w) then
         -- kitty-pair focused the VS Code window, so the kitty opened as the column to its right:
         -- give it its width (and move it left of VS Code, unless it belongs on the right), VS Code
@@ -303,6 +317,12 @@ hl.on("window.open", function(w)
             -- kitty takes the focus again while it finishes starting up: hand it back, twice
             for _, ms in ipairs({ 250, 700 }) do
                 hl.timer(function() focus(code) end, { timeout = ms, type = "oneshot" })
+            end
+            -- this pair is done once those have run: the next VS Code window's turn
+            if pairing == code.address then
+                hl.timer(function()
+                    if pairing == code.address then pairing = nil; pairNext() end
+                end, { timeout = PAIR_SETTLE_MS, type = "oneshot" })
             end
         end
     end

@@ -48,7 +48,7 @@ bind("SUPER + CTRL + W",             panels .. "netgui.py") -- Network (Manage c
 ---- MENUS ----
 ---------------
 
-bind("SUPER + SPACE",                "walker")
+bind("SUPER + SPACE",                "walker --nohints")
 bind("SUPER + K",                    panels .. "keysgui.py") -- shortcut list
 bind("SUPER + I",                    panels .. "settingsgui.py") -- settings
 bind("SUPER + SHIFT + T",            panels .. "themegui.py") -- colour theme (Tokyo Night, Crimson…)
@@ -62,9 +62,9 @@ bind("SUPER + CTRL + O",             panels .. "portsgui.py") -- Ports: what lis
 bind("SUPER + CTRL + F",             panels .. "storagegui.py") -- Storage: what fills the disks, and cleaning what can go (Docker, caches, Trash)
 bind("SUPER + CTRL + U",             panels .. "updatesgui.py") -- Updates: what pacman / paru would update, what to watch, snapshots to go back to
 bind("SUPER + CTRL + K",             panels .. "envgui.py") -- .env files: every project's keys, what its example has that it lacks, synced encrypted to the other PC
-bind("SUPER + CTRL + E",             "walker -m symbols")
-bind("SUPER + CTRL + V",             "walker -m clipboard")
-bind("SUPER + V",                    "walker -m clipboard")
+bind("SUPER + CTRL + E",             "walker -m symbols --nohints")
+bind("SUPER + V",                    panels .. "clipgui.py") -- Clipboard: history, pinned tab, search, preview; pin, delete, paste, edit, send to phone
+bind("SUPER + CTRL + V",             "walker -m clipboard") -- Clipboard history, quick list (Ctrl+P pins, Ctrl+D deletes)
 bind("SUPER + ESCAPE",               scripts .. "power-menu.sh")
 bind("SUPER + ALT + SPACE",          scripts .. "power-menu.sh")
 bind("XF86PowerOff",                 scripts .. "power-menu.sh", { locked = true })

@@ -992,6 +992,7 @@ Appearance → Blur's, the windows').
 | Settings (`settingsgui.py`) | `Super + I`, waybar cog icon, "Settings" in Walker | see Settings panel below |
 | Notifications (`notifgui.py`) | `Super + .`, the bell beside the clock | see Notifications below |
 | Power (`powergui.py`) | `Super + Esc`, the power key, waybar power button | Lock, Suspend, Log out, Restart, Shutdown as tiles: a tile's letter (`L S O R P`), `←→` + `Enter` or a click; Log out, Restart and Shutdown ask once (the tile turns red: the same again within 3 s does it), then a panel shows it happen (`sessionendgui.py`): every app is a row going closing… → closed (each window closed as `Super + W` would, an app with several windows such as Chrome or VS Code told to quit so it reopens all of them), then agentmux's threads end (they come back next time), and the panel lists what systemd stops after that (your services, Docker's containers) as the system goes down. If an app is still open after 15 s (asking to save?) nothing goes down: it's focused with the panel beside it, Show / Force quit per app, `F` force quits them all, and once the last one closes it carries on. `Esc` cancels |
+| Clipboard (`clipgui.py`) | `Super + V` | the clipboard history with a Pinned tab, search and a preview: see Clipboard below |
 | Setups (`setupsgui.py`) | `Super + Ctrl + R`, waybar briefcase icon; after a login, when the last Log out / Restart / Shutdown left windows open | save and open work environments, the last session among them: see Setups below |
 | System agent (`sysagentgui.py`) | `Super + Ctrl + S`, waybar sparkles icon | ask an AI about this PC, strictly read-only: see System agent below |
 
@@ -1015,6 +1016,25 @@ dismisses the newest on screen, `Super + Shift + ,` all of them.
 How: mako runs `scripts/notifications.py log` for every notification (`on-notify` in
 `config/mako/config`), which keeps the last 200 with their time in `~/.local/state/notifications.json`
 and signals the bell (waybar signal 10). Nothing polls.
+
+### Clipboard
+
+`Super + V` opens the clipboard history (`clipgui.py`); `Super + Ctrl + V` is walker's quick list of the same
+history (`Ctrl+P` pins, `Ctrl+D` deletes there too). The history is elephant's clipboard provider
+(`~/.cache/elephant/clipboard.gob`, images in `clipboardimages/`); `config/elephant/clipboard.toml` keeps pinned
+items on top.
+
+- Tabs on the left: All, Pinned, Text, Images, Links, with counts (`Ctrl+1…5`, `Ctrl+Tab`). Typing searches
+  the text of the whole history; the list draws the newest 300 of what matches.
+- The right side shows the selected item in full (text you can select, an image) and its actions:
+  - `Enter` (or a double-click) copies it and closes; `Shift+Enter` pastes it into the window under the panel
+    (`Ctrl+Shift+V` in a terminal).
+  - `Ctrl+P` pins / unpins. Pinned items stay on top and survive Clear history.
+  - `Delete` deletes; a pinned one asks once.
+  - `Ctrl+E` opens it in the editor, `Ctrl+O` opens a link, `Ctrl+S` sends it to the phone with LocalSend
+    (text as a `.txt` file).
+- Clear history (`Ctrl+Shift+Delete`, asks once) deletes everything that isn't pinned; Pause in the header stops
+  recording copies until Resume.
 
 ### Setups (work environments)
 

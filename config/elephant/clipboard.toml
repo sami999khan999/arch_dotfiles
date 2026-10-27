@@ -1,0 +1,2 @@
+# elephant's clipboard provider (walker -m clipboard, Super + V): pinned items (Ctrl+P) above the history
+pinned_on_top = true

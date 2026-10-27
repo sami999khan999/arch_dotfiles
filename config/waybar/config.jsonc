@@ -419,7 +419,7 @@
   },
   "custom/logo": {
     "format": "",
-    "on-click": "walker",
+    "on-click": "walker --nohints",
     "on-click-right": "~/.config/hypr/scripts/power-menu.sh",
     "tooltip-format": "<b>Apps</b>         <span alpha='55%'>click · Super + Space</span>\n<b>System menu</b>  <span alpha='55%'>right-click · Super + Escape</span>"
   }

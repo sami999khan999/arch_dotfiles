@@ -181,6 +181,45 @@ local function clampShare(code, share)
     return math.max(MIN_SHARE, math.min(most, share))
 end
 
+-- the kitty right beside its VS Code, on `side` (nil: where it is if it's already beside it, else the default): swapcol steps it over the columns between them. A kitty
+-- opens right of whatever has the focus as it appears, and during a restore that can be another
+-- window (B C kittyC kittyB). Positions are read once: at.x lags the swaps.
+local function adjoin(code, term, side)
+    local cols = {}
+    for _, o in ipairs(code.workspace:get_windows()) do
+        if o.mapped and not o.floating then cols[#cols + 1] = o end
+    end
+    table.sort(cols, function(a, b) return a.at.x < b.at.x end)
+    local i, j
+    for k, o in ipairs(cols) do
+        if o.address == term.address then i = k end
+        if o.address == code.address then j = k end
+    end
+    if not (i and j) or (not side and math.abs(i - j) == 1) then return end   -- no side: kept if together
+    side = side or termSide
+    local target = side == "left" and (i > j and j or j - 1) or (i > j and j + 1 or j)
+    if target == i then return end
+    focus(term)
+    for _ = 1, math.abs(target - i) do
+        hl.dispatch(hl.dsp.layout("swapcol " .. (target < i and "l" or "r")))
+    end
+    return true
+end
+
+-- every pair on the Code workspace back together, the focus where it was (hyprctl eval 'tidyPairs()').
+-- One pair per step, a moment apart, so each step reads the positions the last one left.
+function tidyPairs(active)
+    active = active or hl.get_active_window()
+    for _, w in ipairs(hl.get_windows()) do
+        local term = CODE[w.class] and onPairWs(w) and termOf(w)
+        if term and adjoin(w, term) then
+            hl.timer(function() tidyPairs(active) end, { timeout = 50, type = "oneshot" })
+            return
+        end
+    end
+    if active then focus(active) end
+end
+
 -- one pair: back side by side, the kitty to its side, then both widths with colresize (the only
 -- resize the scrolling layout always honours, on the focused column), then the view back to the
 -- pair's left edge.
@@ -301,15 +340,19 @@ hl.on("window.open", function(w)
         unpaired[w.address] = true
         pairNext()
     elseif isPairTerm(w) then
-        -- kitty-pair focused the VS Code window, so the kitty opened as the column to its right:
-        -- give it its width (and move it left of VS Code, unless it belongs on the right), VS Code
-        -- the rest, then show the pair and give the focus back to VS Code
+        -- the kitty opened as the column right of whatever had the focus (kitty-pair focused its VS
+        -- Code, but a restore's windows can take it): give it its width, move it beside VS Code on its
+        -- side once it has a position (adjoin), VS Code the rest, then show the pair and give the focus
+        -- back to VS Code
         local code = codeOf(w)
         local share = code and clampShare(code, termShare) or termShare   -- VS Code keeps CODE_MIN_PX
         focus(w)
         hl.dispatch(hl.dsp.layout("colresize " .. share))
-        if termSide == "left" then hl.dispatch(hl.dsp.layout("swapcol l")) end
-        if code then
+        if not code then return end
+        hl.timer(function()
+            code, w = codeOf(w), hl.get_window("address:" .. w.address)
+            if not (code and w) then return end
+            adjoin(code, w, termSide)
             focus(code)
             hl.dispatch(hl.dsp.layout("colresize " .. (1 - share)))
             focus(termSide == "left" and w or code)   -- the view to the pair's left edge (see focusPair)
@@ -324,7 +367,7 @@ hl.on("window.open", function(w)
                     if pairing == code.address then pairing = nil; pairNext() end
                 end, { timeout = PAIR_SETTLE_MS, type = "oneshot" })
             end
-        end
+        end, { timeout = 50, type = "oneshot" })
     end
 end)
 

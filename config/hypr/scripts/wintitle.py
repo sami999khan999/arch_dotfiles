@@ -70,9 +70,11 @@ def title():
     t = win.get("title", "").strip()
     for rx in CLEANUP:
         t = rx.sub("", t)
-    full, most = t, MAX - room()
+    # the warning and the clock's long view together can take more than MAX: no room is no title
+    # (a negative cut would slice from the end and keep nearly the whole title)
+    full, most = t, max(MAX - room(), 0)
     if len(t) > most:
-        t = t[:most - 1].rstrip() + "…"
+        t = t[:most - 1].rstrip() + "…" if most > 1 else ""
     return {"text": t, "tooltip": full if full != t else "", "class": "empty" if not t else "window"}
 
 

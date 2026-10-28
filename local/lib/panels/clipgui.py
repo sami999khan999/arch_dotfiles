@@ -3,7 +3,7 @@
 # one walker -m clipboard shows, Super + Ctrl + V), with pinning, a preview and more.
 #
 #   left    tabs: All, Pinned, Text, Images, Links (with counts)
-#   middle  the history, newest first, pinned ones on top (config/elephant/clipboard.toml); typing searches
+#   middle  the history, newest first (pinned ones in their place, marked; walker keeps them on top); typing searches
 #   right   the selected item in full (text, image), its actions
 #
 # Keys: Enter copy and close · Shift+Enter paste into the window under the panel · Ctrl+P pin / unpin · Delete delete
@@ -45,7 +45,7 @@ def elephant(*args, timeout=5):
 
 
 def load():
-    """Every item in the history, newest first (pinned on top): dicts with id, kind, text, path, when, pinned."""
+    """Every item in the history, newest first: dicts with id, kind, text, path, when, pinned."""
     # a filter picked in walker (Ctrl+I: only images…) is elephant's state and would hide items here
     state = elephant("state", "--json", "clipboard")
     if state and '"show_combined"' not in state:
@@ -62,6 +62,8 @@ def load():
         items.append({"id": it["identifier"], "text": text, "path": it.get("preview", "") if is_file else "",
                       "kind": "image" if is_file else "link" if LINK.match(text.strip()) else "text",
                       "when": when, "pinned": "unpin" in it.get("actions", [])})
+    # elephant lists pinned items first (pinned_on_top, for walker); here they keep their place in time
+    items.sort(key=lambda it: -it["when"])
     return items
 
 
@@ -126,7 +128,7 @@ class Clipboard(View):
         self.items, self.tab, self.selected = [], "all", None
         self.armed, self.armed_timer, self.armed_button = None, 0, None
         self.paused = False
-        self.subtitle = "history, pinned on top"
+        self.subtitle = "history, newest first"
 
     # ---- layout ------------------------------------------------------------------------------------------
     def header_extra(self):
@@ -196,7 +198,7 @@ class Clipboard(View):
     def loaded(self, items, paused, then):
         self.items, self.paused = items, paused
         self.pause_b.set_label("Resume" if paused else "Pause")
-        self.set_subtitle("paused: copies aren't recorded" if paused else "history, pinned on top")
+        self.set_subtitle("paused: copies aren't recorded" if paused else "history, newest first")
         if then:
             then()
         self.paint_list()

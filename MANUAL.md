@@ -1103,7 +1103,7 @@ items on top.
 - The right side shows the selected item in full (text you can select, an image) and its actions:
   - `Enter` (or a double-click) copies it and closes; `Shift+Enter` pastes it into the window under the panel
     (`Ctrl+Shift+V` in a terminal).
-  - `Ctrl+P` pins / unpins. Pinned items stay on top and survive Clear history.
+  - `Ctrl+P` pins / unpins. Pinned items keep their place in the list (marked with a pin; the Pinned tab has them all) and survive Clear history.
   - `Delete` deletes; a pinned one asks once.
   - `Ctrl+E` opens it in the editor, `Ctrl+O` opens a link, `Ctrl+S` sends it to the phone with LocalSend
     (text as a `.txt` file).

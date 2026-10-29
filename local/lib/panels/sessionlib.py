@@ -13,7 +13,7 @@
 # agentmux and its project, any other app by its workspace group's command or exactly how it was started.
 # Opening is one item at a time: the next once the last one's window is up and the CPU has calmed down
 # (open_gently), each window on the workspace it was on, while you stay on yours.
-import glob, json, os, re, shlex, signal, struct, subprocess, sys, time
+import glob, json, os, re, shlex, shutil, signal, struct, subprocess, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
 import wsgroups
@@ -32,7 +32,9 @@ REGROUP = os.path.join(RUNTIME, "regroup.json")
 GROUP_COLOURS = ("grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange")   # Chrome's order
 UNIT = "setups-restore"
 TABS = os.path.join(XDG_STATE, "setups", "chrome-tabs.json")    # written by local/lib/downloads/native-host.py
-CHROME_SESSIONS = os.path.join(HOME, ".config/google-chrome/Default/Sessions")   # Chrome's own Session_* files
+CHROME_DATA = os.path.join(HOME, ".config/google-chrome")
+# Chrome's last session, moved here as a restore starts Chrome (set_chrome_session_aside); the one before is dropped
+CHROME_ASIDE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.join(HOME, ".cache")), "setups", "chrome-session")
 AGENTMUX_STATE = os.path.join(XDG_STATE, "agentmux", "state.json")
 PROJECTS_CMD = os.path.join(HOME, ".local/bin/projects")
 AGENTMUX = os.path.join(HOME, ".local/bin/agentmux")
@@ -119,6 +121,42 @@ def shell_cwd(pid):
         return None
 
 
+def chrome_sessions():
+    """The folder of Chrome's own Session_* files: in the profile it last used (Default, or Profile 1… when
+    profiles were added and removed)."""
+    try:
+        profile = json.load(open(os.path.join(CHROME_DATA, "Local State")))["profile"]["last_used"]
+    except (OSError, ValueError, KeyError, TypeError):
+        profile = "Default"
+    return os.path.join(CHROME_DATA, profile or "Default", "Sessions")
+
+
+def chrome_running():
+    """True if Chrome is running: its SingletonLock is a link to "host-pid" while it is."""
+    try:
+        pid = int(os.readlink(os.path.join(CHROME_DATA, "SingletonLock")).rsplit("-", 1)[1])
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def set_chrome_session_aside():
+    """Before a restore's first Chrome window starts Chrome: its last session moved out of its way. Set to
+    "Continue where you left off", Chrome brings that session back with the first window it opens, whatever its
+    command line says (--no-startup-window, --incognito, --app first don't stop it), and the restore's own
+    windows came on top: 17 windows for 9."""
+    if chrome_running():
+        return
+    files = glob.glob(os.path.join(chrome_sessions(), "Session_*"))
+    if not files:
+        return
+    shutil.rmtree(CHROME_ASIDE, ignore_errors=True)
+    os.makedirs(CHROME_ASIDE)
+    for f in files:
+        shutil.move(f, CHROME_ASIDE)
+
+
 def chrome_windows():
     """Chrome's open windows and their tabs: [{title, tabs: [{url, title, pinned, active, group}], groups: [{title,
     color, collapsed}]}] (a tab's group: its index in groups, -1 for none), or None. From the extension's report if
@@ -127,7 +165,7 @@ def chrome_windows():
         reported = os.path.getmtime(TABS)
     except OSError:
         reported = 0
-    files = glob.glob(os.path.join(CHROME_SESSIONS, "Session_*"))
+    files = glob.glob(os.path.join(chrome_sessions(), "Session_*"))
     session = max(files, key=os.path.getmtime) if files else None
     if reported and (not session or reported >= os.path.getmtime(session)):
         try:
@@ -392,7 +430,10 @@ def is_open(item, clients, counts):
 
 def before_open(item):
     """What its window needs once it's up: a Chrome window's tab groups and pinned tabs, left in REGROUP for the
-    extension (Chrome's command line can't make them)."""
+    extension (Chrome's command line can't make them). A Chrome window that starts Chrome: its own last session
+    set aside first."""
+    if item["kind"] == "chrome":
+        set_chrome_session_aside()
     if item["kind"] == "chrome" and (item.get("groups") or item.get("pinned")):
         os.makedirs(RUNTIME, exist_ok=True)
         try:
@@ -406,9 +447,10 @@ def before_open(item):
 
 
 def after_open(item):
-    """What follows its window: agentmux shows the item's project."""
+    """What follows its window: agentmux shows the item's project. Its own unit (uwsm app), like the windows: it
+    may start the agents' tmux server, which would otherwise live on in the restore's unit and keep it loaded."""
     if item["kind"] == "agentmux" and item.get("project"):
-        subprocess.Popen([AGENTMUX, "project", item["project"]], start_new_session=True,
+        subprocess.Popen(["uwsm", "app", "--", AGENTMUX, "project", item["project"]], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -521,13 +563,15 @@ def restoring():
 
 
 def start_restore(sid, name, items):
-    """Open the items in the transient user unit setups-restore: it outlives the panel (closing the panel no
+    """Open the items in a transient user unit, setups-restore-<time>: it outlives the panel (closing the panel no
     longer stops it), stop_restore() stops it. The apps it opens are their own units (uwsm app), so
-    KillMode=process: stopping it never takes a window with it. False if it couldn't start."""
+    KillMode=process: stopping it never takes a window with it. A name of its own each time: a unit with a
+    process left in it stays loaded, and its name couldn't be used again (systemd-run failed). False if it
+    couldn't start."""
+    unit = f"{UNIT}-{int(time.time())}"
     write_restore({"sid": sid, "name": name, "items": items, "states": {}, "state": "starting", "pid": 0,
-                   "at": time.time()})
-    subprocess.run(["systemctl", "--user", "reset-failed", UNIT], capture_output=True)
-    ok = subprocess.run(["systemd-run", "--user", "--quiet", "--collect", f"--unit={UNIT}", "-p", "KillMode=process",
+                   "unit": unit, "at": time.time()})
+    ok = subprocess.run(["systemd-run", "--user", "--quiet", "--collect", f"--unit={unit}", "-p", "KillMode=process",
                          "-p", "TimeoutStopSec=10", sys.executable, os.path.abspath(__file__), "restore"],
                         capture_output=True).returncode == 0
     if not ok:
@@ -536,7 +580,9 @@ def start_restore(sid, name, items):
 
 
 def stop_restore():
-    subprocess.run(["systemctl", "--user", "stop", UNIT], capture_output=True)
+    unit = (restore_job() or {}).get("unit")
+    if unit:
+        subprocess.run(["systemctl", "--user", "stop", unit], capture_output=True)
     job = restore_job()
     if job and job["state"] in ("starting", "running"):   # it never got going, or died: say so
         job["state"] = "stopped"

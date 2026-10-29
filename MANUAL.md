@@ -1133,7 +1133,7 @@ are open, on which workspace, with what in them — and opened again in one go.
   the backdrop goes dark until everything is open, so nothing flickers behind the panel. The rows show
   waiting → opening… → open (how long it took). It adds to what's open: what's there already is left alone
   (that VS Code folder, a terminal in that folder, a single-window app like Discord or a panel); a Chrome
-  window always opens. It runs in the background (the user unit `setups-restore`): closing the panel (`Esc`, a
+  window always opens. It runs in the background (a user unit, `setups-restore-<time>`): closing the panel (`Esc`, a
   click outside it) leaves it going, a notification says when everything is open, and the panel opened again
   shows how far it got. *Stop* (where Open was) stops it after the window being opened; you're free to move around.
 - **After a login:** if the last Log out / Restart / Shutdown (the power menu: the session-end panel saves what's
@@ -1143,8 +1143,8 @@ are open, on which workspace, with what in them — and opened again in one go.
 - **Synced:** setups live in `~/code/.projects/setups.json`, the private project-list repo (never this one: tabs
   are in it). The panel pulls when it opens and commits + pushes each change, so both PCs have the same ones.
   Folders are full paths: a project cloned to the same place (`projects clone`) opens on either PC.
-- **Chrome's tabs** come from Chrome's own session file (`~/.config/google-chrome/Default/Sessions/Session_*`, which
-  Chrome keeps up to date as you browse): each window with its tabs, in order, shown with its current tab's title.
+- **Chrome's tabs** come from Chrome's own session file (`~/.config/google-chrome/<profile>/Sessions/Session_*`, in
+  the profile Chrome last used — `Default` or `Profile 1`…; Chrome keeps it up to date as you browse): each window with its tabs, in order, shown with its current tab's title.
   Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension (Desktop Companion) also reports the tabs
   (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
   is `google-chrome-stable --new-window <its tabs>`; only the current tab loads, the others wait until you go to
@@ -1152,6 +1152,11 @@ are open, on which workspace, with what in them — and opened again in one go.
   **pinned tabs** come back too: the command line can't make them, so the extension does, a couple of seconds
   after the window is up (Setups leaves them in `$XDG_RUNTIME_DIR/setups/regroup.json`; the extension's next
   tab report finds the window by its tabs and the reply says what to group).
+- **Chrome's own restore stays out of it:** set to *Continue where you left off*, Chrome brings its last session
+  back with the first window it opens, and the setup's windows came on top of it (17 windows for 9). So when a
+  restore is the one starting Chrome, Chrome's last session files are moved to `~/.cache/setups/chrome-session/`
+  first (the previous ones there are dropped): only the setup's windows open. With Chrome already running nothing
+  is moved.
 - `python3 ~/.local/lib/panels/sessionlib.py show` prints the last session and the tabs Chrome last reported.
 
 ### System agent

@@ -34,7 +34,8 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 - Event-driven: the script stays running and prints on each change (see `scripts/wintitle.py`,
   which follows Hyprland's `.socket2.sock`). Poll-driven: `"interval": N`. Push-driven:
   `"interval": "once"` + `"signal": N`, refreshed with `pkill -RTMIN+N -x waybar`.
-- Signals taken: 8 workspace buttons, 9 idle, 10 notifications, 11 codesync.
+- Signals taken: 8 workspace buttons, 9 idle, 10 notifications, 11 codesync, 12 downloads, 13 mirror,
+  14 lsend.
 - Clicks that dispatch to Hyprland must use Lua syntax:
   `"on-click": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"1\" })'"`.
   Waybar's built-in Hyprland click actions send legacy commands and silently fail.

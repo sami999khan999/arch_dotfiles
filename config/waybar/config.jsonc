@@ -23,6 +23,7 @@
     "custom/window",
     "custom/divider",
     "custom/mirror",
+    "custom/lsend",
     "custom/downloads",
     "custom/codesync",
     "custom/setups",
@@ -82,6 +83,15 @@
     "interval": "once",
     "signal": 13,
     "on-click": "~/.local/lib/panels/mirrorgui.py"
+  },
+  // LocalSend with the phone: only while files go either way (its %), amber while a device waits for
+  // Accept; the service writes the JSON and signals each change
+  "custom/lsend": {
+    "exec": "cat \"$XDG_RUNTIME_DIR/lsend-bar.json\" 2>/dev/null",
+    "return-type": "json",
+    "interval": "once",
+    "signal": 14,
+    "on-click": "~/.local/lib/panels/lsendgui.py"
   },
   "custom/codesync": {
     "exec": "~/.local/bin/codesync bar",

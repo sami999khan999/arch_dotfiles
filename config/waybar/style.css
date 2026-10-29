@@ -40,7 +40,7 @@ window#waybar {
 #custom-clock, #custom-wsgroups, #custom-setups, #custom-sysagent, #custom-keys, #custom-settings,
 #bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps,
 #custom-idle-indicator, #custom-notifications, #custom-load,
-#custom-window, #mpris, #custom-power, #custom-codesync, #custom-downloads, #custom-mirror, #custom-visualizer {
+#custom-window, #mpris, #custom-power, #custom-codesync, #custom-downloads, #custom-mirror, #custom-lsend, #custom-visualizer {
   padding: 0 10px;
   margin: 0;      /* full bar height, no gaps: dividers and hover blocks meet exactly */
   color: @subtext;
@@ -49,7 +49,7 @@ window#waybar {
 
 #custom-clock:hover, #custom-wsgroups:hover, #custom-setups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
-#memory:hover, #temperature:hover, #custom-fps:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover, #custom-mirror:hover,
+#memory:hover, #temperature:hover, #custom-fps:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover, #custom-mirror:hover, #custom-lsend:hover,
 #custom-visualizer:hover, #custom-load:hover {
   background: @overlay;
   color: @text;
@@ -126,6 +126,10 @@ window#waybar {
 /* mirror: blue while a share waits for the phone, amber while the phone watches / is shown */
 #custom-mirror { color: @accent; }
 #custom-mirror.live { color: #e0af68; }
+
+/* LocalSend: blue with its % while files go, amber while a device waits for Accept */
+#custom-lsend { color: @accent; }
+#custom-lsend.asking { color: #e0af68; }
 
 #wsbuttons {
   margin: 0;

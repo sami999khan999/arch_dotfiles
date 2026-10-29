@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- web.html — LocalSend for a phone without the app: served by lsend.py at https://<PC>:53317/#<code> (the
      code the LocalSend window shows). While it's open the phone is a device in the window: what the PC sends
-     shows here to Save or Decline, and Send files / a message go straight to the PC (only who scanned its code
+     shows here to Save or Decline (one download, several files as a zip: the browser's download manager runs
+     it, so it goes on once this page is closed), and Send files / a message go straight to the PC (only who scanned its code
      has this page). Each pick is a transfer of its own, so several run at once; Activity lists both ways.
      The code is kept for this tab only (sessionStorage: a reload works, closing the tab forgets it) and taken
      out of the address; each file from the PC is fetched with its own one-time key. -->
@@ -166,6 +167,7 @@ async function start() {
 }
 
 const offers = {};
+const fetches = {};   // download id -> what follows it: the PC says when it starts, is saved or breaks off
 function event(ev) {
   if (ev.type === "hello") {
     pc = ev.pc;
@@ -178,15 +180,23 @@ function event(ev) {
     actions(offers[ev.job]);
     offers[ev.job].classList.remove("asking");
     status(offers[ev.job], "cancelled on the PC", "bad");
+  } else if (ev.type === "file") {
+    fetches[ev.file]?.(ev.state);
   }
 }
 
 // ---- from the PC: Save (each file the browser's own download, with its one-time key) or Decline ----
+const HELD = 12000;   // ms without a start: the browser is holding the download (asking where, or whether)
+function download(f) {
+  const a = document.createElement("a");
+  a.href = `/web/file?${new URLSearchParams({ f: f.id, k: f.key })}`;
+  a.download = f.name;
+  a.click();
+}
 function offered(ev) {
-  const text = ev.text != null;
-  const total = ev.files.reduce((n, f) => n + f.size, 0);
-  const what = text ? "Message" : ev.files.length === 1 ? ev.files[0].name : `${ev.files.length} files`;
-  const c = card(text ? MSG.replace("up", "down") : DOWN, what, text ? `from ${pc}` : `from ${pc}  ·  ${size(total)}`);
+  const text = ev.text != null, n = ev.names.length;
+  const what = text ? "Message" : n === 1 ? ev.names[0] : `${n} files`;
+  const c = card(text ? MSG.replace("up", "down") : DOWN, what, text ? `from ${pc}` : `from ${pc}  ·  ${size(ev.total)}`);
   c.classList.add("asking");
   status(c, "wants to send", "wait");
   if (text) {
@@ -194,14 +204,14 @@ function offered(ev) {
     m.className = "msg";
     m.textContent = ev.text;
     c.querySelector(".body").append(m);
-  } else if (ev.files.length > 1) {
-    const n = document.createElement("div");
-    n.className = "names";
-    n.textContent = ev.files.slice(0, 6).map((f) => f.name).join(", ") + (ev.files.length > 6 ? ` and ${ev.files.length - 6} more` : "");
-    c.querySelector(".body").append(n);
+  } else if (n > 1) {
+    const d = document.createElement("div");
+    d.className = "names";
+    d.textContent = ev.names.slice(0, 6).join(", ") + (n > 6 ? ` and ${n - 6} more` : "") + `  ·  as ${ev.file.name}`;
+    c.querySelector(".body").append(d);
   }
   const answer = (yes) => fetch(`/web/answer?${q({ job: ev.job, accept: yes ? "1" : "0" })}`, { method: "POST" });
-  const save = btn(text ? "Copy" : ev.files.length > 1 ? "Save all" : "Save", "", async () => {
+  const save = btn(text ? "Copy" : n > 1 ? "Save all" : "Save", "", async () => {
     actions(c);
     c.classList.remove("asking");
     await answer(true);
@@ -209,15 +219,32 @@ function offered(ev) {
       try { await navigator.clipboard.writeText(ev.text); status(c, "copied", "ok"); } catch { status(c, "received", "ok"); }
       return;
     }
-    status(c, "saving…", "run");
-    for (const f of ev.files) {
-      const a = document.createElement("a");
-      a.href = `/web/file?${new URLSearchParams({ f: f.id, k: f.key })}`;
-      a.download = f.name;
-      a.click();
-      await new Promise((r) => setTimeout(r, 400));   // one after another: the browser takes them all
-    }
-    status(c, "saved: see the browser's downloads", "ok");
+    // the PC says how the download goes; held by the browser (it may ask first) or broken off: Continue
+    const f = ev.file;
+    let held;
+    const go = () => {
+      status(c, "saving…", "run");
+      actions(c);
+      download(f);
+      held = setTimeout(() => stuck(), HELD);
+    };
+    const stuck = (why) => {
+      status(c, why || "waiting for the browser: allow the download, or Continue", why ? "bad" : "wait");
+      actions(c, btn("Continue", "", go));
+    };
+    fetches[f.id] = (state) => {
+      clearTimeout(held);
+      if (state === "started") {
+        status(c, "saving: the browser's downloads show how far", "run");
+        actions(c);
+      } else if (state === "broke") {
+        stuck("it broke off");
+      } else {
+        delete fetches[f.id];
+        status(c, "saved: see the browser's downloads", "ok");
+      }
+    };
+    go();
   });
   const no = btn("Decline", "flat", () => {
     actions(c);

@@ -731,13 +731,18 @@ shows up in it under its hostname; no LocalSend package on the PC.
   announced fails instead of being kept (an empty JPG opened in the browser: there was no picture to read
   its type from). Uploads with or without a length (chunked) both work. A message shows with Copy. Activity lists both
   ways with progress, Cancel, Open, Show in Files.
+- **The bar:** while files go either way, a send icon with the % shows in the bar (amber while a device
+  waits for Accept; a click opens the window). Closing the window never stops a transfer: the service runs it.
 - **A phone without the app** (`b`, Phone without the app): a code to scan opens LocalSend in the phone's
   browser (`local/lib/lsend/web.html`, served by the service on the same port; the browser warns about this
   PC's own certificate once: Advanced → Proceed). While that page is open the phone is in Devices (a globe),
   and both ways work as with the app: what the PC sends shows on the page to Save (the browser's own
-  download, each file with a one-time key) or Decline; Choose files / a message on the page land in `~/Downloads`
+  download, with a one-time key; several files come as one zip, folders kept and stored as they are, as a
+  phone's browser holds or drops a burst of downloads (100 at once: 5 came). The browser's download manager
+  runs it, so it goes on with the page closed or the screen off; if the browser holds it, allow it or tap
+  Continue) or Decline; Choose files / a message on the page land in `~/Downloads`
   without an Accept here (only who scanned this PC's code has the page; the app's transfers still ask). The code lasts until you log out; the page
-  keeps it for that tab only. Closing the page takes the phone off the list. On the page, each Send files
+  keeps it for that tab only. Closing the page takes the phone off the list (a download already running goes on). On the page, each Send files
   is a transfer of its own (progress, speed, time left, Cancel), so several run at once; Activity lists both
   ways, newest first.
 - **Several at once:** transfers no longer wait for each other, in either direction or from either kind of

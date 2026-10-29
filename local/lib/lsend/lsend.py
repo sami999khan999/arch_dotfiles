@@ -7,22 +7,28 @@
 #   lsend send <file>…      opens the window with these files picked (Files' "Send to phone")
 # A phone without the app: the window's code opens web.html (beside this file) in its browser, from this same
 # HTTPS server; while that page is open the phone is a device like the others ("browser"). Sending to it
-# offers the files on the page (Save / Decline), each fetched with a one-time key (so its download list keeps
-# no address that works again); what it sends is taken without asking (only who scanned this PC's code has
-# the page), then the same upload as the app's.
+# offers the files on the page (Save / Decline): one download with a one-time key (so its download list keeps
+# no address that works again), several files as one zip (a phone's browser holds or drops a burst of
+# downloads); the browser's download manager runs it, so it goes on once the page is closed. What the page
+# sends is taken without asking (only who scanned this PC's code has the page), then the same upload as the app's.
 # Safe by default: HTTPS with this PC's own certificate (~/.local/share/lsend, never in the repo); every
 # transfer to this PC is asked first in the window; only private-network addresses are answered; a
 # device's certificate must match the fingerprint it announced before anything is sent to it; uploads
 # need the session's per-file token from the address that asked; names can't climb out of ~/Downloads.
 # The window (local/lib/panels/lsendgui.py) talks to the service over a Unix socket, JSON lines:
 # it sends {"op": …} requests and gets every event; nothing polls (blocking sockets, no timers).
+# The bar: $XDG_RUNTIME_DIR/lsend-bar.json while something goes either way, waybar's custom/lsend reads it
+# on signal 14 (sent only when what it shows changes).
 import hashlib, http.client, http.server, ipaddress, json, mimetypes, os, secrets, socket, socketserver
-import queue, ssl, struct, subprocess, sys, threading, time, urllib.parse
+import queue, ssl, struct, subprocess, sys, threading, time, urllib.parse, zipfile
 from datetime import datetime, timezone
 
 HOME = os.path.expanduser("~")
 DATA = os.path.join(os.environ.get("XDG_DATA_HOME") or f"{HOME}/.local/share", "lsend")
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "lsend.sock")
+BAR = os.path.join(os.path.dirname(SOCK), "lsend-bar.json")
+BAR_SIGNAL = 14
+G_SEND = "\U000f048a"
 DOWNLOADS = f"{HOME}/Downloads"
 UNITS = f"{HOME}/.config/systemd/user"
 GUI = f"{HOME}/.local/lib/panels/lsendgui.py"
@@ -149,8 +155,10 @@ class Service:
         self.incoming = {}       # session id -> {from, files, state, tokens, event, answer…}
         self.outgoing = {}       # job id -> {device, files, state…}
         self.watchers = []       # the window's connections
+        self.bar_lock, self.bar_text = threading.Lock(), None
         self.web_token = web_token()   # in the code the window shows: opens the browser page
-        self.pages = {}          # browser device fingerprint -> {queue (its events), offers: fid -> offer}
+        self.pages = {}          # browser device fingerprint -> {queue (its events)}
+        self.offers = {}         # offer id -> what a browser page may download (one per job)
         self.client_ctx = ssl.create_default_context()
         # a device's certificate is self-signed: no CA can vouch for it; it's checked against the
         # fingerprint the device announced instead (pinned), before anything is sent
@@ -166,6 +174,8 @@ class Service:
 
     # -- events to the window --
     def emit(self, ev):
+        if ev["ev"] in ("state", "incoming", "outgoing"):
+            self.update_bar()
         line = (json.dumps(ev) + "\n").encode()
         with self.lock:
             watchers = list(self.watchers)
@@ -174,6 +184,37 @@ class Service:
                 conn.sendall(line)
             except OSError:
                 self.drop_watcher(conn)
+
+    def update_bar(self):
+        """The bar's icon: what goes either way, its % (amber: a device waits for Accept); hidden when idle."""
+        with self.lock:
+            moving = [s for s in self.incoming.values() if s["state"] == "receiving"] + \
+                     [j for j in self.outgoing.values() if j["state"] == "sending"]
+            asking = [s for s in self.incoming.values() if s["state"] == "asking"]
+            names = [f"{'from ' + t['from'] if 'from' in t else 'to ' + t['to']}: {len(t['files'])} "
+                     f"file{'s' if len(t['files']) > 1 else ''}" for t in asking + moving]
+        tip = "\n".join(names) + "\nSuper + Ctrl + D"
+        if asking:
+            bar = {"text": G_SEND, "class": "asking", "tooltip": "Waiting for Accept\n" + tip}
+        elif moving:
+            total = sum(t["total"] for t in moving)
+            pct = sum(t["done_bytes"] for t in moving) * 100 // total if total else 0
+            bar = {"text": f"{G_SEND} {pct}%", "class": "active", "tooltip": tip}
+        else:
+            bar = {"text": ""}
+        text = json.dumps(bar)
+        with self.bar_lock:
+            if text == self.bar_text:
+                return
+            self.bar_text = text
+            with open(BAR, "w") as f:
+                f.write(text + "\n")
+        sys.path.insert(0, f"{HOME}/.local/lib/hypr")
+        try:
+            import waybarsig
+            waybarsig.send(BAR_SIGNAL)
+        except ImportError:
+            pass
 
     def drop_watcher(self, conn):
         with self.lock:
@@ -437,7 +478,7 @@ class Service:
         fp = f"WEB-{page}"
         q = queue.Queue()
         with self.lock:
-            self.pages[fp] = {"queue": q, "offers": {}}
+            self.pages[fp] = {"queue": q}
             self.devices[fp] = {"fingerprint": fp, "alias": str(name or "Phone")[:64], "model": "browser",
                                 "type": "browser", "ip": ip, "port": PORT, "protocol": "web", "seen": time.time()}
         self.devices_changed()
@@ -457,12 +498,12 @@ class Service:
             pass
         finally:
             with self.lock:
-                page_ = self.pages.pop(fp, None)
+                self.pages.pop(fp, None)
                 self.devices.pop(fp, None)
-            for o in (page_ or {}).get("offers", {}).values():   # what it never saved: failed, not left asking
-                if o["job"]["state"] in ("asking", "sending"):
-                    o["job"].update(state="failed", error="the page was closed")
-                    self.emit({"ev": "outgoing", "job": dict(o["job"])})
+                mine = [o for o in self.offers.values() if o["job"]["fingerprint"] == fp]
+            for o in mine:   # a download running is the browser's now; what never started: failed, not left asking
+                if o["job"]["state"] == "asking" or o["job"]["state"] == "sending" and not o["active"]:
+                    self.drop_offer(o, "the page was closed")
             self.devices_changed()
 
     def page_close(self, page):
@@ -472,21 +513,38 @@ class Service:
             pg["queue"].put("bye")
 
     def offer(self, job, dev, files, sources):
-        """Files for a browser page: shown there to Save or Decline; each fetched once, with its own key."""
+        """Files for a browser page: shown there to Save or Decline; one download (several files: a zip), its
+        key good until it has gone whole."""
         with self.lock:
             pg = self.pages.get(dev["fingerprint"])
         if not pg:
             job.update(state="failed", error="the page was closed")
             self.emit({"ev": "outgoing", "job": dict(job)})
             return
-        shown = []
-        for fid, f in files.items():
-            o = {"job": job, "name": os.path.basename(f["fileName"]), "size": f["size"], "src": sources[fid],
-                 "key": secrets.token_urlsafe(18), "done": False}
-            pg["offers"][fid] = o
-            shown.append({"id": fid, "name": o["name"], "size": o["size"], "key": o["key"]})
-        pg["queue"].put({"type": "offer", "job": job["id"], "text": job.get("text"), "files": [] if job.get("text")
-                         is not None else shown})
+        parts = [(sources[fid], f["fileName"], f["size"], os.stat(sources[fid]).st_mtime)
+                 for fid, f in files.items() if job.get("text") is None]
+        o = {"job": job, "id": secrets.token_hex(8), "parts": parts, "zip": len(parts) > 1,
+             "key": secrets.token_urlsafe(18), "done": False, "active": False, "queue": pg["queue"]}
+        if o["zip"]:
+            tops = {rel.split(os.sep)[0] for _p, rel, _s, _m in parts}   # a folder sent whole: named after it
+            o["name"] = f"{tops.pop() if len(tops) == 1 and os.sep in parts[0][1] else alias() + ' ' + datetime.now().strftime('%Y-%m-%d %H.%M')}.zip"
+            size = Sink()
+            write_zip(parts, size)   # zeros: the zip's exact length, so the phone shows how far it is
+            o["size"] = size.n
+        elif parts:
+            o["name"], o["size"] = os.path.basename(parts[0][1]), parts[0][2]
+        with self.lock:
+            self.offers[o["id"]] = o
+        pg["queue"].put({"type": "offer", "job": job["id"], "text": job.get("text"), "total": job["total"],
+                         "names": [os.path.basename(rel) for _p, rel, _s, _m in parts],
+                         "file": {"id": o["id"], "name": o["name"], "size": o["size"], "key": o["key"]} if parts else None})
+
+    def drop_offer(self, o, error):
+        with self.lock:
+            self.offers.pop(o["id"], None)
+        if o["job"]["state"] in ("asking", "sending"):
+            o["job"].update(state="failed", error=error)
+            self.emit({"ev": "outgoing", "job": dict(o["job"])})
 
     def offer_answer(self, page, jid, accept):
         with self.lock:
@@ -502,26 +560,49 @@ class Service:
             job["state"] = "sending"
         self.emit({"ev": "outgoing", "job": dict(job)})
 
-    def offered(self, fid, key):
-        """The offer a download asks for, if its key is right; the key works until the file has gone whole."""
+    def offered(self, oid, key):
+        """The offer a download asks for, if its key is right and it isn't being downloaded already."""
         with self.lock:
-            for pg in self.pages.values():
-                o = pg["offers"].get(fid)
-                if o and not o["done"] and o["job"]["state"] == "sending" and \
-                        secrets.compare_digest(o["key"].encode(), str(key or "").encode()):
-                    return o
+            o = self.offers.get(oid)
+            if o and not o["active"] and o["job"]["state"] == "sending" and \
+                    secrets.compare_digest(o["key"].encode(), str(key or "").encode()):
+                o["active"] = True
+                return o
         return None
 
-    def served(self, o, n, whole):
+    def fetching(self, o, state):
+        """Tell the page how the download goes (started / saved / broke): held by the browser or broken off,
+        it offers Continue. The page may be closed by now: then nobody reads its queue."""
+        o["queue"].put({"type": "file", "job": o["job"]["id"], "file": o["id"], "state": state})
+
+    def progress(self, o, n):
+        o["job"]["done_bytes"] += n
+        if time.time() - o.get("shown", 0) > PROGRESS_EVERY:
+            o["shown"] = time.time()
+            self.emit({"ev": "outgoing", "job": dict(o["job"])})
+
+    def served(self, o, whole):
+        """The download ended: saved, or broken off (the page asks again; closed, nobody will)."""
+        o["active"] = False
         job = o["job"]
-        job["done_bytes"] += n
         if whole:
-            o["done"] = True
             with self.lock:
-                left = [x for pg in self.pages.values() for x in pg["offers"].values() if x["job"] is job and not x["done"]]
-            if not left:
-                job.update(state="done", done_bytes=job["total"])
-        self.emit({"ev": "outgoing", "job": dict(job)})
+                self.offers.pop(o["id"], None)
+            self.fetching(o, "saved")
+            job.update(state="done", done_bytes=job["total"])
+            self.emit({"ev": "outgoing", "job": dict(job)})
+            return
+        job["done_bytes"] = 0
+        with self.lock:
+            open_ = job["fingerprint"] in self.pages
+        if job["state"] != "sending":   # cancelled here
+            with self.lock:
+                self.offers.pop(o["id"], None)
+        elif open_:
+            self.fetching(o, "broke")
+            self.emit({"ev": "outgoing", "job": dict(job)})
+        else:
+            self.drop_offer(o, "the download broke off, and the page is closed")
 
     # -- receiving --
     def ask(self, info, files, ip, trusted=False):
@@ -644,6 +725,8 @@ class Service:
             for d in (self.incoming, self.outgoing):
                 for k in [k for k, v in d.items() if v["state"] not in ("asking", "receiving", "sending")]:
                     del d[k]
+            for k in [k for k, o in self.offers.items() if o["job"]["id"] not in self.outgoing]:
+                del self.offers[k]
         self.emit(self.snapshot())
 
     # -- the window's socket --
@@ -704,6 +787,7 @@ class Service:
         threading.Thread(target=self.listen_multicast, daemon=True).start()
         threading.Thread(target=self.serve_window, daemon=True).start()
         self.announce()
+        self.update_bar()   # a restart: nothing goes any more
         print(f"lsend: {alias()} on port {PORT} (fingerprint {self.fingerprint[:16]}…)", flush=True)
         server.serve_forever()
 
@@ -749,6 +833,57 @@ class Chunked:
         if not self.left:
             self.f.readline(1024)   # the CRLF after each chunk
         return data
+
+
+class Sink:
+    """Where a zip is written: counts what goes through (write None: counts only, the zip's length)."""
+
+    def __init__(self, write=None):
+        self.out, self.n = write, 0
+
+    def write(self, data):
+        if self.out:
+            self.out(data)
+        self.n += len(data)
+        return len(data)
+
+    def flush(self):
+        pass
+
+
+ZEROS = bytes(1 << 20)
+
+
+def copy_part(part, write, progress=None, job=None):
+    """A file's bytes, exactly the size it was offered with (a file changed since: fails, never a wrong length).
+    progress None: zeros of that size instead (measuring the zip)."""
+    path, _rel, size, _mtime = part
+    if not progress:
+        for at in range(0, size, len(ZEROS)):
+            write(ZEROS[:size - at])
+        return
+    left = size
+    with open(path, "rb") as f:
+        while left:
+            if job.get("cancel"):
+                raise OSError("cancelled")
+            data = f.read(min(left, 1 << 20))
+            if not data:
+                raise OSError(f"{path} got shorter")
+            write(data)
+            left -= len(data)
+            progress(len(data))
+
+
+def write_zip(parts, sink, progress=None, job=None):
+    """parts as one zip, stored (photos, music, videos don't compress), its folders kept, streamed to sink."""
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_STORED) as z:
+        for part in parts:
+            _path, rel, size, mtime = part
+            info = zipfile.ZipInfo(safe_name(rel), time.localtime(max(mtime, 315532800))[:6])   # zip's dates start in 1980
+            info.file_size = size
+            with z.open(info, "w") as w:
+                copy_part(part, w.write, progress, job)
 
 
 def walk(path):
@@ -829,20 +964,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             o = svc.offered(q.get("f"), q.get("k"))
             if not o:
                 return self.reply(404)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(o["size"]))
-            self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{urllib.parse.quote(o['name'])}")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            sent = 0
-            with open(o["src"], "rb") as f:
-                while data := f.read(1 << 20):
-                    self.wfile.write(data)
-                    sent += len(data)
-                    svc.served(o, len(data), sent == o["size"])
-            if not o["size"]:
-                svc.served(o, 0, True)
+            whole = False
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip" if o["zip"] else "application/octet-stream")
+                self.send_header("Content-Length", str(o["size"]))
+                self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{urllib.parse.quote(o['name'])}")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                svc.fetching(o, "started")
+                out = Sink(self.wfile.write)
+                if o["zip"]:
+                    write_zip(o["parts"], out, lambda n: svc.progress(o, n), o["job"])
+                else:
+                    copy_part(o["parts"][0], out.write, lambda n: svc.progress(o, n), o["job"])
+                whole = out.n == o["size"]
+            except OSError:   # the browser dropped it, or it was cancelled here
+                pass
+            finally:
+                svc.served(o, whole)
+            self.close_connection = not whole
             return
         self.reply(404)
 

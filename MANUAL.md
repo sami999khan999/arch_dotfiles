@@ -1148,10 +1148,13 @@ are open, on which workspace, with what in them — and opened again in one go.
   Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension (Desktop Companion) also reports the tabs
   (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
   is `google-chrome-stable --new-window <its tabs>`; only the current tab loads, the others wait until you go to
-  them (the extension's dormant tabs, under Downloads). Its **tab groups** (title, colour, folded or not) and
-  **pinned tabs** come back too: the command line can't make them, so the extension does, a couple of seconds
-  after the window is up (Setups leaves them in `$XDG_RUNTIME_DIR/setups/regroup.json`; the extension's next
-  tab report finds the window by its tabs and the reply says what to group).
+  them (the extension's dormant tabs, under Downloads). **Tab groups are left to Chrome:** it keeps every group
+  in its saved groups strip (left of the bookmarks bar), where a click reopens it, so a window opens only its tabs
+  that weren't in a group. (Setups used to make the groups again, and Chrome saved each one once more: a new set
+  of dots at every restore. Delete extras there: right-click a dot → Delete group.) **Pinned tabs** come back:
+  the command line can't pin, so the extension does, a couple of seconds after the window is up (Setups leaves
+  them in `$XDG_RUNTIME_DIR/setups/regroup.json`; the extension's next tab report finds the window by its tabs
+  and the reply says what to pin).
 - **Chrome's own restore stays out of it:** set to *Continue where you left off*, Chrome brings its last session
   back with the first window it opens, and the setup's windows came on top of it (17 windows for 9). So when a
   restore is the one starting Chrome, Chrome's last session files are moved to `~/.cache/setups/chrome-session/`

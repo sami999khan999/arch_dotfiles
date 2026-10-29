@@ -26,7 +26,7 @@ SAVED = os.path.join(STATE, "saved.json")   # the last session, waiting to be of
 ASKED = os.path.join(STATE, "asked.json")   # offered (restored or not): still listed, never asked about again
 RUNTIME = os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "setups")
 RESTORE = os.path.join(RUNTIME, "restore.json")   # the restore under way: its items and how far each got
-# Chrome windows being opened whose tab groups and pinned tabs are still to be put back: the extension's next
+# Chrome windows being opened whose pinned tabs are still to be put back: the extension's next
 # tab report (local/lib/downloads/native-host.py) finds each one's window and has the extension do it
 REGROUP = os.path.join(RUNTIME, "regroup.json")
 GROUP_COLOURS = ("grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange")   # Chrome's order
@@ -278,7 +278,7 @@ def detail_of(item):
             if host and host not in sites:
                 sites.append(host)
         groups = len(item.get("groups") or [])
-        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (f" · {groups} group{'s' * (groups != 1)}" if groups else "") \
+        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (f" · {groups} group{'s' * (groups != 1)} (Chrome's own)" if groups else "") \
             + (" · " + ", ".join(sites[:4]) if sites else "")
         return f"{item['title']} · {tabs}" if item.get("title") else tabs   # its current tab: which window it is
     if item["kind"] == "code":
@@ -388,13 +388,23 @@ def app_item(cls, name, argv):
 
 
 # ---- opening ---------------------------------------------------------------------------------------------
+def loose_tabs(item):
+    """A Chrome window's tabs that weren't in a tab group, and which of them are pinned (their places among
+    those): what opening it brings back. Chrome keeps every tab group in its saved groups strip (bookmarks bar),
+    where a click reopens it; a group made again here was saved once more, a new dot per group at every restore."""
+    grouped = {i for g in item.get("groups") or [] for i in g.get("tabs", [])}
+    keep = [i for i in range(len(item.get("urls") or [])) if i not in grouped]
+    pinned = set(item.get("pinned") or [])
+    return [item["urls"][i] for i in keep], [n for n, i in enumerate(keep) if i in pinned]
+
+
 def argv_of(item):
     """(argv, cwd) that opens this item's window."""
     kind = item["kind"]
     if kind == "chrome":
         if item.get("incognito"):
             return ["google-chrome-stable", "--incognito"], None
-        return ["google-chrome-stable", "--new-window", *(item.get("urls") or [])], None
+        return ["google-chrome-stable", "--new-window", *loose_tabs(item)[0]], None
     if kind == "code":
         return ["code", "--new-window", *([item["folder"]] if item.get("folder") else [])], None
     if kind == "kitty":
@@ -429,19 +439,19 @@ def is_open(item, clients, counts):
 
 
 def before_open(item):
-    """What its window needs once it's up: a Chrome window's tab groups and pinned tabs, left in REGROUP for the
-    extension (Chrome's command line can't make them). A Chrome window that starts Chrome: its own last session
-    set aside first."""
-    if item["kind"] == "chrome":
-        set_chrome_session_aside()
-    if item["kind"] == "chrome" and (item.get("groups") or item.get("pinned")):
+    """What its window needs once it's up: a Chrome window's pinned tabs, left in REGROUP for the extension
+    (Chrome's command line can't pin). A Chrome window that starts Chrome: its own last session set aside first."""
+    if item["kind"] != "chrome":
+        return
+    set_chrome_session_aside()
+    urls, pinned = loose_tabs(item)
+    if pinned:
         os.makedirs(RUNTIME, exist_ok=True)
         try:
             pending = [p for p in json.load(open(REGROUP)) if time.time() - p["at"] < 120]
         except (OSError, ValueError, KeyError, TypeError):
             pending = []
-        pending.append({"at": time.time(), "urls": item.get("urls") or [], "pinned": item.get("pinned") or [],
-                        "groups": item.get("groups") or []})
+        pending.append({"at": time.time(), "urls": urls, "pinned": pinned, "groups": []})
         with open(REGROUP, "w") as f:
             json.dump(pending, f)
 

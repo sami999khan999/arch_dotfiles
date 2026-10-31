@@ -302,6 +302,10 @@ def capture(clients=None):
     clients = [c for c in (query("clients") if clients is None else clients) or []
                if c.get("class") and not c["class"].startswith(SKIP) and c.get("mapped", True)]
     clients.sort(key=lambda c: (c["workspace"]["id"] <= 0, c["workspace"]["id"]))
+    # each window's place on its workspace, as Super + Q…P counts them: the restore opens them in that order
+    places = {}
+    for ws in {c["workspace"]["id"] for c in clients}:
+        places.update({w["address"]: n for n, w in enumerate(wsgroups.windows(ws, clients))})
     items = []
     chrome = [c for c in clients if c["class"] == CHROME]
     tabs = chrome_windows() if chrome else None
@@ -331,12 +335,14 @@ def capture(clients=None):
             # its tab groups and pinned tabs, by their place among the tabs kept
             looks = w.get("groups") or []
             groups = [dict(g, tabs=[i for i, t in enumerate(kept) if t.get("group", -1) == n]) for n, g in enumerate(looks)]
-            items.append(make_item("chrome", CHROME, win["workspace"]["name"], urls=[t["url"] for t in kept],
+            items.append(make_item("chrome", CHROME, win["workspace"]["name"], place=places.get(win["address"], 99),
+                                   urls=[t["url"] for t in kept],
                                    pinned=[i for i, t in enumerate(kept) if t.get("pinned")],
                                    groups=[g for g in groups if g["tabs"]],
                                    title=w.get("title") or win["title"].removesuffix(suffix)))
         for c in free:   # a window Chrome didn't record is incognito: kept as one, its tabs never are
-            items.append(make_item("chrome", CHROME, c["workspace"]["name"], urls=[], incognito=True))
+            items.append(make_item("chrome", CHROME, c["workspace"]["name"], place=places.get(c["address"], 99),
+                                   urls=[], incognito=True))
     elif chrome:   # Chrome's tabs unknown (no session file yet): it reopens its own last session
         item = make_item("app", CHROME, chrome[0]["workspace"]["name"],
                          argv=["google-chrome-stable", "--restore-last-session"])
@@ -346,6 +352,7 @@ def capture(clients=None):
         cls, ws = c["class"], c["workspace"]["name"]
         if cls == CHROME:
             continue
+        at = len(items)
         if cls in CODE:
             items.append(make_item("code", cls, ws, folder=resolve_folder(code_folder_name(c["title"]))))
         elif cls == "kitty":
@@ -362,6 +369,8 @@ def capture(clients=None):
                     continue
             if argv:
                 items.append(make_item("app", cls, ws, name=name_of(c), argv=argv, cwd=cwd))
+        if len(items) > at:
+            items[-1]["place"] = places.get(c["address"], 99)
     # several windows of one process with the same command (an app's own windows): it reopens them itself
     seen, out = set(), []
     for it in items:
@@ -370,7 +379,7 @@ def capture(clients=None):
             continue
         seen.add(key)
         out.append(it)
-    return sorted(out, key=ws_order)
+    return sorted(out, key=lambda it: (ws_order(it), it.get("place", 99)))
 
 
 def ws_order(item):
@@ -473,7 +482,7 @@ def cpu_busy(seconds=0.5):
     return 1 - (i2 - i1) / max(1, t2 - t1)
 
 
-def open_gently(item, stop, held=None, timeout=30, calm=0.5, settle=15):
+def open_gently(item, stop, held=None, opened=None, timeout=30, calm=0.5, settle=15):
     """Open one item and wait until its window is up, then until the CPU is under `calm` (at most `settle`
     s): the next one starts on a quiet system, not on top of this one's start-up. Its window goes to the
     workspace it was on, the screen stays where it is. Returns the seconds its window took, or None (no window).
@@ -505,6 +514,8 @@ def open_gently(item, stop, held=None, timeout=30, calm=0.5, settle=15):
     if not new:
         return None
     took = time.monotonic() - start
+    if opened is not None:
+        opened.append(new["address"])
     if new["workspace"]["name"] != item["workspace"]:
         wsgroups.dispatch(f'hl.dsp.window.move({{ workspace = "{item["workspace"]}", follow = false, '
                           f'window = "address:{new["address"]}" }})')
@@ -552,7 +563,7 @@ def open_items(items, stop, progress):
         if c["class"] == "kitty":
             key = ("kitty", shell_cwd(c["pid"]))
             counts[key] = counts.get(key, 0) + 1
-    held, home = {}, (query("activeworkspace") or {}).get("name")
+    held, opened, home = {}, [], (query("activeworkspace") or {}).get("name")
     try:
         for i, item in enumerate(items):
             if stop():
@@ -562,13 +573,14 @@ def open_items(items, stop, progress):
                 progress(i, "done", "already open")
                 continue
             progress(i, "busy", "opening…")
-            took = open_gently(item, stop, held)
+            took = open_gently(item, stop, held, opened)
             if took is None and stop():   # stopped while it was starting: it may still come up
                 progress(i, "wait", "stopped")
                 return
             progress(i, "stuck", "no window") if took is None else progress(i, "done", f"open · {took:.1f} s")
     finally:
         release_quiet(held, home)
+        wsgroups.arrange(opened)   # Super + Q…P as they were: the items are in that order (capture)
 
 
 # ---- a restore, in the background --------------------------------------------------------------------------

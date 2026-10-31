@@ -125,6 +125,25 @@ def place(address, to, clients=None):
     return True
 
 
+def arrange(addresses, clients=None):
+    """These windows first on their workspaces, in this order, the others after them as they were (a Setups
+    restore: Super + Q…P as they were when it was saved)."""
+    clients = clients if clients is not None else query("clients") or []
+    live = {c["address"]: c for c in clients}
+    addresses = [a for a in addresses if a in live]
+    order = []
+    for ws in dict.fromkeys(live[a]["workspace"]["id"] for a in addresses):
+        mine = [a for a in addresses if live[a]["workspace"]["id"] == ws]
+        order += mine + [c["address"] for c in windows(ws, clients) if c["address"] not in mine]
+    if not order:
+        return
+    keep = [a for a in load_order() if a in live and a not in order]
+    os.makedirs(STATE, exist_ok=True)
+    with open(ORDER, "w") as f:   # a plain file in ~/.local/state
+        json.dump(keep + order, f)
+    refresh_bars()
+
+
 def bar_pids():
     """The pids of the running bar modules; files of ones that ended are dropped (a pid can be reused)."""
     pids = []

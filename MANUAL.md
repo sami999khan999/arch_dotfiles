@@ -1149,6 +1149,11 @@ are open, on which workspace, with what in them — and opened again in one go.
   window always opens. It runs in the background (a user unit, `setups-restore-<time>`): closing the panel (`Esc`, a
   click outside it) leaves it going, a notification says when everything is open, and the panel opened again
   shows how far it got. *Stop* (where Open was) stops it after the window being opened; you're free to move around.
+- **Windows in their places:** a setup keeps each window's place on its workspace (`Super + Q`, `W`, `E`… as they
+  were, your own order from the Workspaces panel included), opens them in that order and puts the order back
+  once all are open; a window that was there already comes after them. An app whose first window is a splash
+  (Discord's updater) still opens without moving the screen: the workspace rules stay quiet until the whole
+  restore is open and its windows have stopped coming.
 - **After a login:** if the last Log out / Restart / Shutdown (the power menu: the session-end panel saves what's
   open before it closes anything) left windows open, Setups opens with Last session selected: `Enter` opens it
   again, another setup can be picked instead, `Esc` leaves everything closed. Asked once either way; Last

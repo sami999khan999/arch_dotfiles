@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); LocalSend and Mirror through the firewall; snapshots listable, 10 kept; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); dev servers at normal priority and kept in RAM; LocalSend and Mirror through the firewall; snapshots listable, 10 kept; Docker closed to the network + its on/off switch; the data drive, where it's attached
 pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
@@ -205,6 +205,14 @@ for the toolchains that don't come from pacman.
   VS Code. `Ctrl+Shift+C` opens kitty in the project folder instead (`local/bin/kitty-here`, set
   as `terminal.external.linuxExec`), also as its own app. Memory rarely runs out at all: a 16 GB
   SSD swapfile (`system/swap-setup.sh`) takes what overflows zram, so oomd's 90 % swap line is far away.
+- Dev servers (`pnpm dev`, `next dev`, tsx watch…) aren't held back by the rest of the desktop:
+  CachyOS's ananicy-cpp ran node, bun and deno at idle priority (nice 16, `SCHED_IDLE`), so a first
+  Next.js page took 35 s instead of under 2; `system/devspeed/node.rules` puts them at the editor's
+  priority. And what runs in a tmux pane (agentmux's terminals and agents) is swapped out last, up to
+  3 GB a pane (systemd `MemoryLow`, `setup/systemd/`): a server you left while in the browser answers
+  at once, the browser's idle tabs go to swap first. Both need `system/root-setup.sh` once; a dev
+  server started before that keeps idle priority until restarted. Check: `chrt -p $(pgrep -f next-server)`
+  says `SCHED_OTHER`.
 - Per-project versions: put a `mise.toml` in the project (`mise use node@22`).
 - `Super + Shift + C` jumps to or opens VS Code.
 

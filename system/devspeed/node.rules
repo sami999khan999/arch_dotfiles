@@ -1,0 +1,7 @@
+# ananicy-cpp rules (installed into /etc/ananicy.d/99-local/ by system/root-setup.sh): JavaScript runtimes at
+# normal priority. CachyOS's default rules make node, bun and deno BG_CPUIO (nice 16, SCHED_IDLE, idle I/O),
+# so a dev server only ran when nothing else wanted the CPU: on a busy desktop a first Next.js page took 35 s
+# to compile, 1.6 s once its priority was normal. Doc-View = nice -4, like the editor and the browser.
+{ "name": "node", "type": "Doc-View" }
+{ "name": "bun", "type": "Doc-View" }
+{ "name": "deno", "type": "Doc-View" }

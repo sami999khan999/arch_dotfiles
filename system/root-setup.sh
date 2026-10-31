@@ -75,7 +75,25 @@ else
   echo "   no docker: skipped"
 fi
 
-echo "== 5. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+echo "== 5. Dev servers: normal CPU priority, their memory swapped out last"
+# CachyOS's ananicy-cpp ran node / bun / deno at idle priority: a dev server waited behind everything else
+if [ -d /etc/ananicy.d ]; then
+  install -Dm644 "$REPO/system/devspeed/node.rules" /etc/ananicy.d/99-local/node.rules
+  systemctl try-restart ananicy-cpp
+  echo "   wrote /etc/ananicy.d/99-local/node.rules"
+fi
+# The tmux panes (dev servers, agents) ask to be swapped out last (setup/systemd/tmux-pane-memory.conf); a
+# cgroup is only protected up to what its parents are, and these parents are system units
+for unit in user.slice user-.slice user@.service; do
+  section=Slice; [ "$unit" = user@.service ] && section=Service
+  mkdir -p "/etc/systemd/system/$unit.d"
+  printf '# system/root-setup.sh: lets the tmux panes keep their memory (setup/systemd/tmux-pane-memory.conf)\n[%s]\nMemoryLow=4G\n' \
+    "$section" > "/etc/systemd/system/$unit.d/memory.conf"
+done
+systemctl daemon-reload
+echo "   MemoryLow=4G on user.slice, user-*.slice, user@*.service"
+
+echo "== 6. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
 uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
 if [ ! -e "/dev/disk/by-uuid/${uuid#UUID=}" ]; then
   echo "   that drive isn't in this PC: skipped"

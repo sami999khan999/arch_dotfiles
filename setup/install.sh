@@ -93,6 +93,12 @@ link_children "$REPO/local/lib" "$HOME/.local/lib"
 
 head_ "waybar  ->  one bar per screen (a drop-in for its systemd service)"
 link "$REPO/config/waybar/waybar.service.conf" "$HOME/.config/systemd/user/waybar.service.d/screens.conf"
+
+head_ "tmux panes (dev servers, agents) swapped out last (systemd drop-ins)"
+link "$REPO/setup/systemd/tmux-pane-memory.conf" "$HOME/.config/systemd/user/tmux-spawn-.scope.d/memory.conf"
+for slice in app app-graphical; do
+  link "$REPO/setup/systemd/app-memory.conf" "$HOME/.config/systemd/user/$slice.slice.d/memory.conf"
+done
 (( DRY )) || systemctl --user daemon-reload
 
 head_ "cursors ->  ~/.icons"
@@ -143,7 +149,7 @@ Once on a new PC, to make it the same as the others (MANUAL.md "Bootstrap a new 
   pkexec ~/dotfiles/system/greeter/install.sh   login screen (greetd + noctalia-greeter)
   pkexec ~/dotfiles/system/boot-splash.sh       loading screen at boot and shutdown
   pkexec ~/dotfiles/system/swap-setup.sh        SSD swapfile after zram
-  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, snapshots listable + 10 kept, Docker closed to the network + its on/off switch, the data drive where it's attached
+  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, dev servers at normal priority + kept in RAM, snapshots listable + 10 kept, Docker closed to the network + its on/off switch, the data drive where it's attached
   pkexec ~/dotfiles/system/dokploy-setup.sh     Dokploy (deploy dashboard on localhost:23300), off at boot
   codesync enable                               code backup (asks where the code is)
   sign in: VS Code Settings Sync, Chrome, claude / codex / opencode / agy

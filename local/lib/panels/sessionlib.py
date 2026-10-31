@@ -475,17 +475,22 @@ def cpu_busy(seconds=0.5):
     return 1 - (i2 - i1) / max(1, t2 - t1)
 
 
-def open_gently(item, stop, timeout=30, calm=0.5, settle=15):
+def open_gently(item, stop, held=None, timeout=30, calm=0.5, settle=15):
     """Open one item and wait until its window is up, then until the CPU is under `calm` (at most `settle`
     s): the next one starts on a quiet system, not on top of this one's start-up. Its window goes to the
-    workspace it was on. Returns the seconds its window took, or None (no window)."""
+    workspace it was on, the screen stays where it is. Returns the seconds its window took, or None (no window).
+    held: a dict the caller releases (release_quiet) once everything is open: the window an app shows first may
+    be a splash (Discord's updater), and the app's own one, seconds later, switched the screen to its workspace
+    once the group rules were back."""
     argv, cwd = argv_of(item)
     if not argv:
         return None
     before = {c["address"] for c in query("clients") or []}
     home = (query("activeworkspace") or {}).get("name")
     cls = re.escape(item["class"])
-    wsgroups.quietly(cls, item["workspace"])   # it opens on its workspace, the screen stays where it is
+    wsgroups.quietly(cls, item["workspace"])
+    if held is not None:
+        held[cls] = item["workspace"]
     before_open(item)
     try:
         subprocess.Popen(["uwsm", "app", "--", *argv], cwd=cwd if cwd and os.path.isdir(cwd) else HOME,
@@ -497,7 +502,8 @@ def open_gently(item, stop, timeout=30, calm=0.5, settle=15):
             new = next((c for c in query("clients") or [] if c["address"] not in before
                         and c["class"] == item["class"]), None)
     finally:
-        wsgroups.quiet_done(cls)
+        if held is None:
+            wsgroups.quiet_done(cls)
     if not new:
         return None
     took = time.monotonic() - start
@@ -516,6 +522,28 @@ def open_gently(item, stop, timeout=30, calm=0.5, settle=15):
     return took
 
 
+def release_quiet(held, home, quiet_for=5, at_most=30):
+    """The group rules back for the classes open_gently held, once none of their windows has opened or closed
+    for `quiet_for` s (at most `at_most`): an app's own window after its splash still opens quietly. Then the
+    screen back to `home` if one of those windows switched it anyway."""
+    def theirs():
+        return {c["address"] for c in query("clients") or []
+                if any(re.fullmatch(cls, c["class"]) for cls in held)}
+    try:
+        seen, still, end = theirs(), time.monotonic(), time.monotonic() + at_most
+        while held and time.monotonic() < end and time.monotonic() - still < quiet_for:
+            time.sleep(0.5)
+            now = theirs()
+            if now != seen:
+                seen, still = now, time.monotonic()
+    finally:
+        for cls in held:
+            wsgroups.quiet_done(cls)
+    now = (query("activeworkspace") or {}).get("name")
+    if held and home and now != home and now in held.values():
+        wsgroups.dispatch(f'hl.dsp.focus({{ workspace = "{home}" }})')
+
+
 def open_items(items, stop, progress):
     """Open the items in order, gently; progress(i, state, text) after each step (state: busy, done,
     stuck). What's open already is left alone."""
@@ -526,19 +554,23 @@ def open_items(items, stop, progress):
         if c["class"] == "kitty":
             key = ("kitty", shell_cwd(c["pid"]))
             counts[key] = counts.get(key, 0) + 1
-    for i, item in enumerate(items):
-        if stop():
-            return
-        if is_open(item, clients, counts):
-            after_open(item)
-            progress(i, "done", "already open")
-            continue
-        progress(i, "busy", "opening…")
-        took = open_gently(item, stop)
-        if took is None and stop():   # stopped while it was starting: it may still come up
-            progress(i, "wait", "stopped")
-            return
-        progress(i, "stuck", "no window") if took is None else progress(i, "done", f"open · {took:.1f} s")
+    held, home = {}, (query("activeworkspace") or {}).get("name")
+    try:
+        for i, item in enumerate(items):
+            if stop():
+                return
+            if is_open(item, clients, counts):
+                after_open(item)
+                progress(i, "done", "already open")
+                continue
+            progress(i, "busy", "opening…")
+            took = open_gently(item, stop, held)
+            if took is None and stop():   # stopped while it was starting: it may still come up
+                progress(i, "wait", "stopped")
+                return
+            progress(i, "stuck", "no window") if took is None else progress(i, "done", f"open · {took:.1f} s")
+    finally:
+        release_quiet(held, home)
 
 
 # ---- a restore, in the background --------------------------------------------------------------------------

@@ -1161,10 +1161,11 @@ are open, on which workspace, with what in them — and opened again in one go.
   Incognito windows are never in it: one is kept as an incognito window that opens empty (its tabs never are). The download manager's extension (Desktop Companion) also reports the tabs
   (`~/.local/state/setups/chrome-tabs.json`); when that report is newer it's used instead. Opening a Chrome window
   is `google-chrome-stable --new-window <its tabs>`; only the current tab loads, the others wait until you go to
-  them (the extension's dormant tabs, under Downloads). **Tab groups are left to Chrome:** it keeps every group
-  in its saved groups strip (left of the bookmarks bar), where a click reopens it, so a window opens only its tabs
-  that weren't in a group. (Setups used to make the groups again, and Chrome saved each one once more: a new set
-  of dots at every restore. Delete extras there: right-click a dot → Delete group.) **Pinned tabs** come back:
+  them (the extension's dormant tabs, under Downloads). **Every tab comes back, its tab group doesn't:** Chrome saves every group it sees in its saved
+  groups strip (left of the bookmarks bar), so a group Setups made again was saved once more: a new set of dots
+  at every restore. So grouped tabs open as plain tabs in their window, in their places, and the group itself is a
+  click in that strip. (Leaving grouped tabs to the strip altogether opened most windows empty. Delete extra dots
+  there: right-click → Delete group.) **Pinned tabs** come back:
   the command line can't pin, so the extension does, a couple of seconds after the window is up (Setups leaves
   them in `$XDG_RUNTIME_DIR/setups/regroup.json`; the extension's next tab report finds the window by its tabs
   and the reply says what to pin).

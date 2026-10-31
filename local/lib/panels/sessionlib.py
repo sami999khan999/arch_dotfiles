@@ -278,7 +278,7 @@ def detail_of(item):
             if host and host not in sites:
                 sites.append(host)
         groups = len(item.get("groups") or [])
-        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (f" · {groups} group{'s' * (groups != 1)} (Chrome's own)" if groups else "") \
+        tabs = f"{len(urls)} tab{'s' * (len(urls) != 1)}" + (f" · {groups} group{'s' * (groups != 1)} (opened ungrouped)" if groups else "") \
             + (" · " + ", ".join(sites[:4]) if sites else "")
         return f"{item['title']} · {tabs}" if item.get("title") else tabs   # its current tab: which window it is
     if item["kind"] == "code":
@@ -388,14 +388,12 @@ def app_item(cls, name, argv):
 
 
 # ---- opening ---------------------------------------------------------------------------------------------
-def loose_tabs(item):
-    """A Chrome window's tabs that weren't in a tab group, and which of them are pinned (their places among
-    those): what opening it brings back. Chrome keeps every tab group in its saved groups strip (bookmarks bar),
-    where a click reopens it; a group made again here was saved once more, a new dot per group at every restore."""
-    grouped = {i for g in item.get("groups") or [] for i in g.get("tabs", [])}
-    keep = [i for i in range(len(item.get("urls") or [])) if i not in grouped]
-    pinned = set(item.get("pinned") or [])
-    return [item["urls"][i] for i in keep], [n for n, i in enumerate(keep) if i in pinned]
+def window_tabs(item):
+    """A Chrome window's tabs, in order, and which of them are pinned: what opening it brings back. Every tab,
+    grouped or not, but not the groups: Chrome saves each group it sees in its saved groups strip (bookmarks
+    bar), so one made again here was saved once more, a new dot per group at every restore. (Leaving grouped
+    tabs to that strip instead opened most windows empty: their every tab was in a group.)"""
+    return list(item.get("urls") or []), list(item.get("pinned") or [])
 
 
 def argv_of(item):
@@ -404,7 +402,7 @@ def argv_of(item):
     if kind == "chrome":
         if item.get("incognito"):
             return ["google-chrome-stable", "--incognito"], None
-        return ["google-chrome-stable", "--new-window", *loose_tabs(item)[0]], None
+        return ["google-chrome-stable", "--new-window", *window_tabs(item)[0]], None
     if kind == "code":
         return ["code", "--new-window", *([item["folder"]] if item.get("folder") else [])], None
     if kind == "kitty":
@@ -444,7 +442,7 @@ def before_open(item):
     if item["kind"] != "chrome":
         return
     set_chrome_session_aside()
-    urls, pinned = loose_tabs(item)
+    urls, pinned = window_tabs(item)
     if pinned:
         os.makedirs(RUNTIME, exist_ok=True)
         try:

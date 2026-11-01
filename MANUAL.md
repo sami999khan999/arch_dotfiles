@@ -27,7 +27,7 @@ root or a choice, once per PC (`install.sh` prints the list at the end):
 pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
-pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); dev servers at normal priority and kept in RAM; LocalSend and Mirror through the firewall; snapshots listable, 10 kept; Docker closed to the network + its on/off switch; the data drive, where it's attached
+pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); dev servers at normal priority and kept in RAM; LocalSend and Mirror through the firewall; snapshots listable, 10 kept; Docker closed to the network + its on/off switch; downloads over two networks at once; the data drive, where it's attached
 pkexec ~/dotfiles/system/dokploy-setup.sh     # Dokploy (deploy dashboard, localhost:23300), off at boot
 codesync enable                               # code backup (asks where the code is)
 gh auth login && projects clone               # every project back into ~/code, with its branches
@@ -826,6 +826,13 @@ pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…
   one still works), 5 downloads at once, the rest queued. 8 fills a 100 Mbit line (kernel.org: 45 s with one
   connection, 13 s with 8); 16 was no faster and got this PC banned by a server that counts connections. Magnet and torrent links work too
   (no seeding afterwards). Everything goes to `~/Downloads`; a name already there gets `.1`.
+- **Two networks at once:** with a second way to the internet up beside the cable — the PC on a phone's
+  hotspot (Wi-Fi) or the phone's USB tethering, on mobile data — a download goes over both and their speeds add
+  up (aria2 spreads its connections over the networks). Everything else on the PC still uses the main network
+  (the cable). The panel then shows a **Networks** strip: each network's share of the speed, the data the extra
+  one has brought (mobile data), and a switch to take it out. It needs `system/root-setup.sh` once (a
+  NetworkManager hook, `system/netsplit/`, so each network's traffic leaves through its own gateway); until then
+  the strip says so. A phone that is itself on your home Wi-Fi gains nothing: it's the same line.
 - **The bar:** an icon appears while something downloads, with the overall %; green when it's finished,
   red when one failed, until the panel is opened. The tooltip has the count and the speed.
 - **The panel:** Pause / Resume / Cancel (the partial file goes too) per download, Pause all / Resume all

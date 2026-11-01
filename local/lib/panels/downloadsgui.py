@@ -5,16 +5,21 @@
 # The window of the downloads service (local/lib/downloads/downloads.py), which does the work with aria2: it
 # connects to the service's socket and shows the state it sends (every second while something downloads,
 # nothing while idle). Opening it clears the bar's "finished" icon.
+# With two networks to the internet (the cable and a phone's hotspot), a Networks strip shows each one's share of
+# the speed and what an extra one has brought; a switch takes an extra one out (its mobile data).
 import gc, json, os, socket, subprocess, sys, threading, time, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from gtkkit import Gdk, GLib, Gtk, PanelApp, View, box, button, clear, collect, label, rule_heading, scrolled
+from gtkkit import (Gdk, GLib, Gtk, PanelApp, View, box, button, clear, collect, label, rule_heading, scrolled,
+                    switch)
 
 HOME = os.path.expanduser("~")
 SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "downloads.sock")
 FILES = f"{HOME}/.local/lib/panels/filesgui.py"
 G_DOWN, G_PAUSE, G_PLAY, G_CROSS = "\U000f01da", "\U000f03e4", "\U000f040a", "\U000f0156"
 G_DONE, G_FAIL, G_RETRY, G_LINK = "\U000f05e0", "\U000f0028", "\U000f0450", "\U000f0337"
+NET_GLYPH = {"ethernet": "\U000f0200", "wifi": "\U000f05a9", "phone": "\U000f011c"}
+ROOT_STEP = "pkexec ~/dotfiles/system/root-setup.sh"
 MOVING = ("active", "waiting", "paused")
 STATE_TEXT = {"active": "downloading", "waiting": "queued", "paused": "paused", "complete": "done",
               "error": "failed", "removed": "cancelled"}
@@ -33,6 +38,10 @@ CSS = """
 progressbar trough { background: #292e42; min-height: 3px; border: none; }
 progressbar progress { background: #6b8fe0; min-height: 3px; border: none; }
 .empty .big { color: #3b4261; font-size: 26pt; }
+.net { padding: 8px 12px; background: alpha(#292e42, .35); border-left: 2px solid transparent; }
+.net.on { border-left-color: #6b8fe0; }
+.net .glyph { font-size: 13pt; min-width: 24px; }
+.net .what { font-weight: 700; }
 """
 
 
@@ -178,6 +187,8 @@ class Downloads(View):
         self.sock = None
         self.items = []
         self.rows = {}   # gid -> Row
+        self.nets_shown = None   # what the Networks strip was built for; its numbers change in place
+        self.net_subs = {}       # iface -> its card's second line
 
     # ---- the window -----------------------------------------------------------------------------------
     def build(self):
@@ -202,7 +213,15 @@ class Downloads(View):
                          classes=("empty",))
         self.empty.set_margin_top(60)
         lists = box(True, 8, self.moving_head, self.moving, self.done_head, self.done, self.empty)
-        main = box(True, 12, box(False, 10, self.link, get), scrolled(lists), classes=("pane",))
+        self.nets_note = label("", "dim")
+        self.nets_head = rule_heading("Networks")
+        self.nets_head.append(self.nets_note)
+        self.nets_box = box(False, 8)
+        self.nets_box.set_homogeneous(True)
+        self.nets_fix = label("", "amber", wrap=True, markup=True)
+        self.nets = box(True, 8, self.nets_head, self.nets_box, self.nets_fix)
+        self.nets.set_visible(False)
+        main = box(True, 12, box(False, 10, self.link, get), self.nets, scrolled(lists), classes=("pane",))
 
         self.offline = box(True, 10, label("The download manager isn't running.", "red"),
                            button("Start it", self.start_service, "primary"), classes=("pane",))
@@ -263,6 +282,7 @@ class Downloads(View):
         if ev.get("ev") == "state":
             self.items = ev["items"]
             self.fill()
+            self.fill_nets(ev.get("nets") or [])
         elif ev.get("ev") == "error":
             self.say(ev["msg"], "bad")
 
@@ -307,6 +327,49 @@ class Downloads(View):
         speed = sum(i["speed"] for i in active)
         self.set_subtitle(f"{len(moving)} downloading  ·  {human(speed)}/s" if moving else
                           f"{len(done)} finished" if done else "")
+
+    def fill_nets(self, nets):
+        """The Networks strip, only with two networks or more: a card each, the main one first."""
+        self.nets.set_visible(len(nets) > 1)
+        shown = [(n["iface"], n["name"], n["kind"], n["main"], n["on"], n["routed"]) for n in nets]
+        if shown != self.nets_shown:
+            self.nets_shown = shown
+            clear(self.nets_box)
+            self.net_subs = {}
+            for n in nets:
+                sub = label("", "dim", ellipsize=True)
+                self.net_subs[n["iface"]] = sub
+                card = box(False, 10, label(NET_GLYPH[n["kind"]], "glyph", "accent" if n["on"] else "dim"),
+                           box(True, 2, label(n["name"], "what", ellipsize=True), sub), classes=("net",))
+                card.set_hexpand(True)
+                if n["on"]:
+                    card.add_css_class("on")
+                if not n["main"]:
+                    sw = switch(n["on"], lambda on, name=n["name"]: self.request({"op": "net", "name": name, "on": on}))
+                    sw.set_valign(Gtk.Align.CENTER)
+                    sw.set_focusable(False)
+                    sw.set_sensitive(n["routed"])
+                    sw.set_tooltip_text("Download over this network too" if n["routed"] else
+                                        "Needs the one-time root step below")
+                    card.append(sw)
+                self.nets_box.append(card)
+            on = [n for n in nets if n["on"]]
+            self.nets_note.set_text(f"downloads use {'both' if len(on) == 2 else f'all {len(on)}'}" if len(on) > 1
+                                    else f"downloads use only {nets[0]['name']}" if nets else "")
+            unrouted = any(not n["routed"] for n in nets[1:])
+            self.nets_fix.set_markup(
+                f"To download over both, run once in a terminal: <tt>{GLib.markup_escape_text(ROOT_STEP)}</tt>"
+                if unrouted else "")
+            self.nets_fix.set_visible(unrouted)
+        for n in nets:   # the state, then the numbers (a card is half the width: the rest can be cut off)
+            parts = ["main"] if n["main"] else ["not set up yet"] if not n["routed"] else [] if n["on"] else ["off"]
+            if n["on"] and n.get("speed"):
+                parts.append(f"{human(n['speed'])}/s")
+            if not n["main"] and n.get("used"):
+                parts.append(f"{human(n['used'])} used")
+            if len(parts) < 2 and n["kind"] == "phone":
+                parts.append("mobile data")
+            self.net_subs[n["iface"]].set_text("  ·  ".join(parts) or "on")
 
     # ---- doing things ---------------------------------------------------------------------------------
     def add_link(self, text=None):

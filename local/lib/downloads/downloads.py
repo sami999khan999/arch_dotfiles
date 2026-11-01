@@ -11,7 +11,12 @@
 # Chrome keeps the download. The window (local/lib/panels/downloadsgui.py) talks over a Unix socket, JSON lines,
 # like lsend's. aria2 is asked about progress once a second only while something downloads; idle, nothing runs.
 # The bar: $XDG_RUNTIME_DIR/downloads-bar.json, waybar's custom/downloads reads it on signal 12.
-import hashlib, http.server, json, os, secrets, shutil, socket, socketserver, subprocess, sys, threading, time
+# Two networks at once (the cable and a phone's hotspot): every network with a way to the internet, and its
+# routing rule (system/netsplit, a root step), is given to aria2 (--multiple-interface: its connections are spread
+# over them, so their speeds add up). The networks are followed by netlink events; a change restarts aria2 (it
+# can't change its interfaces while running; the downloads go on from its session). Each extra network can be
+# switched off in the window (its data: networks.json).
+import hashlib, http.server, json, os, re, secrets, shutil, socket, socketserver, subprocess, sys, threading, time
 import urllib.error, urllib.parse, urllib.request
 
 HOME = os.path.expanduser("~")
@@ -102,6 +107,17 @@ class Service:
         self.unseen = None       # "done" / "failed": the bar keeps an icon until the window has been opened
         self.bar_text = None
         self.settle = 0          # reads left after a request: aria2 takes a moment (a cancel of a paused download)
+        self.net_lock = threading.Lock()
+        self.nets = []           # the networks to the internet, the main one first (networks())
+        self.ips = []            # the addresses aria2 binds to: two or more, or none (just the main network)
+        self.bound = []          # what aria2 was started with
+        self.rx = {}             # iface -> (bytes received when it came up, at the last read, its time)
+        self.off = set()         # extra networks switched off in the window, by name
+        try:
+            with open(os.path.join(STATE, "networks.json")) as f:
+                self.off = set(json.load(f).get("off", []))
+        except (OSError, ValueError, AttributeError):
+            pass
         try:
             with open(os.path.join(STATE, "items.json")) as f:
                 for it in json.load(f):
@@ -121,10 +137,13 @@ class Service:
         os.makedirs(DIR, exist_ok=True)
         conf = os.path.join(STATE, "aria2.conf")   # the secret in a private file: a command line is public
         write_private(conf, f"rpc-secret={self.secret}\n")
+        self.bound = list(self.ips)
+        # IPv4 only then: the routing rules are IPv4's, and a v6 connection would all go the main way
+        nets = [f"--multiple-interface={','.join(self.bound)}", "--disable-ipv6=true"] if self.bound else []
         self.aria2 = subprocess.Popen(
             ["aria2c", f"--conf-path={conf}", "--enable-rpc", "--rpc-listen-all=false", f"--rpc-listen-port={self.port}",
              f"--dir={DIR}", f"--input-file={session}", f"--save-session={session}",
-             f"--stop-with-process={os.getpid()}", *ARIA2],
+             f"--stop-with-process={os.getpid()}", *ARIA2, *nets],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
         for _ in range(100):
             try:
@@ -135,6 +154,18 @@ class Service:
                     break
                 time.sleep(0.1)
         raise SystemExit("downloads: aria2c didn't start")
+
+    def restart_aria2(self):
+        """aria2 again with the networks as they are now: what was moving goes on from its session."""
+        self.aria2.terminate()   # saves its session and goes in 1 s (its forceShutdown took 4)
+        try:
+            self.aria2.wait(10)
+        except subprocess.TimeoutExpired:
+            self.aria2.kill()
+            self.aria2.wait()
+        self.start_aria2()
+        self.resume_session()
+        print(f"downloads: aria2 again, over {', '.join(self.bound) or 'the main network'}", flush=True)
 
     def rpc(self, method, *params):
         body = json.dumps({"jsonrpc": "2.0", "id": "1", "method": f"aria2.{method}",
@@ -215,6 +246,10 @@ class Service:
             self.start(it["url"], it["opts"], it["source"], it["total"])
         elif op == "remove" and it and it["status"] in ("complete", "error", "removed"):
             self.forget(gid, files=False)
+        elif op == "net":   # an extra network on / off
+            (self.off.discard if m["on"] else self.off.add)(m["name"])
+            write_private(os.path.join(STATE, "networks.json"), json.dumps({"off": sorted(self.off)}))
+            self.check_networks()
         elif op == "clear":
             for g in [g for g, i in self.items.items() if i["status"] in ("complete", "error", "removed")]:
                 self.forget(g, files=False)
@@ -326,6 +361,9 @@ class Service:
                     print("downloads: aria2c stopped", flush=True)
                     os._exit(1)   # systemd starts the service (and aria2) again
                 moving, changed = True, False
+            if self.ips != self.bound:
+                self.restart_aria2()
+            self.read_networks(moving)
             if self.watchers:
                 self.emit(self.snapshot())
             self.update_bar()
@@ -334,6 +372,66 @@ class Service:
                 self.wake.wait(TICK)
             else:
                 self.wake.wait()
+
+    # -- the networks --
+    def check_networks(self):
+        """The networks as they are now; aria2 restarted (by follow) if the ones to use changed."""
+        with self.net_lock:
+            nets = networks()
+            use = [n for n in nets if n["main"] or (n["routed"] and n["name"] not in self.off)]
+            for n in nets:
+                n["on"] = n in use
+                if n["iface"] not in self.rx:
+                    rx = rx_bytes(n["iface"])
+                    self.rx[n["iface"]] = (rx, rx, time.monotonic())
+            ips = [n["ip"] for n in use] if len(use) > 1 else []
+            changed = nets != [{k: v for k, v in n.items() if k not in ("speed", "used")} for n in self.nets]
+            with self.lock:
+                self.nets = nets
+                self.ips = ips
+            for gone in set(self.rx) - {n["iface"] for n in nets}:
+                del self.rx[gone]   # back later (a phone plugged in again): counted from then
+        if changed or ips != self.bound:
+            self.wake.set()
+            self.emit(self.snapshot())
+
+    def read_networks(self, moving):
+        """Each network's share of the download speed, and the data an extra one has brought (a phone's mobile
+        data). Only aria2 sends from an extra network's address; the main one carries everything else too, so its
+        share is what's left of aria2's speed."""
+        with self.lock:
+            nets = list(self.nets)
+            total = sum(i["speed"] for i in self.items.values() if i["status"] == "active")
+        if len(nets) < 2:
+            return
+        extra, now = 0, time.monotonic()
+        for n in nets:
+            if n["iface"] not in self.rx:
+                continue
+            first, last, then = self.rx[n["iface"]]
+            rx = rx_bytes(n["iface"])
+            n["used"] = max(rx - first, 0)
+            if not n["main"]:
+                n["speed"] = int(max(rx - last, 0) / max(now - then, 0.2)) if moving and n["on"] else 0
+                extra += n["speed"]
+            self.rx[n["iface"]] = (first, rx, now)
+        nets[0]["speed"] = max(total - extra, 0) if moving else 0
+
+    def watch_networks(self):
+        """Woken by the kernel when a link, an address, a route or a routing rule changes (netlink), then reads
+        the networks once things are quiet: a Docker container starting is a burst of these."""
+        s = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, socket.NETLINK_ROUTE)
+        s.bind((0, RTMGRP_LINK | RTMGRP_IPV4_IFADDR | RTMGRP_IPV4_ROUTE | RTMGRP_IPV4_RULE))
+        while True:
+            s.settimeout(None)
+            s.recv(65536)
+            s.settimeout(2)
+            try:
+                while True:
+                    s.recv(65536)
+            except TimeoutError:
+                pass
+            self.check_networks()
 
     # -- the bar --
     def update_bar(self):
@@ -370,7 +468,8 @@ class Service:
     def snapshot(self):
         with self.lock:
             items = [{k: v for k, v in i.items() if k != "opts"} for i in self.items.values()]
-        return {"ev": "state", "items": items, "dir": DIR}
+            nets = [dict(n) for n in self.nets]
+        return {"ev": "state", "items": items, "dir": DIR, "nets": nets if len(nets) > 1 else []}
 
     def emit(self, ev):
         line = (json.dumps(ev) + "\n").encode()
@@ -430,7 +529,18 @@ class Service:
             conn.close()
 
     def run(self):
+        self.check_networks()
         self.start_aria2()
+        self.resume_session()
+        threading.Thread(target=self.serve_window, daemon=True).start()
+        threading.Thread(target=serve_extension, daemon=True).start()
+        threading.Thread(target=self.watch_networks, daemon=True).start()
+        print(f"downloads: aria2 on 127.0.0.1:{self.port}, into {DIR}"
+              + (f", over {', '.join(self.bound)}" if self.bound else ""), flush=True)
+        self.follow()
+
+    def resume_session(self):
+        """aria2 has just started from its session: our records put in line with it."""
         with self.lock:   # what was moving when the service stopped is in aria2's session again
             for it in self.items.values():
                 if it["status"] == "active":
@@ -450,10 +560,64 @@ class Service:
                         self.rpc(call, d["gid"])
                     except RuntimeError:
                         pass
-        threading.Thread(target=self.serve_window, daemon=True).start()
-        threading.Thread(target=serve_extension, daemon=True).start()
-        print(f"downloads: aria2 on 127.0.0.1:{self.port}, into {DIR}", flush=True)
-        self.follow()
+
+
+RTMGRP_LINK, RTMGRP_IPV4_IFADDR, RTMGRP_IPV4_ROUTE, RTMGRP_IPV4_RULE = 0x1, 0x10, 0x40, 0x80
+
+
+def ip_json(*args):
+    try:
+        return json.loads(subprocess.run(["ip", "-j", *args], capture_output=True, text=True).stdout or "[]")
+    except (OSError, ValueError):
+        return []
+
+
+def networks():
+    """The networks with a way to the internet (a default route), the main one (lowest metric) first:
+    {iface, ip, name, kind (wifi / ethernet / phone), main, routed (its rule from system/netsplit is there)}."""
+    routes = {}
+    try:
+        with open("/proc/net/route") as f:
+            for line in f.readlines()[1:]:
+                p = line.split()
+                if p[1] == "00000000" and p[7] == "00000000":   # a default route
+                    routes[p[0]] = min(routes.get(p[0], 1 << 32), int(p[6]))
+    except OSError:
+        return []
+    addrs = {a["ifname"]: next((i["local"] for i in a.get("addr_info", []) if i.get("scope") == "global"), None)
+             for a in ip_json("-4", "addr")}
+    ruled = {r.get("src") for r in ip_json("-4", "rule") if 31000 < r.get("priority", 0) < 31100}
+    devs = {}
+    try:   # NetworkManager's names ("Wired connection 2", the hotspot's) and kinds; ':' in a name comes as '\:'
+        out = subprocess.run(["nmcli", "-t", "-f", "DEVICE,TYPE,CONNECTION", "dev"], capture_output=True,
+                             text=True).stdout
+        for line in out.splitlines():
+            dev, kind, name = (x.replace("\\:", ":") for x in re.split(r"(?<!\\):", line, maxsplit=2))
+            devs[dev] = (kind, name)
+    except (OSError, ValueError):
+        pass
+    nets = []
+    for iface in sorted(routes, key=routes.get):
+        if not addrs.get(iface):
+            continue
+        kind, name = devs.get(iface, ("ethernet", iface))
+        try:   # a phone's hotspot or USB tethering says it's metered (Android's DHCP option)
+            metered = subprocess.run(["nmcli", "-t", "-g", "GENERAL.METERED", "dev", "show", iface],
+                                     capture_output=True, text=True).stdout.startswith("yes")
+        except OSError:
+            metered = False
+        nets.append({"iface": iface, "ip": addrs[iface], "name": name or iface,
+                     "kind": "phone" if metered else "wifi" if kind == "wifi" else "ethernet",
+                     "main": not nets, "routed": addrs[iface] in ruled})
+    return nets
+
+
+def rx_bytes(iface):
+    try:
+        with open(f"/sys/class/net/{iface}/statistics/rx_bytes") as f:
+            return int(f.read())
+    except (OSError, ValueError):
+        return 0
 
 
 def human(n):

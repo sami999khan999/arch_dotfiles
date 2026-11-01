@@ -93,7 +93,16 @@ done
 systemctl daemon-reload
 echo "   MemoryLow=4G on user.slice, user-*.slice, user@*.service"
 
-echo "== 6. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+echo "== 6. Two networks at once: each answers from its own address (the download manager uses both)"
+if [ -d /etc/NetworkManager/dispatcher.d ]; then
+  install -Dm755 "$REPO/system/netsplit/90-dotfiles-netsplit" /etc/NetworkManager/dispatcher.d/90-dotfiles-netsplit
+  /etc/NetworkManager/dispatcher.d/90-dotfiles-netsplit   # now too, not only at the next network change
+  echo "   wrote /etc/NetworkManager/dispatcher.d/90-dotfiles-netsplit"
+else
+  echo "   no NetworkManager: skipped"
+fi
+
+echo "== 7. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
 uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
 if [ ! -e "/dev/disk/by-uuid/${uuid#UUID=}" ]; then
   echo "   that drive isn't in this PC: skipped"

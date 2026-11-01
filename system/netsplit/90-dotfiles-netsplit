@@ -1,0 +1,29 @@
+#!/bin/sh
+# 90-dotfiles-netsplit — a NetworkManager dispatcher script (system/root-setup.sh installs it in
+# /etc/NetworkManager/dispatcher.d/): each network with a gateway sends what comes from its own address through
+# its own gateway. Linux sends everything out the main default route, whatever address a program binds to, so
+# without this the download manager (local/lib/downloads) couldn't fetch over two networks at once — the cable
+# and a phone's hotspot. Everything that doesn't bind to an address still goes the main way.
+# Rebuilt from main's default routes on every change, nothing remembered: rules 31000–31099 (just ahead of
+# main's 32766, after anything a VPN adds), each with a table of the same number.
+case "$2" in up|down|dhcp4-change|reapply|"") ;; *) exit 0 ;; esac
+
+for p in $(ip -4 rule show | sed -n 's/^\(310[0-9][0-9]\):.*/\1/p' | sort -u); do
+  while ip -4 rule del priority "$p" 2>/dev/null; do :; done
+  ip -4 route flush table "$p" 2>/dev/null
+done
+# main's own routes first (the LAN, Docker, a VPN): only the way to the internet is split
+ip -4 rule add priority 31000 lookup main suppress_prefixlength 0
+
+n=31000
+ip -4 route show default table main |
+  awk '{ g = d = ""; for (i = 1; i < NF; i++) { if ($i == "via") g = $(i + 1); if ($i == "dev") d = $(i + 1) }
+         if (g != "" && d != "") print g, d }' |
+  while read -r gw dev; do
+    src=$(ip -4 -o addr show dev "$dev" scope global | awk '{ split($4, a, "/"); print a[1]; exit }')
+    [ -n "$src" ] || continue
+    n=$((n + 1))
+    ip -4 route replace default via "$gw" dev "$dev" onlink table "$n"
+    ip -4 rule add priority "$n" from "$src" lookup "$n"
+  done
+exit 0

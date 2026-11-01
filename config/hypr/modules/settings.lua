@@ -44,3 +44,24 @@ hl.animation({ leaf = "layersIn", enabled = true, speed = 2.4,    bezier = "ease
 hl.animation({ leaf = "layersOut", enabled = true, speed = 0.9,  bezier = "linear",       style = "fade" })
 hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 1.07, bezier = "almostLinear" })
 hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 0.83, bezier = "almostLinear" })
+
+-- key mapping (Settings → Key mapping): Copy / Paste… to the focused window, terminals aside
+local remapTerms = { kitty = true, agentmux = true, ghostty = true, Alacritty = true, konsole = true }
+local function remapInTerm()
+    local w = hl.get_active_window()
+    return w ~= nil and (remapTerms[w.class] or w.class:find("^code%-term%-") ~= nil)
+end
+function remapSend(mods, key, termMods)
+    local inTerm = remapInTerm()
+    hl.dispatch(hl.dsp.send_shortcut({ mods = (inTerm and termMods) or mods, key = key }))
+end
+function remapCopy()
+    if remapInTerm() then
+        hl.exec_cmd("sh -c 'wl-paste --primary --no-newline | wl-copy'")
+    else
+        hl.dispatch(hl.dsp.send_shortcut({ mods = "CTRL", key = "c" }))
+    end
+end
+
+hl.bind("SUPER + minus", hl.dsp.exec_cmd("swayosd-client --monitor \"$(hyprctl activeworkspace -j | jq -r .monitor)\" --output-volume lower")) -- Volume down
+hl.bind("SUPER + equal", hl.dsp.exec_cmd("swayosd-client --monitor \"$(hyprctl activeworkspace -j | jq -r .monitor)\" --output-volume raise")) -- Volume up

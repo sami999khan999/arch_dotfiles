@@ -30,6 +30,18 @@
     "darken": 0.0,
     "opacity": 0.7
   },
+  "remaps": [
+    {
+      "action": "volume_down",
+      "key": "minus",
+      "mods": "SUPER"
+    },
+    {
+      "action": "volume_up",
+      "key": "equal",
+      "mods": "SUPER"
+    }
+  ],
   "wallpaper": {
     "mode": "fill"
   }

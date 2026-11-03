@@ -7,7 +7,7 @@ cd "$HOME/dotfiles"
 
 # commit as the repo owner even on a fresh machine with no git identity
 git config user.name  >/dev/null || git config user.name  "sami"
-git config user.email >/dev/null || git config user.email "sami999khan999@gmail.com"
+git config user.email >/dev/null || git config user.email "108683662+sami999khan999@users.noreply.github.com"
 
 git add -A
 if ! git diff --cached --quiet; then

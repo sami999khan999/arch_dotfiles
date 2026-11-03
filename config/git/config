@@ -1,7 +1,7 @@
 # Shared git settings. Machine-specific bits (gh credential helper) stay in ~/.gitconfig.
 [user]
 	name = sami
-	email = sami999khan999@gmail.com
+	email = 108683662+sami999khan999@users.noreply.github.com
 [init]
 	defaultBranch = main
 [pull]

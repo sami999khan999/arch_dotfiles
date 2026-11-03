@@ -576,10 +576,14 @@ class Service:
         o["queue"].put({"type": "file", "job": o["job"]["id"], "file": o["id"], "state": state})
 
     def progress(self, o, n):
+        """Bytes served: to the window, and to the page (a browser's download shows how far only in its own
+        downloads list, out of sight)."""
         o["job"]["done_bytes"] += n
         if time.time() - o.get("shown", 0) > PROGRESS_EVERY:
             o["shown"] = time.time()
             self.emit({"ev": "outgoing", "job": dict(o["job"])})
+            o["queue"].put({"type": "file", "job": o["job"]["id"], "file": o["id"], "state": "progress",
+                            "done": o["job"]["done_bytes"], "total": o["job"]["total"]})
 
     def served(self, o, whole):
         """The download ended: saved, or broken off (the page asks again; closed, nobody will)."""

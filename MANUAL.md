@@ -748,11 +748,11 @@ shows up in it under its hostname; no LocalSend package on the PC.
   download, with a one-time key; several files come as one zip, folders kept and stored as they are, as a
   phone's browser holds or drops a burst of downloads (100 at once: 5 came). The browser's download manager
   runs it, so it goes on with the page closed or the screen off; if the browser holds it, allow it or tap
-  Continue) or Decline; Choose files / a message on the page land in `~/Downloads`
+  Continue; the card shows how far it is, its speed and time left, as the PC serves it) or Decline; Choose files / a message on the page land in `~/Downloads`
   without an Accept here (only who scanned this PC's code has the page; the app's transfers still ask). The code lasts until you log out; the page
   keeps it for that tab only. Closing the page takes the phone off the list (a download already running goes on). On the page, each Send files
-  is a transfer of its own (progress, speed, time left, Cancel), so several run at once; Activity lists both
-  ways, newest first.
+  is a transfer of its own (progress, speed, time left, which file goes, Cancel; the screen stays on meanwhile,
+  as a locked phone freezes the page and its upload), so several run at once; Activity lists both ways, newest first.
 - **Several at once:** transfers no longer wait for each other, in either direction or from either kind of
   device (the app's ask each on their own card).
 - **Safety:** HTTPS with this PC's own certificate (`~/.local/share/lsend`, made once, never in the repo);

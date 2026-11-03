@@ -17,24 +17,26 @@
   :root { --base: #1a1b26; --overlay: #292e42; --line: #3b4261; --muted: #565f89; --sub: #a9b1d6; --text: #c0caf5;
           --accent: #6b8fe0; --alert: #f7768e; --amber: #e0af68; --green: #9ece6a; --deep: #16161e; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--base); color: var(--text);
+  html, body { margin: 0; background: var(--base); color: var(--text); -webkit-text-size-adjust: 100%;
                font: 15px/1.4 "JetBrains Mono", ui-monospace, monospace; -webkit-tap-highlight-color: transparent; }
-  main { max-width: 36em; margin: 0 auto; padding: 0 16px calc(32px + env(safe-area-inset-bottom)); }
+  main { max-width: 36em; margin: 0 auto; padding: 0 max(14px, env(safe-area-inset-left)) calc(32px + env(safe-area-inset-bottom)); }
   header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px;
            padding: calc(14px + env(safe-area-inset-top)) 0 12px; background: var(--base); border-bottom: 1px solid var(--line); }
   header svg { width: 20px; height: 20px; color: var(--accent); flex: none; }
   header h1 { margin: 0; font-size: 16px; color: var(--text); }
-  #who { margin-left: auto; display: flex; align-items: center; gap: 7px; color: var(--sub); font-size: 13px;
+  #who { margin-left: auto; min-width: 0; display: flex; align-items: center; gap: 7px; color: var(--sub); font-size: 13px;
          overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #pc { overflow: hidden; text-overflow: ellipsis; }
   #dot { width: 8px; height: 8px; flex: none; background: var(--amber); }
   #dot.on { background: var(--green); }
   #dot.off { background: var(--alert); }
   h2 { display: flex; align-items: center; gap: 10px; margin: 22px 0 10px; font-size: 13px; font-weight: normal;
        color: var(--accent); }
   h2::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
-  button { background: var(--accent); color: var(--base); border: 0; padding: 11px 16px; font: inherit; cursor: pointer; }
+  button { min-height: 44px; background: var(--accent); color: var(--base); border: 0; padding: 11px 16px; font: inherit;
+           cursor: pointer; touch-action: manipulation; }
   button.flat { background: var(--overlay); color: var(--text); }
-  button.quiet { background: none; color: var(--muted); padding: 8px 10px; }
+  button.quiet { background: none; color: var(--sub); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
   button:disabled { opacity: .5; }
   #choose { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 16px;
             background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--text);
@@ -46,7 +48,7 @@
   .say { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
   .say button { width: 100%; }
   textarea { display: block; width: 100%; min-height: 5.6em; max-height: 40vh; background: var(--deep); color: var(--text);
-             border: 1px solid var(--line); font: inherit; padding: 11px 12px; resize: none; overflow-y: hidden; }
+             border: 1px solid var(--line); font: inherit; font-size: 16px; padding: 11px 12px; resize: none; overflow-y: hidden; }
   textarea:focus { outline: none; border-color: var(--accent); }
   .card { display: flex; gap: 12px; padding: 12px; margin-bottom: 8px; border-left: 2px solid transparent;
           background: color-mix(in srgb, var(--overlay) 45%, transparent); }
@@ -58,13 +60,25 @@
   .card .body { flex: 1; min-width: 0; }
   .card .what { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card .sub { color: var(--muted); font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
-  .card .names { color: var(--sub); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .state { display: block; margin-top: 2px; }
+  .card .names { color: var(--sub); font-size: 13px; margin-top: 6px; overflow-wrap: anywhere;
+                 display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .card .msg { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; padding: 8px 10px;
                border-left: 2px solid var(--line); background: var(--deep); user-select: text; }
   .card .actions { display: flex; gap: 8px; margin-top: 10px; }
   .card .actions button { flex: 1; }
-  .bar { height: 3px; background: var(--overlay); margin-top: 8px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  /* how far a transfer is: the bar, then done / total and % on one line, speed and time left on the next */
+  .prog { margin-top: 10px; font-size: 13px; }
+  .bar { height: 6px; background: var(--overlay); }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s linear; }
+  .prog.down .bar i { background: var(--green); }
+  .prog .row { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; color: var(--sub);
+               font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .prog .row + .row { margin-top: 2px; color: var(--muted); }
+  .prog .row span { overflow: hidden; text-overflow: ellipsis; }
+  .prog .pct { color: var(--text); font-weight: bold; }
+  .prog .now { margin-top: 2px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prog .now:empty { display: none; }
   .ok { color: var(--green); } .bad { color: var(--alert); } .wait { color: var(--amber); } .run { color: var(--accent); }
   .empty { color: var(--muted); font-size: 13px; padding: 18px 0; text-align: center; line-height: 1.6; }
   .foot { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; line-height: 1.6; }
@@ -119,7 +133,7 @@ function card(icon, what, sub) {
   const c = document.createElement("div");
   c.className = "card";
   c.innerHTML = `${icon}<div class="body"><div class="what"></div><div class="sub"><span class="info"></span>` +
-                `<span class="sep">  ·  </span><span class="state"></span></div></div>`;
+                `<span class="state"></span></div></div>`;
   c.querySelector(".what").textContent = what;
   c.querySelector(".info").textContent = sub;
   $("list").prepend(c);
@@ -139,6 +153,47 @@ function actions(c, ...buttons) {
   a.append(...buttons);
   c.querySelector(".body").append(a);
 }
+// how far a transfer is, under its card: the speed over the last few seconds, so a stall shows soon
+function meter(c, down) {
+  let m = c.querySelector(".prog");
+  if (!m) {
+    m = document.createElement("div");
+    m.className = "prog" + (down ? " down" : "");
+    m.innerHTML = '<div class="bar"><i></i></div><div class="row"><span class="amount"></span><span class="pct"></span></div>' +
+                  '<div class="row"><span class="speed"></span><span class="eta"></span></div><div class="now"></div>';
+    (c.querySelector(".names") || c.querySelector(".sub")).after(m);
+  }
+  const seen = [];   // [ms, bytes]
+  return {
+    show(done, total, now) {
+      const t = performance.now();
+      seen.push([t, done]);
+      while (seen.length > 2 && t - seen[0][0] > 5000) seen.shift();
+      const secs = (t - seen[0][0]) / 1000, rate = secs > .5 ? (done - seen[0][1]) / secs : 0;
+      const f = Math.min(done / Math.max(total, 1), 1);
+      m.querySelector(".bar i").style.width = `${100 * f}%`;
+      m.querySelector(".amount").textContent = `${size(done)} of ${size(total)}`;
+      m.querySelector(".pct").textContent = `${Math.floor(100 * f)} %`;
+      m.querySelector(".speed").textContent = rate > 0 ? `${size(rate)}/s` : "";
+      m.querySelector(".eta").textContent = rate > 0 ? `${clock((total - done) / rate)} left` : "";
+      m.querySelector(".now").textContent = now || "";   // several files: which one goes
+    },
+    remove() { m.remove(); },
+  };
+}
+// the screen kept on while something goes: a phone that locks freezes the page, and the upload with it
+let awake = 0, lock = null;
+async function keepOn() {
+  try {
+    if (awake > 0 && !lock) {
+      lock = await navigator.wakeLock?.request("screen");
+      lock?.addEventListener("release", () => { lock = null; });
+    } else if (awake <= 0 && lock) lock.release();
+  } catch {}
+}
+function stayAwake(on) { awake += on ? 1 : -1; keepOn(); }
+// the browser lets the lock go while the page is hidden: taken again when it's back
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepOn(); });
 function btn(text, cls, fn) {
   const b = document.createElement("button");
   b.textContent = text;
@@ -181,7 +236,7 @@ function event(ev) {
     offers[ev.job].classList.remove("asking");
     status(offers[ev.job], "cancelled on the PC", "bad");
   } else if (ev.type === "file") {
-    fetches[ev.file]?.(ev.state);
+    fetches[ev.file]?.(ev.state, ev);
   }
 }
 
@@ -232,16 +287,26 @@ function offered(ev) {
       status(c, why || "waiting for the browser: allow the download, or Continue", why ? "bad" : "wait");
       actions(c, btn("Continue", "", go));
     };
-    fetches[f.id] = (state) => {
+    let bar = null;
+    const started = performance.now();
+    fetches[f.id] = (state, e) => {
       clearTimeout(held);
       if (state === "started") {
-        status(c, "saving: the browser's downloads show how far", "run");
+        status(c, "saving", "run");
         actions(c);
+        bar = meter(c, true);
+        bar.show(0, ev.total);
+      } else if (state === "progress") {
+        (bar ||= meter(c, true)).show(e.done, e.total);
       } else if (state === "broke") {
+        bar?.remove();
+        bar = null;
         stuck("it broke off");
       } else {
         delete fetches[f.id];
-        status(c, "saved: see the browser's downloads", "ok");
+        bar?.remove();
+        const secs = (performance.now() - started) / 1000;
+        status(c, `saved${secs > 2 ? ` in ${clock(secs)}` : ""}: in the browser's downloads`, "ok");
       }
     };
     go();
@@ -270,12 +335,11 @@ async function prepare(files) {
 async function send(list) {
   const total = list.reduce((n, f) => n + f.size, 0);
   const c = card(UP, list.length === 1 ? list[0].name : `${list.length} files`, `to ${pc}  ·  ${size(total)}`);
-  c.querySelector(".body").insertAdjacentHTML("beforeend", '<div class="bar"><i></i></div>');
   if (list.length > 1) {
     const n = document.createElement("div");
     n.className = "names";
     n.textContent = list.slice(0, 6).map((f) => f.name).join(", ") + (list.length > 6 ? ` and ${list.length - 6} more` : "");
-    c.querySelector(".bar").before(n);
+    c.querySelector(".sub").after(n);
   }
   status(c, "starting", "wait");
   const files = {};
@@ -288,6 +352,10 @@ async function send(list) {
     if (session) fetch(`/api/localsend/v2/cancel?${new URLSearchParams({ sessionId: session.sessionId })}`, { method: "POST" });
   }));
   try { session = await prepare(files); } catch (e) { actions(c); return status(c, e.message, "bad"); }
+  status(c, "sending", "run");
+  const bar = meter(c, false);
+  bar.show(0, total);
+  stayAwake(true);
   const started = performance.now();
   let done = 0;
   for (const [i, f] of list.entries()) {
@@ -295,24 +363,24 @@ async function send(list) {
       req = new XMLHttpRequest();   // fetch can't tell an upload's progress
       req.open("POST", `/api/localsend/v2/upload?${new URLSearchParams({ sessionId: session.sessionId,
                                                                           fileId: `f${i}`, token: session.files[`f${i}`] })}`);
-      req.upload.onprogress = (e) => {
-        const got = done + e.loaded, secs = (performance.now() - started) / 1000, rate = got / Math.max(secs, .001);
-        c.querySelector(".bar i").style.width = `${100 * got / Math.max(total, 1)}%`;
-        const left = secs > 1 && rate > 0 ? `  ·  ${clock((total - got) / rate)} left` : "";
-        status(c, `${Math.floor(100 * got / Math.max(total, 1))} %  ·  ${size(rate)}/s${left}`, "run");
-      };
+      const now = list.length > 1 ? `file ${i + 1} of ${list.length}  ·  ${f.name}` : "";
+      req.upload.onprogress = (e) => bar.show(done + e.loaded, total, now);
+      bar.show(done, total, now);
       req.onload = () => resolve(req.status === 200);
       req.onerror = req.onabort = () => resolve(false);
       req.send(f);
     });
     if (!ok) {
       actions(c);
+      bar.remove();
+      stayAwake(false);
       return status(c, stopped ? "cancelled" : `failed at ${f.name}`, stopped ? "" : "bad");
     }
     done += f.size;
   }
   actions(c);
-  c.querySelector(".bar").remove();
+  bar.remove();
+  stayAwake(false);
   const secs = (performance.now() - started) / 1000;
   status(c, `sent${secs > 2 ? ` in ${clock(secs)}` : ""}`, "ok");
 }

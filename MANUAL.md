@@ -535,8 +535,15 @@ or its workspace button. The program is `local/lib/panels/dbgui.py`; its drivers
   Esc leaves it. A group renamed to an existing group's name merges into it.
 - **The tree** (left): Enter or a double-click opens a connection (a green dot while connected), then
   schemas → tables and views, Redis keys (with their type), databases → collections, buckets → folders →
-  files. `/` filters what's listed; on a Redis connection, Enter in the filter asks the server for keys
+  files. `/` filters what's listed (or, when the right side lists a schema's contents, searches those); on a Redis connection, Enter in the filter asks the server for keys
   containing it. The dropdown under it shows one kind of database only (*All types* by default). Redis keys and S3 files come a page at a time: open *more* for the next.
+- **What's inside**: a schema, a Mongo database or an open connection of any kind shows what it holds on the
+  right, as a grid with a search box: type to narrow it (`/` goes to the box), click a name to open it, or
+  Enter for the first match. A Redis connection lists its keys (*More keys* for the next page); an S3 bucket or
+  folder keeps its file table, with the search box above it. Those two come a page at a time, so their search
+  asks the server: any part of the name, any case, up to the first 500, files however deep.
+- **Back**: the button above the heading (`Alt + Left`, or `Backspace` outside a text box) goes to the place
+  you picked before, its search as you left it; from a query's results, to what the query ran on.
 - **The right side**: the selected table / key / collection / file with its size and columns (a bucket or
   folder: every file under it, however deep, with its size and date; an image file, picked in the tree or
   in that list, shows beside the table), a page at a

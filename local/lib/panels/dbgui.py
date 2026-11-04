@@ -14,6 +14,12 @@
 #          (SQL, a Redis command, a Mongo filter or pipeline; Ctrl+Enter runs it or the selected part)
 #          and the selected row in full. Full access: what you run applies at once. An S3 image (the file
 #          picked in the tree, or a row of a bucket / folder's file list) shows beside the table.
+#          A schema, a Mongo database or an open connection shows what's in it instead: a grid to search
+#          (/) and open from (a click; Enter in the search opens the first). Redis's keys and an S3 bucket /
+#          folder's files come a page at a time, so their search asks the server (Driver.find); a bucket /
+#          folder keeps its file table until something is typed. The back button above the heading (Alt+Left,
+#          Backspace) goes to the place picked before this one, its search as it was; from a query's results,
+#          to what the query ran on.
 #   rows   under the table: + New, Edit, Delete for what it shows (a table's rows, a collection's documents,
 #          a key's fields / items / members, a folder's files), on one row or the several picked (the checkbox
 #          beside each, All for the page; or Ctrl / Shift + click, Ctrl+A). Enter on a row edits it, Del deletes the picked ones (twice). The form
@@ -84,6 +90,10 @@ window.panel.solid { background: #16161e; backdrop-filter: none; }
 
 .rec-field { min-height: 30px; }
 .form-type { color: #565f89; font-size: 9pt; }
+
+.db-items { padding: 0; }
+.db-items > flowboxchild { padding: 4px 8px; }
+.db-items > flowboxchild:hover, .db-items > flowboxchild:focus { background: alpha(#292e42, .75); }
 
 button.pager-btn { padding: 2px 10px; min-width: 0; font-size: 12pt; }
 button.pager-btn:disabled { background: transparent; color: #3b4261; }
@@ -190,7 +200,7 @@ class Databases(View):
     interval = 5   # refresh(): only closes idle connections
     css = CSS
     hints = [("Enter", "open"), ("Ctrl+click", "pick several"), ("Ctrl+Enter", "run / save"), ("[ ]", "page"), ("a", "ask AI"), ("d", "diagram"), ("n", "new connection"), ("e", "edit"),
-             ("F2", "rename"), ("F5", "reload"), ("Del", "delete")]
+             ("F2", "rename"), ("F5", "reload"), ("Del", "delete"), ("Alt+Left", "back")]
 
     def __init__(self):
         super().__init__()
@@ -216,6 +226,11 @@ class Databases(View):
         self.renaming = None     # ("conn", id) or ("group", name) while the name is being edited
         self.many = None         # several picked in the tree: ("conns" | "keys" | "files" | "none", [what])
         self.save_form = None    # the form showing's Save (Ctrl+Enter)
+        self.contents_key = None  # (id, path) of the schema / database / connection whose contents show
+        self.found = None         # what the server answered to the search: ([Node], whole answer?), None: not yet
+        self.search_gen = 0       # bumped when the search changes: a late answer is dropped, a long one stops
+        self.search_timer = None  # the pause after a letter before asking the server
+        self.back_stack = []      # the places picked before: (id, Node or None, the search's text)
 
     def conn(self, cid):
         return next((c for c in self.conns if c["id"] == cid), None)
@@ -285,7 +300,11 @@ class Databases(View):
         self.state = label("", "dim", ellipsize=True)
         self.actions = box(False, 8)
         self.actions.set_margin_top(10)
-        head = box(True, 2, self.heading, self.rename_entry, self.state, self.actions)
+        self.back_btn = button("", self.go_back, "flat", tooltip="back (Alt+Left)")
+        self.back_btn.set_halign(Gtk.Align.START)
+        self.back_btn.set_margin_bottom(6)
+        self.back_btn.set_visible(False)
+        head = box(True, 2, self.back_btn, self.heading, self.rename_entry, self.state, self.actions)
 
         self.query = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=2, bottom_margin=2)
         self.query.add_css_class("query")
@@ -376,13 +395,38 @@ class Databases(View):
         self.previewpane.add_css_class("db-preview")
         self.previewpane.set_visible(False)
         self.img_gen = 0
-        body = box(False, 14, split, self.previewpane)
+        body = box(False, 14, split, self.build_contents(), self.previewpane)
         body.set_margin_top(12)
 
-        page = box(True, 0, head, self.query_box, body)
+        page = box(True, 0, head, self.query_box, self.contents_bar, body)
         for edge in ("top", "start", "end", "bottom"):
             getattr(page, f"set_margin_{edge}")(20 if edge != "bottom" else 10)
         return page
+
+    def build_contents(self):
+        """What a schema / database / connection holds, in the room the table has for a table."""
+        self.contents_search = Gtk.Entry(hexpand=True)
+        self.contents_search.connect("changed", lambda *_: self.contents_typed())
+        self.contents_search.connect("activate", lambda *_: self.open_first())
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.contents_search_key)
+        self.contents_search.add_controller(keys)
+        self.contents_count = label("", "dim", xalign=1.0)
+        self.contents_count.set_width_chars(12)   # the search box keeps its width as the count changes
+        # each child has a set width: the grid counts its columns from the smallest width (an ellipsizing
+        # label's is next to nothing), so without one the names would be cut to a few letters
+        self.items = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True, max_children_per_line=16,
+                                 column_spacing=2, row_spacing=2, valign=Gtk.Align.START, css_classes=["db-items"])
+        self.items.connect("child-activated", lambda _f, child: self.open_item(child.node))
+        self.items_more = button("More keys", self.more_contents, "flat", tooltip="the next page of keys")
+        self.items_more.set_halign(Gtk.Align.START)
+        self.contents_bar = box(False, 10, self.contents_search, self.contents_count)
+        self.contents_bar.set_margin_top(12)
+        self.contents_bar.set_visible(False)
+        self.contents = scrolled(box(True, 10, self.items, self.items_more))
+        self.contents.set_hexpand(True)
+        self.contents.set_visible(False)
+        return self.contents
 
     # ---- the tree --------------------------------------------------------------------------------
     def groups(self):
@@ -507,7 +551,8 @@ class Databases(View):
                 for n in nodes:
                     if n.path == path:
                         return n
-        return None
+        # a key or file the search found, not (yet) in the tree
+        return next((n for n in (self.found or ((), 0))[0] if n.path == path), None)
 
     def toggle(self, key):
         """Enter / double-click: fold or unfold (connecting first), or fetch a "more" row's next page."""
@@ -530,7 +575,9 @@ class Databases(View):
     def fetch_kids(self, cid, path, then=None):
         def done(nodes):
             self.kids[(cid, path)] = nodes
-            self.paint_tree()
+            if (cid, path) in self.open:   # a schema only picked, not unfolded: the tree stays as it is
+                self.paint_tree()
+            self.contents_changed(cid, path)
             if then:
                 then()
         self.job(cid, lambda d: d.children(path), done, fail=lambda: self.open.discard((cid, path)))
@@ -542,6 +589,7 @@ class Databases(View):
         def done(nodes):
             self.kids[parent] = [n for n in self.kids[parent] if n is not node] + nodes
             self.paint_tree()
+            self.contents_changed(*parent)
         self.job(cid, lambda d: d.children(node.path), done)
 
     def scan_redis(self):
@@ -557,6 +605,7 @@ class Databases(View):
             self.open.add((cid, ()))
             self.filter.set_text("")
             self.paint_tree()
+            self.contents_changed(cid, ())
             self.say(f"{len([n for n in nodes if n.kind != 'more'])} keys matching *{text}*" if text else "all keys")
         self.job(cid, lambda d: d.children((), pattern=f"*{text}*" if text else "*"), done)
 
@@ -619,6 +668,8 @@ class Databases(View):
         self.open = {k for k in self.open if k[0] != cid}
         if self.pager and self.pager.cid == cid:
             self.pager = None
+        if self.contents_key and self.contents_key[0] == cid:
+            self.hide_contents()
         self.paint_tree()
         # its page on the right, if that's what shows: Open again instead of Reload / Disconnect, no server line
         if self.sel == (cid, None) and self.conn(cid) and self.stack.get_visible_child_name() == "browse":
@@ -647,9 +698,11 @@ class Databases(View):
         """A group's row: its page on the right (what's in it, Rename, Collapse)."""
         if self.painting:
             return
+        self.remember()
         if self.sel:
             self.queries[self.sel[0]] = self.query_text()
         self.sel, self.group, self.pager, self.many = None, project, None, None
+        self.paint_back()
         self.end_rename(False)
         self.gen += 1
         self.stack.set_visible_child_name("browse")
@@ -664,6 +717,7 @@ class Databases(View):
         self.query_box.set_visible(False)
         self.results.set_visible(False)
         self.previewpane.set_visible(False)
+        self.hide_contents()
         clear(self.actions)
         if project:
             self.actions.append(button("Rename", lambda: self.start_rename(("group", project)), "primary", tooltip="F2"))
@@ -757,14 +811,17 @@ class Databases(View):
             return self.picked_group(row.group) if row.group is not None else self.picked(row.key)
         if len(rows) < 2:
             return
+        self.remember()
         if self.sel:
             self.queries[self.sel[0]] = self.query_text()
         self.sel, self.group, self.pager = None, None, None
+        self.paint_back()
         self.end_rename(False)
         self.gen += 1
         self.stack.set_visible_child_name("browse")
         for w in (self.query_box, self.results, self.previewpane):
             w.set_visible(False)
+        self.hide_contents()
         clear(self.actions)
         keys = [r.key for r in rows if r.key]
         conns = [k[0] for k in keys if not k[1]]
@@ -946,13 +1003,15 @@ class Databases(View):
         clear(self.actions)
         self.query_box.set_visible(False)
         self.results.set_visible(False)
+        self.hide_contents()
 
-    def picked(self, key):
+    def picked(self, key, node=None):
         if not key or self.painting:
             return
         cid, path = key
         c = self.conn(cid)
-        node = self.node_of(key) if path else None
+        node = node or (self.node_of(key) if path else None)
+        self.remember(key)
         if self.sel and self.sel[0] != cid:
             self.queries[self.sel[0]] = self.query_text()
         same_conn = self.sel and self.sel[0] == cid
@@ -974,8 +1033,16 @@ class Databases(View):
             self.query.get_buffer().set_text(self.queries.get(cid, ""))
         self.paint_actions(c, node)
         self.show_image(cid, *(node.path[:2] if kind == "s3" and node and node.kind == "object" else ()))
+        self.hide_contents()
         if node and self.browsable(c, node):
             self.browse(cid, node.path)
+            if not node.leaf:   # a bucket / folder: its file table, and a search of it
+                self.show_contents(cid, node)
+        elif self.listable(c, node):
+            self.pager = None
+            self.fill(db.Result())
+            self.results.set_visible(False)
+            self.show_contents(cid, node)
         elif not same_conn or not node:
             self.pager = None
             self.fill(db.Result())
@@ -983,11 +1050,212 @@ class Databases(View):
         if cid in self.live or node:
             gen = self.gen
             self.job(cid, lambda d: d.info(node.path if node else ()), lambda kv: gen == self.gen and self.show_info(kv))
+        self.paint_back()
+
+    # ---- back ------------------------------------------------------------------------------------
+    def remember(self, going_to=None):
+        """Leaving the place showing for another: keep it for the back button (a place again is no move)."""
+        if not self.sel:
+            return
+        cid, node = self.sel
+        here = (cid, node.path if node else ())
+        if here == going_to or (node and node.kind == "more"):
+            return
+        text = self.contents_search.get_text() if self.contents_key == here else ""
+        self.back_stack.append((cid, node, text))
+        del self.back_stack[:-50]
+
+    def query_shown(self):
+        return self.sel and self.pager and self.pager.kind == "run"
+
+    def paint_back(self):
+        self.back_stack = [e for e in self.back_stack if self.conn(e[0])]
+        target = None
+        if self.query_shown():
+            target = self.sel[:2]
+        elif self.back_stack:
+            target = self.back_stack[-1][:2]
+        self.back_btn.set_visible(target is not None)
+        if target:
+            name = target[1].name if target[1] else self.conn(target[0])["name"]
+            self.back_btn.set_label(f"\u2039 {_short(name)}")
+
+    def go_back(self):
+        if self.query_shown():   # the results of a query: what it ran on, as it was
+            cid, node = self.sel
+            text = self.contents_search.get_text()
+        elif self.back_stack:
+            cid, node, text = self.back_stack.pop()
+            self.sel = None   # this place isn't kept for going back to: back only ever goes back
+        else:
+            return
+        key = (cid, node.path if node else ())
+        self.open |= {k for k in ((cid, ()), (cid, key[1][:1])) if k in self.kids and k != key}
+        self.paint_tree()
+        # the row quietly (picked() once, below, with the Node: a key the search found has no row to look it up by)
+        self.painting = True
+        self.tree.unselect_all()
+        self.select_key(None, key)
+        self.painting = False
+        self.picked(key, node)
+        if rows := self.tree.get_selected_rows():
+            rows[0].grab_focus()
+        if text and self.contents_key == key:
+            self.contents_search.set_text(text)
 
     @staticmethod
     def browsable(c, node):
         """Has contents for the table: a leaf, or an S3 bucket / folder (the files under it)."""
         return node.leaf or (c["kind"] == "s3" and node.kind in ("bucket", "folder"))
+
+    @staticmethod
+    def listable(c, node):
+        """Holds things to list on the right: a schema, a Mongo database, a connection."""
+        if node is None:
+            return True
+        return not node.leaf and node.kind != "more" and not Databases.browsable(c, node)
+
+    def show_contents(self, cid, node):
+        key = (cid, node.path if node else ())
+        self.contents_key, self.found = key, None
+        self.search_gen += 1
+        self.contents_search.set_text("")
+        self.contents_search.set_placeholder_text(f"search {node.name if node else self.conn(cid)['name']}")
+        if key in self.kids or self.table_behind():
+            self.paint_contents()
+        elif node or cid in self.live:   # a connection not open yet stays closed until it's opened
+            self.contents.set_visible(False)
+            self.fetch_kids(*key)
+        else:
+            self.contents.set_visible(False)
+
+    def hide_contents(self):
+        self.contents_key, self.found = None, None
+        self.stop_search()
+        self.contents.set_visible(False)
+        self.contents_bar.set_visible(False)
+
+    def stop_search(self):
+        self.search_gen += 1
+        if self.search_timer:
+            GLib.source_remove(self.search_timer)
+            self.search_timer = None
+
+    def table_behind(self):
+        """An S3 bucket / folder: the table shows its files, the grid only what a search finds."""
+        return bool(self.contents_key[1]) and self.conn(self.contents_key[0])["kind"] == "s3"
+
+    def searches_server(self):
+        return self.table_behind() or self.conn(self.contents_key[0])["kind"] == "redis"
+
+    def contents_changed(self, cid, path):
+        """What's listed changed (a fetch, the next page), if it's the one showing."""
+        if self.contents_key == (cid, path):
+            self.paint_contents()
+
+    def contents_typed(self):
+        if not self.contents_key:
+            return
+        self.stop_search()
+        self.found = None
+        if self.searches_server() and self.contents_search.get_text().strip():
+            self.search_timer = GLib.timeout_add(250, self.ask_search)
+        self.paint_contents()
+
+    def ask_search(self):
+        self.search_timer = None
+        cid, path = self.contents_key
+        text, gen = self.contents_search.get_text().strip(), self.search_gen
+
+        def done(found):
+            if gen == self.search_gen:
+                self.found = found
+                self.paint_contents()
+        self.job(cid, lambda d: d.find(path, text, lambda: gen == self.search_gen), done,
+                 fail=lambda: done(([], True)))
+        return False
+
+    def contents_nodes(self):
+        """What the search leaves of the contents, and how many there are in all."""
+        text = self.contents_search.get_text().strip().lower()
+        if text and self.searches_server():
+            found = self.found[0] if self.found else []
+            return found, len(found)
+        if self.table_behind():
+            return [], 0
+        nodes = [n for n in self.kids.get(self.contents_key, []) if n.kind != "more"]
+        return [n for n in nodes if text in n.name.lower()], len(nodes)
+
+    def contents_more(self):
+        return next((n for n in self.kids.get(self.contents_key, []) if n.kind == "more"), None)
+
+    def more_contents(self):
+        if more := self.contents_more():
+            self.more_kids(self.contents_key[0], more)
+
+    def contents_note(self, shown, total, text):
+        if text and self.searches_server():
+            if self.found is None:
+                return "searching\u2026"
+            return f"{len(shown):,} found" if self.found[1] else f"first {len(shown):,} found"
+        if len(shown) != total:
+            return f"{len(shown):,} of {total:,}"
+        return f"{total:,}+" if self.contents_more() else f"{total:,}"
+
+    def paint_contents(self):
+        text = self.contents_search.get_text().strip()
+        table = self.table_behind() and not text
+        self.contents_bar.set_visible(True)
+        self.results.set_visible(table)
+        self.contents.set_visible(not table)
+        self.items_more.set_visible(False)
+        clear(self.items)
+        if table:
+            return self.contents_count.set_text("")
+        shown, total = self.contents_nodes()
+        self.contents_count.set_text(self.contents_note(shown, total, text))
+        self.items_more.set_visible(not text and self.contents_more() is not None)
+        kind = self.conn(self.contents_key[0])["kind"]
+        for n in shown:
+            name = label(n.name, ellipsize=True)
+            name.set_max_width_chars(30)   # the widest natural width sets every column's: one long name made one column
+            line = box(False, 8, label(GLYPHS.get(n.kind, KEY_GLYPH), "db-glyph"), name)
+            if note := n.note or (n.kind if kind == "redis" else ""):
+                line.append(label(note, "dim"))
+            child = Gtk.FlowBoxChild(child=line, tooltip_text=n.name)
+            child.set_size_request(250, -1)
+            child.node = n
+            self.items.append(child)
+        if not shown:
+            waiting = text and self.searches_server() and self.found is None
+            self.items.append(Gtk.FlowBoxChild(child=label("Searching\u2026" if waiting else "Nothing matches." if total or text
+                                                           else "Nothing in here.", "dim"),
+                                               can_focus=False, can_target=False))
+
+    def open_item(self, node):
+        """A click on what's listed: the same as picking its row in the tree, which opens to show it."""
+        cid, path = self.contents_key
+        self.open |= {k for k in ((cid, ()), (cid, path)) if k in self.kids}
+        self.paint_tree()
+        key = (cid, node.path)
+        self.select_key(None, key)
+        rows = self.tree.get_selected_rows()
+        if rows and rows[0].key == key:
+            rows[0].grab_focus()   # brings it into view, however far down the tree
+        else:   # no row for it: the tree's filter or a folded group hides it, or the search found it further on
+            self.tree.unselect_all()
+            self.picked(key)
+
+    def open_first(self):
+        shown, _total = self.contents_nodes()
+        if shown:
+            self.open_item(shown[0])
+
+    def contents_search_key(self, _c, keyval, _code, _state):
+        if keyval == Gdk.KEY_Down and (first := self.items.get_child_at_index(0)) and first.get_can_focus():
+            first.grab_focus()
+            return True
+        return False
 
     def show_info(self, kv):
         if kv:
@@ -1139,6 +1407,7 @@ class Databases(View):
             if not r.more and r.columns:
                 pg.total = (len(r.rows), True)
             self.fill(r)
+            self.paint_back()
             took = f"{time.time() - started:.2f} s"
             self.say(f"{r.message} · {took}" if r.message else took)
         self.job(cid, lambda d: d.run(text, path, size), done)
@@ -1243,7 +1512,12 @@ class Databases(View):
 
     def fill(self, r):
         """Show a page of rows (new columns when they changed: a Mongo page can bring new fields)."""
-        self.results.set_visible(True)
+        pg = self.pager
+        if pg and pg.kind == "browse" and self.contents_key == (pg.cid, pg.path):   # a folder's table, its search above
+            self.results.set_visible(not self.contents_search.get_text().strip())
+        else:
+            self.results.set_visible(True)
+            self.hide_contents()
         if [c.get_title() for c in self.data_columns()] != r.columns:
             for col in self.data_columns():
                 self.table.remove_column(col)
@@ -1597,11 +1871,15 @@ class Databases(View):
 
         def done(_r):
             for k, ns in self.kids.items():
-                if k[0] == cid and node in ns:
-                    ns.remove(node)
+                if k[0] == cid:   # by path: a key found by the search isn't the tree's own Node
+                    ns[:] = [n for n in ns if n.path != node.path]
             self.say(f"deleted {node.name}")
+            self.back_stack = [e for e in self.back_stack if not (e[0] == cid and e[1] and e[1].path == node.path)]
+            if self.sel and self.sel[1] is node:
+                self.sel = None
             self.paint_tree()
             self.show_empty()
+            self.paint_back()
         self.job(cid, lambda d: d.delete(node.path), done)
 
     def disarm(self):
@@ -1853,6 +2131,9 @@ class Databases(View):
             self.stack.set_visible_child_name("browse")
             self.tree.grab_focus()
             return True
+        if keyval == Gdk.KEY_Left and state & Gdk.ModifierType.ALT_MASK and self.stack.get_visible_child_name() == "browse":
+            self.go_back()
+            return True
         if self.typing():
             return False
         focus = self.window.get_focus()
@@ -1884,6 +2165,8 @@ class Databases(View):
             elif node:
                 self.kids.pop(key, None)
                 self.open.add(key)
+                if self.listable(self.conn(key[0]), node):   # its contents again, also after a query's results
+                    self.contents_key = key
                 self.fetch_kids(*key)
                 if self.browsable(self.conn(key[0]), node):   # an S3 folder: its file list too
                     self.reload_page(key[0], node.path)
@@ -1898,8 +2181,10 @@ class Databases(View):
             self.ask()
         elif keyval == Gdk.KEY_d and key and self.diagram_of(self.conn(key[0]), self.node_of(key) if key[1] else None):
             self.show_diagram(key[0], *self.diagram_of(self.conn(key[0]), self.node_of(key) if key[1] else None))
+        elif keyval == Gdk.KEY_BackSpace and self.stack.get_visible_child_name() == "browse":
+            self.go_back()
         elif keyval == Gdk.KEY_slash:
-            self.filter.grab_focus()
+            (self.contents_search if self.contents_bar.get_visible() else self.filter).grab_focus()
         else:
             return False
         return True

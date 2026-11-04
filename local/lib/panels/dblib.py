@@ -35,6 +35,7 @@ import json, os, shlex, socket, subprocess, tempfile, time, uuid
 DIR = os.path.expanduser("~/.local/share/dbclient")
 LIST = f"{DIR}/connections.json"
 PAGE = 200            # rows / keys / objects fetched at a time
+FIND_MAX = 500        # the most a search of Redis keys / S3 files brings back
 IDLE = 180            # seconds unused before a connection closes
 CELL = 2000           # a cell's text is cut here (the row view shows what's left of a long value)
 IMAGE = 16 << 20      # an S3 image bigger than this isn't previewed
@@ -473,6 +474,11 @@ class Driver:
 
     def editor(self, path):
         return None
+
+    def find(self, path, text, alive):
+        """Search what's under path on the server, for what comes a page at a time (Redis, S3): ([Node], whole
+        answer?). alive(): False once nobody wants the answer (another letter typed): stop asking."""
+        raise DbError("nothing to search")
 
 
 class Lookahead:
@@ -1041,6 +1047,27 @@ class Redis(Driver):
             nodes.append(Node(("…",), "more keys", "more"))
         return nodes
 
+    def find(self, path, text, alive):
+        """Keys containing text, any case. A scan of its own: children()'s goes on where the tree left it."""
+        match = "*" + "".join(f"[{ch.lower()}{ch.upper()}]" if ch.isascii() and ch.isalpha() else
+                              "\\" + ch if ch in "*?[]\\" else ch for ch in text) + "*"
+        keys, cur = [], 0
+        try:
+            while alive() and len(keys) < FIND_MAX:
+                cur, got = self.r.scan(cur, match=match, count=1000)
+                keys += got
+                if cur == 0:
+                    break
+            keys = sorted(set(keys))[:FIND_MAX]
+            pipe = self.r.pipeline(transaction=False)
+            for k in keys:
+                pipe.type(k)
+            types = pipe.execute()
+        except self.err as e:
+            raise DbError(str(e))
+        return ([Node((k.decode(errors="replace"),), k.decode(errors="replace"), t.decode(), True)
+                 for k, t in zip(keys, types)], cur == 0)
+
     def browse(self, path, offset=0, limit=PAGE):
         """offset: a list / sorted set's index; for a hash or set the SCAN cursor and for a stream the last
         id seen (those can't jump to a page: the GUI walks them with next_at)."""
@@ -1540,6 +1567,27 @@ class S3(Driver):
         if r.get("IsTruncated"):
             nodes.append(Node((bucket, prefix, "…"), "more", "more"))
         return nodes
+
+    def find(self, path, text, alive):
+        """Files under the bucket / folder, however deep, with text in their name, any case. S3 only finds
+        by how a name starts, so this walks the listing."""
+        bucket, prefix = path[0], path[1]
+        kw = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": 1000}
+        text, nodes = text.lower(), []
+        try:
+            while alive():
+                r = self.s3.list_objects_v2(**kw)
+                nodes += [Node((bucket, o["Key"], "object"), o["Key"][len(prefix):], "object", True, size(o["Size"]))
+                          for o in r.get("Contents", []) if not o["Key"].endswith("/")
+                          and text in o["Key"][len(prefix):].lower()]
+                if not r.get("IsTruncated"):
+                    return nodes[:FIND_MAX], len(nodes) <= FIND_MAX
+                if len(nodes) >= FIND_MAX:
+                    break
+                kw["ContinuationToken"] = r["NextContinuationToken"]
+        except self.err as e:
+            raise DbError(str(e))
+        return nodes[:FIND_MAX], False
 
     def browse(self, path, offset=0, limit=PAGE):
         """A file: its details (and the start of a text file). A bucket / folder: every file under it,

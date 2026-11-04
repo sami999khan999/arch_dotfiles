@@ -353,12 +353,12 @@ class Clipboard(View):
     def clear_history(self):
         if not self.ask("clear", self.clear_b, "Clear all?"):
             return
-        doomed = [it["id"] for it in self.items if not it["pinned"]]
+        count = sum(not it["pinned"] for it in self.items)
 
         def work():
-            for i in doomed:   # one by one: elephant's own "remove_all" doesn't say what it does with pins
-                act(i, "remove")
-            GLib.idle_add(self.say, f"Deleted {len(doomed)} item{'s' * (len(doomed) != 1)}; pinned ones kept")
+            # all at once, pinned items stay: one by one took up to a minute, and closing the window stopped it halfway
+            elephant("activate", "clipboard;;remove_all;;")
+            GLib.idle_add(self.say, f"Deleted {count} item{'s' * (count != 1)}; pinned ones kept")
             GLib.idle_add(self.reload)
         threading.Thread(target=work, daemon=True).start()
 

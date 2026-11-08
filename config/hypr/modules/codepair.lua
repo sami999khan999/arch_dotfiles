@@ -371,6 +371,19 @@ hl.on("window.open", function(w)
     end
 end)
 
+-- A config reload starts this file afresh, and with it an empty `unpaired`: a VS Code window still
+-- waiting for its kitty (opened unseen, or mid-pairing) then never got one. So on load, every VS Code
+-- window on the Code workspace without its kitty waits again (none at login: no windows yet), and is
+-- paired once that workspace is shown. Checked a moment after the load, once the rest has run.
+hl.timer(function()
+    for _, w in ipairs(hl.get_windows()) do
+        if CODE[w.class] and not w.floating and onPairWs(w) and not termOf(w) then
+            unpaired[w.address] = true
+        end
+    end
+    pairNext()
+end, { timeout = 500, type = "oneshot" })
+
 -- Another project opened in a VS Code window (its title's folder part changed): the kitty follows,
 -- by cd if it's idle or with a new tab if something is running (kitty-pair --follow). The title
 -- also changes with every file switched to, so only a different folder part counts.

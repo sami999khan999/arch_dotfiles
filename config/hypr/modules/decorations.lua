@@ -76,5 +76,9 @@ hl.config({
     },
     binds = {
         hide_special_on_workspace_change = true,
+        -- Super + Shift + arrow swaps only within the workspace: with this on, a swap with nothing that way
+        -- (always, on a monocle workspace) took the other screen's window, so both changed workspace
+        -- (agentmux on Web, Chrome on Agents). Super + arrow still reaches the other screen (binds.lua).
+        window_direction_monitor_fallback = false,
     },
 })

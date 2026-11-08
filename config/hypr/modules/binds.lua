@@ -186,12 +186,19 @@ local cycle   -- defined with Alt + Tab further down
 
 -- Focus by direction. On a monocle workspace every window fills the screen, so there is no "left of":
 -- there the arrows step through its windows like Alt + Tab (← ↑ previous, → ↓ next).
+-- Directions stop at the screen's edge (binds.window_direction_monitor_fallback off, decorations.lua), so
+-- with no window that way the focus goes to the screen that way itself.
 local function focusDirection(dir)
     local ws = hl.get_active_workspace()
     if ws and ws.tiled_layout == "monocle" then
         cycle((dir == "l" or dir == "u") and -1 or 1)
-    else
-        hl.dispatch(hl.dsp.focus({ direction = dir }))
+        return
+    end
+    local before = hl.get_active_window()
+    hl.dispatch(hl.dsp.focus({ direction = dir }))
+    local after = hl.get_active_window()
+    if (before and before.address) == (after and after.address) then
+        hl.dispatch(hl.dsp.focus({ monitor = dir }))
     end
 end
 

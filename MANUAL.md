@@ -1240,7 +1240,9 @@ is only the layout):
 - **Hyprland options** → `config/hypr/settings.json` → generated `modules/settings.lua`, required
   last in `hyprland.lua`, so a value set in the panel wins over the hand-written modules. "Back to the
   config's values" on Appearance forgets them. Display modes are per PC: `settings.local.json` →
-  `modules/settings_local.lua` (both gitignored).
+  `modules/settings_local.lua` (both gitignored). Screens sit side by side as Hyprland lines them
+  up; where they stand the other way round on the desk, give each a `"position"` (`"0x0"`,
+  `"1920x0"`) in `settings.local.json` → `monitors`.
 - **Everything else** in its own file, by line edits of the known keys: `hypridle.conf`,
   `mako/config`, `waybar/config.jsonc`, `variables.lua` (+ `uwsm/env`, `kdeglobals`),
   `mimeapps.list`, `gtk-3.0/settings.ini`, `xsettingsd.conf`, `qt6ct.conf`, plus gsettings.

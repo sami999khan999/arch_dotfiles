@@ -237,7 +237,7 @@ def generate():
     local = store(local=True)
     parts = [HEADER.format(src="settings.local.json (this PC only)")]
     for name, m in sorted(local.get("monitors", {}).items()):
-        parts.append(monitor_lua(name, m["mode"], m["scale"]))
+        parts.append(monitor_lua(name, m["mode"], m["scale"], m.get("position", "auto")))
     for ws, mon in sorted(ws_monitors().items()):   # after wsgroups.lua's rule: this monitor wins
         parts.append(f'hl.workspace_rule({{ workspace = "{ws}", monitor = {lua_value(mon)}, persistent = true }})')
     write(LUA_LOCAL, "\n".join(parts))
@@ -401,17 +401,20 @@ def monitors():
         return []
 
 
-def monitor_lua(name, mode, scale):
-    return (f'hl.monitor({{ output = "{name}", mode = "{mode}", position = "auto", '
+def monitor_lua(name, mode, scale, position="auto"):
+    # position: "auto" (Hyprland lines the screens up), or "XxY" where this PC's screens sit on
+    # the desk the other way round (settings.local.json "monitors": {name: {"position": …}})
+    return (f'hl.monitor({{ output = "{name}", mode = "{mode}", position = "{position}", '
             f'scale = "{scale}" }})\n')
 
 
 def monitor_set(name, mode, scale, keep=True):
-    """Apply a mode now; keep=True also saves it for this PC."""
-    err = hypr_eval(monitor_lua(name, mode, scale).strip())
+    """Apply a mode now; keep=True also saves it for this PC (keeping the screen's position)."""
+    pos = store(local=True).get("monitors", {}).get(name, {}).get("position", "auto")
+    err = hypr_eval(monitor_lua(name, mode, scale, pos).strip())
     if keep and not err:
         data = store(local=True)
-        data.setdefault("monitors", {})[name] = {"mode": mode, "scale": scale}
+        data.setdefault("monitors", {}).setdefault(name, {}).update(mode=mode, scale=scale)
         save(LOCAL, data)
         generate()
     return err

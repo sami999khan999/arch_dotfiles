@@ -468,7 +468,8 @@ class Videos(View):
             self.pos_label.set_text(clock(value))
         return False
 
-    def seek_held(self, _ctl, event):
+    def seek_held(self, ctl, event):
+        event = event or ctl.get_current_event()   # PyGObject hands the signal None, not the event
         kind = event.get_event_type()
         if kind == Gdk.EventType.BUTTON_PRESS:
             self.dragging = True

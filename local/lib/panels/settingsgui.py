@@ -492,7 +492,8 @@ class Settings(View):
         tap.connect("released", lambda *_: arm(True) if not armed["on"] else None)
         cap.add_controller(tap)
 
-        def event(_c, ev):
+        def event(c, ev):
+            ev = ev or c.get_current_event()   # PyGObject hands the signal None, not the event
             if not armed["on"] or not cap.get_mapped():
                 return False
             kind = ev.get_event_type()

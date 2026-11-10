@@ -65,3 +65,5 @@ end
 
 hl.bind("SUPER + minus", hl.dsp.exec_cmd("swayosd-client --monitor \"$(hyprctl activeworkspace -j | jq -r .monitor)\" --output-volume lower")) -- Volume down
 hl.bind("SUPER + equal", hl.dsp.exec_cmd("swayosd-client --monitor \"$(hyprctl activeworkspace -j | jq -r .monitor)\" --output-volume raise")) -- Volume up
+hl.bind("mouse:276", function() remapCopy() end) -- Copy
+hl.bind("mouse:275", function() remapSend("CTRL", "v", "CTRL SHIFT") end) -- Paste

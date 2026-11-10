@@ -40,6 +40,18 @@
       "action": "volume_up",
       "key": "equal",
       "mods": "SUPER"
+    },
+    {
+      "action": "copy",
+      "arg": "",
+      "key": "mouse:276",
+      "mods": ""
+    },
+    {
+      "action": "paste",
+      "arg": "",
+      "key": "mouse:275",
+      "mods": ""
     }
   ],
   "wallpaper": {

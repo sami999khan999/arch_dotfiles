@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # The lock screen: one window per screen through the Wayland session-lock protocol (gtk4-layer-shell's
 # Gtk4SessionLock: the compositor keeps the screen locked even if this dies), showing the wallpaper
-# dimmed and blurred, Conway's Game of Life drifting over it (life.py), and a frosted-glass card with the
-# clock, the date and the password. Started by local/bin/lockscreen (hypridle's lock_cmd), which falls back
-# to hyprlock if this fails or dies; the password goes through PAM, hyprlock's service (/etc/pam.d/hyprlock).
+# blurred and dimmed under a night ocean drawn in shaded characters (ocean.py), and a frosted-glass card
+# with the clock, the date and the password field. Started by local/bin/lockscreen (hypridle's lock_cmd),
+# which falls back to hyprlock if this fails or dies; the password goes through PAM, hyprlock's service
+# (/etc/pam.d/hyprlock).
 #
-# Light on purpose: Python only steps the Life grid every STEP seconds (~2 ms) and makes it a tiny texture,
-# one pixel per cell. Everything else is the GPU's: the texture scaled up, cut into dots by a mask, faded in
-# over the last few generations fading out (so the dots glide, with a short trail), blurred under the card.
-# Frames stop while the screens are off (no frame callbacks then).
+# Light on purpose: NumPy draws the ocean FPS times a second (a few ms: the characters as a mask, a colour
+# pixel per cell). Everything else is the GPU's: the colours scaled up under the characters, the blur
+# under the card. Frames stop while the screens are off (no frame callbacks then).
 #
 #   locker.py            lock
 #   locker.py --demo N   lock, and unlock by itself after N seconds (to look at it)
@@ -16,6 +16,7 @@ import ctypes
 import ctypes.util
 import getpass
 import hashlib
+import math
 import os
 import subprocess
 import sys
@@ -37,18 +38,15 @@ from gi.repository import Gdk, GLib, Graphene, Gsk, Gtk, Gtk4SessionLock  # noqa
 sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import themelib  # noqa: E402
-from life import Life  # noqa: E402
+from ocean import Ocean  # noqa: E402
 
-STEP = 0.2          # seconds per generation, all of it spent fading into the next (at a steady pace:
-                    # an eased fade made every step start and stop, a pulse instead of a flow)
-TRAIL = 4           # generations a cell takes to fade out once dead: moving shapes leave a short trail
-FPS = 40            # frames a second at most
-CELL = 10           # px per cell
-DOT = 5             # px: a dot's size in its cell
-CARD = (440, 300)   # the card in the middle (px)
-BLUR = 16           # the card's frosted glass
+FPS = 30            # ocean frames a second
 CACHE = os.path.expanduser("~/.cache/lockscreen")
 WALL = os.path.expanduser("~/.local/state/wallpaper-current")
+FONT = "JetBrainsMono Nerd Font 9"    # the ocean's characters (their size is its grid)
+SHAKE = 0.45        # s the password field shakes after a wrong password
+CARD = (440, 320)   # the card in the middle (px)
+BLUR = 16           # the card's frosted glass
 
 DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September",
@@ -158,64 +156,43 @@ def background(w, h):
 
 
 class Field:
-    """The Life grid shared by every screen: the previous and current generation as textures."""
+    """The ocean shared by every screen: its latest frame as textures (mask, colour), made at most FPS
+    times a second, when a screen is about to draw (so never while they're off)."""
 
     def __init__(self, w, h):
-        self.life = Life(w // CELL + 1, h // CELL + 1)
-        c = rgba("#737aa2")
-        self.pixel = bytes(round(v * 255) for v in (c.red, c.green, c.blue)) + b"\xd8"
-        self.cur = self.texture()
-        self.past = []             # the generations before, newest first (at most TRAIL)
-        self.dots = self.dot_grid()
-        self.born = time.monotonic()
-        GLib.timeout_add(int(STEP * 1000), self.step)
+        rgb = themelib.rgbf
+        self.ocean = Ocean(w, h, FONT,
+                           [(0, rgb("#24283b")), (.3, rgb("#3b4261")), (.55, rgb("#6b8fe0")),
+                            (.8, rgb("#7dcfff")), (1, rgb("#c0caf5"))],
+                           [(0, rgb("#3b4261")), (.5, rgb("#a9b1d6")), (1, rgb("#cfc9c2"))],
+                           rgb("#f7768e"), 0.9)
+        o = self.ocean
+        self.grid = rect(0, 0, o.px, o.py)
+        self.t0 = time.monotonic()
+        self.made = 0.0
+        self.cur = self.textures()
 
-    def texture(self):
-        life = self.life
-        return Gdk.MemoryTexture.new(life.w, life.h, Gdk.MemoryFormat.R8G8B8A8,
-                                     GLib.Bytes.new(life.rgba(self.pixel)), life.w * 4)
+    def textures(self):
+        o = self.ocean
+        mask, colour = o.frame(time.monotonic() - self.t0)
+        return (Gdk.MemoryTexture.new(o.px, o.py, Gdk.MemoryFormat.A8, GLib.Bytes.new(mask), o.px),
+                Gdk.MemoryTexture.new(o.w, o.h, Gdk.MemoryFormat.R8G8B8A8, GLib.Bytes.new(colour), o.w * 4))
 
-    def dot_grid(self):
-        """The mask that cuts the cells into dots: one texture, drawn once (a repeated tile was ~20000
-        draws a frame for the renderer, which cost a whole CPU core)."""
-        import cairo
-        w, h = self.life.w * CELL, self.life.h * CELL
-        tile = cairo.ImageSurface(cairo.FORMAT_ARGB32, CELL, CELL)
-        t = cairo.Context(tile)
-        t.arc(CELL / 2, CELL / 2, DOT / 2, 0, 6.2832)
-        t.set_source_rgba(1, 1, 1, 1)
-        t.fill()
-        pattern = cairo.SurfacePattern(tile)
-        pattern.set_extend(cairo.EXTEND_REPEAT)
-        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
-        cr = cairo.Context(surf)
-        cr.set_source(pattern)
-        cr.paint()
-        surf.flush()
-        return Gdk.MemoryTexture.new(w, h, Gdk.MemoryFormat.B8G8R8A8_PREMULTIPLIED,
-                                     GLib.Bytes.new(bytes(surf.get_data())), surf.get_stride())
+    def frame(self):
+        """The textures for now: a new frame once 1/FPS has gone by, else the last one (every screen)."""
+        now = time.monotonic()
+        if now - self.made >= 1 / FPS - 0.004:
+            self.made = now
+            self.cur = self.textures()
+        return self.cur
 
-    def step(self):
-        self.life.step()
-        self.past = [self.cur] + self.past[:TRAIL - 1]
-        self.cur = self.texture()
-        self.born = time.monotonic()
-        return True
-
-    def layers(self):
-        """(texture, opacity) from oldest to newest: the new generation fading in, the older ones fading
-        out a little more every frame, so a glider's dots slide along with a fading trail."""
-        t = min(1.0, (time.monotonic() - self.born) / STEP)
-        out = []
-        for age, tex in reversed(list(enumerate(self.past))):
-            e = age + t                                  # how many generations ago, continuously
-            out.append((tex, max(0.0, 1 - e / TRAIL) ** 2))
-        out.append((self.cur, t))
-        return out
+    def ripple(self, kind):
+        """Ripples on the water: "key" (typing) or "fail" (a wrong password, red)."""
+        self.ocean.ripple(kind, time.monotonic() - self.t0)
 
 
 class Scene(Gtk.Widget):
-    """Wallpaper, the Life dots, the card's frosted glass: drawn on the GPU every frame."""
+    """The wallpaper blurred, the ocean over it, the card's frosted glass: drawn on the GPU every frame."""
 
     def __init__(self, field, bg):
         super().__init__()
@@ -232,31 +209,27 @@ class Scene(Gtk.Widget):
             self.queue_draw()
         return GLib.SOURCE_CONTINUE
 
-    def picture(self, snap, w, h):
+    def picture(self, snap, w, h, frame):
         if self.bg:
             snap.append_texture(self.bg, rect(0, 0, w, h))
         else:
             snap.append_color(self.base, rect(0, 0, w, h))
-        life = self.field.life
-        grid = rect(0, 0, life.w * CELL, life.h * CELL)
-        snap.push_mask(Gsk.MaskMode.ALPHA)          # the mask: a dot in every cell
-        snap.append_texture(self.field.dots, grid)
+        mask, colour = frame
+        snap.push_mask(Gsk.MaskMode.ALPHA)          # the mask: the characters
+        snap.append_texture(mask, self.field.grid)
         snap.pop()
-        for tex, opacity in self.field.layers():    # the source: this generation over its trail
-            if opacity > 0.01:
-                snap.push_opacity(opacity)
-                snap.append_scaled_texture(tex, Gsk.ScalingFilter.NEAREST, grid)
-                snap.pop()
+        snap.append_scaled_texture(colour, Gsk.ScalingFilter.NEAREST, self.field.grid)   # their colours
         snap.pop()
 
     def do_snapshot(self, snap):
         w, h = self.get_width(), self.get_height()
-        self.picture(snap, w, h)
+        frame = self.field.frame()
+        self.picture(snap, w, h, frame)
         cw, ch = CARD
         card = rect((w - cw) // 2, (h - ch) // 2, cw, ch)
         snap.push_clip(card)                         # frosted glass: the same picture, blurred
         snap.push_blur(BLUR)
-        self.picture(snap, w, h)
+        self.picture(snap, w, h, frame)
         snap.pop()
         snap.pop()
         snap.append_color(self.tint, card)
@@ -269,32 +242,52 @@ CSS = """
 .lock-card { color: #c0caf5; font-family: "JetBrainsMono Nerd Font"; }
 .lock-card .clock { font-size: 72px; font-weight: 800; color: #c0caf5; }
 .lock-card .date { font-size: 14px; color: #a9b1d6; }
-.lock-card entry {
-  min-height: 42px; min-width: 340px; padding: 0 12px; font-size: 14px; color: #c0caf5;
-  background: #292e42; border: 1px solid #3b4261; border-radius: 0; box-shadow: none; outline: none;
-  caret-color: #6b8fe0;
+.lock-card .field {
+  min-height: 44px; background: alpha(#16161e, 0.65); border: 1px solid alpha(#3b4261, 0.9);
 }
-.lock-card entry:focus-within { border-color: #6b8fe0; }
-.lock-card entry.fail { border-color: #f7768e; }
-.lock-card entry > text > placeholder { color: #565f89; }
+.lock-card .field:focus-within { border-color: #6b8fe0; }
+.lock-card .field.fail, .lock-card .field.fail:focus-within { border-color: #f7768e; }
+.lock-card .field .icon { font-size: 15px; color: #565f89; min-width: 44px; }
+.lock-card .field:focus-within .icon { color: #6b8fe0; }
+.lock-card .field.fail .icon, .lock-card .field.fail:focus-within .icon { color: #f7768e; }
+.lock-card .field entry {
+  min-height: 42px; padding: 0; font-size: 14px; color: #c0caf5; caret-color: #6b8fe0;
+  background: none; border: none; border-radius: 0; box-shadow: none; outline: none;
+}
+.lock-card .field entry > text > placeholder { color: #565f89; }
+.lock-card .field button {
+  min-width: 44px; min-height: 42px; padding: 0; font-size: 15px; color: #3b4261;
+  background: none; border: none; border-radius: 0; box-shadow: none; outline: none;
+}
+.lock-card .field.ready button { color: #6b8fe0; }
+.lock-card .field.ready button:hover { color: #c0caf5; background: alpha(#6b8fe0, 0.25); }
 .lock-card .msg { font-size: 12px; color: #565f89; min-height: 16px; }
+.lock-card .msg.caps { color: #e0af68; }
 .lock-card .msg.fail { color: #f7768e; }
 """
+
+HINT = "Enter to unlock \u00b7 Esc to clear"
 
 
 class Locker:
     def __init__(self, demo):
         self.loop = GLib.MainLoop()
         self.buffer = Gtk.EntryBuffer()
-        self.windows, self.entries, self.msgs, self.clocks, self.dates = [], [], [], [], []
+        self.buffer.connect("notify::text", self.on_typed)
+        self.windows, self.entries, self.fields, self.msgs, self.clocks, self.dates = [], [], [], [], [], []
         self.busy = False
+        self.failed = ""        # what PAM said after the last wrong password, until something is typed
+        self.shaken = 0.0       # when the fields started shaking
         self.h24 = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "clock-format"],
                                   capture_output=True, text=True).stdout.strip() != "'12h'"
+        display = Gdk.Display.get_default()
         css = Gtk.CssProvider()
         css.load_from_string(themelib.recolor(CSS))
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
-                                                  Gtk.STYLE_PROVIDER_PRIORITY_USER)
-        mons = Gdk.Display.get_default().get_monitors()
+        Gtk.StyleContext.add_provider_for_display(display, css, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        self.keyboard = display.get_default_seat().get_keyboard()
+        if self.keyboard:
+            self.keyboard.connect("notify::caps-lock-state", lambda *_: self.show())
+        mons = display.get_monitors()
         big = max((mons.get_item(i).get_geometry() for i in range(mons.get_n_items())),
                   key=lambda g: g.width * g.height)
         self.field = Field(big.width, big.height)
@@ -317,7 +310,17 @@ class Locker:
         win.set_cursor(Gdk.Cursor.new_from_name("none"))
         overlay = Gtk.Overlay()
         overlay.set_child(Scene(self.field, background(g.width, g.height)))
+        overlay.add_overlay(self.card())
+        win.set_child(overlay)
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        win.add_controller(keys)
+        self.windows.append(win)
+        lock.assign_window_to_monitor(win, monitor)
+        self.entries[-1].grab_focus()
 
+    def card(self):
+        """The clock, the date and the password field, for one screen."""
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, halign=Gtk.Align.CENTER,
                        valign=Gtk.Align.CENTER, spacing=6)
         card.set_size_request(*CARD)
@@ -326,36 +329,49 @@ class Locker:
         clock.add_css_class("clock")
         date.add_css_class("date")
         clock.set_margin_top(30)
-        entry = Gtk.Entry(buffer=self.buffer, visibility=False, xalign=0.5, halign=Gtk.Align.CENTER,
-                          placeholder_text=f"  {getpass.getuser()}")
-        entry.set_invisible_char("\u2022")
-        entry.set_margin_top(24)
+
+        field = Gtk.Box(halign=Gtk.Align.CENTER, margin_start=12, margin_end=12)
+        field.add_css_class("field")
+        field.set_size_request(356, -1)
+        field.set_margin_top(26)
+        icon = Gtk.Label(label="\uf023")                          # a padlock
+        icon.add_css_class("icon")
+        entry = Gtk.Entry(buffer=self.buffer, visibility=False, xalign=0, hexpand=True,
+                          placeholder_text=f"Password for {getpass.getuser()}")
+        entry.set_invisible_char("\u25cf")
         entry.connect("activate", self.submit)
+        go = Gtk.Button(label="\uf061", focusable=False, tooltip_text="Unlock")   # an arrow
+        go.connect("clicked", self.submit)
+        for w in (icon, entry, go):
+            field.append(w)
+
         msg = Gtk.Label()
         msg.add_css_class("msg")
-        for w in (clock, date, entry, msg):
+        msg.set_margin_top(4)
+        for w in (clock, date, field, msg):
             card.append(w)
-        overlay.add_overlay(card)
-        win.set_child(overlay)
-
-        keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", self.on_key)
-        win.add_controller(keys)
-        self.windows.append(win)
         self.entries.append(entry)
+        self.fields.append(field)
         self.msgs.append(msg)
         self.clocks.append(clock)
         self.dates.append(date)
         self.tick_clock()
-        lock.assign_window_to_monitor(win, monitor)
-        entry.grab_focus()
+        self.show()
+        return card
 
     def on_key(self, _ctl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape and not self.busy:
+            self.failed = ""
             self.buffer.set_text("", -1)
-            self.say("")
+            self.show()
             return True
         return False
+
+    def on_typed(self, *_):
+        if self.buffer.get_length():
+            self.failed = ""
+            self.field.ripple("key")
+        self.show()
 
     def tick_clock(self):
         t = time.localtime()
@@ -367,19 +383,35 @@ class Locker:
             d.set_text(date)
         return True
 
-    def say(self, text, fail=False):
+    def show(self):
+        """The field and the line under it, from the state: checking, a wrong password, Caps Lock, or the
+        hint."""
+        caps = bool(self.keyboard and self.keyboard.get_caps_lock_state())
+        if self.busy:
+            text, kind = "Checking\u2026", ""
+        elif self.failed:
+            text, kind = f"\uf00d  {self.failed}", "fail"
+        elif caps:
+            text, kind = "\uf071  Caps Lock is on", "caps"
+        else:
+            text, kind = HINT, ""
+        ready = self.buffer.get_length() > 0 and not self.busy
         for m in self.msgs:
             m.set_text(text)
-            (m.add_css_class if fail else m.remove_css_class)("fail")
+            for k in ("fail", "caps"):
+                (m.add_css_class if k == kind else m.remove_css_class)(k)
+        for f in self.fields:
+            (f.add_css_class if self.failed else f.remove_css_class)("fail")
+            (f.add_css_class if ready else f.remove_css_class)("ready")
         for e in self.entries:
-            (e.add_css_class if fail else e.remove_css_class)("fail")
+            e.set_editable(not self.busy)
 
-    def submit(self, _entry):
+    def submit(self, *_):
         password = self.buffer.get_text()
         if self.busy or not password:
             return
         self.busy = True
-        self.say("checking…")
+        self.show()
 
         def work():
             ok, said = authenticate(password)
@@ -392,8 +424,21 @@ class Locker:
             self.lock.unlock()
             return False
         self.buffer.set_text("", -1)
-        self.say(said or "Wrong password", fail=True)
+        self.failed = said or "Wrong password"
+        self.show()
+        self.field.ripple("fail")
+        self.shaken = time.monotonic()
+        for f in self.fields:
+            f.add_tick_callback(self.shake)
         return False
+
+    def shake(self, field, _clock):
+        """A wrong password: the field shakes side to side, settling within SHAKE seconds."""
+        t = time.monotonic() - self.shaken
+        off = 0 if t >= SHAKE else round(9 * math.sin(t * 42) * (1 - t / SHAKE))
+        field.set_margin_start(12 + off)
+        field.set_margin_end(12 - off)
+        return GLib.SOURCE_CONTINUE if t < SHAKE else GLib.SOURCE_REMOVE
 
     def run(self):
         if not self.lock.lock():

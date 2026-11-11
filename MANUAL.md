@@ -1106,15 +1106,23 @@ process started); it tells the visualizer, which makes room.
 ### Lock screen
 
 `Super + Ctrl + L`, Lock in the power panel, or idle (Settings → Idle & lock) locks the screen with
-`local/bin/lockscreen` (hypridle's `lock_cmd`). It shows the wallpaper dimmed and blurred,
-Conway's Game of Life drifting over it in dots, and a frosted-glass card with the clock, the date
-(always in English) and the password. Type the password and press `Enter`; `Esc` clears it.
+`local/bin/lockscreen` (hypridle's `lock_cmd`). It shows the wallpaper blurred and dimmed, a night
+ocean drawn in characters over it, and a frosted-glass card with the clock, the date (always in English) and the password field. Type the
+password and press `Enter` (or click the arrow); `Esc` clears it.
 
+- **The password field:** a padlock, the dots, and an arrow that lights up once there's something to
+  send. Under it: a hint, *Checking…* while PAM checks, *Caps Lock is on* (amber), or what went wrong
+  (red). A wrong password turns the field red and shakes it.
+- **The ocean:** waves rolling in perspective under the moon, shaded like a 3D scene in characters
+  (` .·:-=+*#%@`, from dark to bright). Each character shows how much light the water sends back
+  there: the moon's glint path, slopes turned to the moon or away from it, haze on the horizon. Stars
+  twinkle in the sky. Each key you type sends a ripple across the water. A wrong password sends a red
+  one.
 - **How it's drawn:** it's our own lock screen, `local/lib/lockscreen/locker.py`. It uses GTK4 and the
-  Wayland session-lock protocol through gtk4-layer-shell, with PAM through hyprlock's service. Python
-  steps the Life grid about 3 times a second (`life.py`: one int per row, a few ms). The GPU draws the
-  rest: dots cross-fading from one generation to the next so they glide, and the blur under the card.
-  That costs about 7% of one core while locked, and nothing while the screens are off.
+  Wayland session-lock protocol through gtk4-layer-shell, with PAM through hyprlock's service. NumPy
+  draws the ocean 30 times a second (`ocean.py`: the whole water surface at once, about 2 ms a frame;
+  the sky is drawn once, only the stars change). The GPU colours the characters and blurs them under
+  the card. Nothing is drawn while the screens are off.
 - **If it fails:** hyprlock is the safety net. If the locker can't lock, or dies while locked, the
   wrapper starts hyprlock to take the lock over (`misc.allow_session_lock_restore`). hyprlock uses the
   same layout without the animation (`config/hypr/hyprlock.conf`).

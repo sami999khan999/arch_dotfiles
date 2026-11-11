@@ -184,6 +184,7 @@ python-boto3
 python-cairo
 python-defusedxml
 python-gobject
+python-numpy
 python-packaging
 python-psycopg
 python-pymongo

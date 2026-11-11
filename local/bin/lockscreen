@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lockscreen — lock the screen: our lock screen (local/lib/lockscreen/locker.py: the Game of Life, a frosted
+# lockscreen — lock the screen: our lock screen (local/lib/lockscreen/locker.py: a night ocean in characters, a frosted
 # card), with hyprlock as the safety net — if the locker can't lock or dies while locked, hyprlock takes the
 # lock over (Hyprland's misc.allow_session_lock_restore, modules/misc.lua). hypridle's lock_cmd
 # (config/hypr/hypridle.conf), so loginctl lock-session, Super + Ctrl + L and the power panel all come here.

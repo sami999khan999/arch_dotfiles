@@ -1103,6 +1103,22 @@ three with what they run, a click opens System on Apps. It goes once the CPU has
 `config/hypr/scripts/loadwatch.py` reads `/proc/stat` every 5 s and the cgroups only while busy (no
 process started); it tells the visualizer, which makes room.
 
+### Lock screen
+
+`Super + Ctrl + L`, Lock in the power panel, or idle (Settings → Idle & lock) locks the screen with
+`local/bin/lockscreen` (hypridle's `lock_cmd`). It shows the wallpaper dimmed and blurred,
+Conway's Game of Life drifting over it in dots, and a frosted-glass card with the clock, the date
+(always in English) and the password. Type the password and press `Enter`; `Esc` clears it.
+
+- **How it's drawn:** it's our own lock screen, `local/lib/lockscreen/locker.py`. It uses GTK4 and the
+  Wayland session-lock protocol through gtk4-layer-shell, with PAM through hyprlock's service. Python
+  steps the Life grid about 3 times a second (`life.py`: one int per row, a few ms). The GPU draws the
+  rest: dots cross-fading from one generation to the next so they glide, and the blur under the card.
+  That costs about 7% of one core while locked, and nothing while the screens are off.
+- **If it fails:** hyprlock is the safety net. If the locker can't lock, or dies while locked, the
+  wrapper starts hyprlock to take the lock over (`misc.allow_session_lock_restore`). hyprlock uses the
+  same layout without the animation (`config/hypr/hyprlock.conf`).
+
 ### Notifications
 
 The bell beside the clock shows them: a plain bell, blue with a dot when something new came since you

@@ -87,6 +87,7 @@ gst-plugin-va
 gst-plugins-bad
 gst-plugins-ugly
 gtk4
+gtk4-layer-shell
 hdparm
 httpie
 hwdetect
@@ -180,6 +181,7 @@ power-profiles-daemon
 pv
 python
 python-boto3
+python-cairo
 python-defusedxml
 python-gobject
 python-packaging

@@ -29,6 +29,9 @@ hl.config({
         -- the bar's active workspace) stay on the screen they were on; a click or a shortcut moves it
         mouse_move_focuses_monitor = false,
         on_focus_under_fullscreen = 2, -- other focus changes drop fullscreen; Super+Q…P / Alt+Tab keep a video fullscreen (binds.lua)
+        -- if the lock screen (local/lib/lockscreen/locker.py) ever dies while locked, local/bin/lockscreen
+        -- starts hyprlock to take the lock over, instead of Hyprland's "lock screen died" screen
+        allow_session_lock_restore = true,
     },
     render = {
         direct_scanout = 2,

@@ -3,8 +3,9 @@
 -- shown on that screen. Super + Shift + Space still flips the focused screen's bar by hand, until that
 -- screen switches to a workspace that wants it the other way.
 -- SIGUSR1 flips every bar of a waybar process, so each screen has its own (scripts/waybars.py), and
--- waybar can't be asked which way a bar is: that's read off its layer surface (hidden, waybar moves it
--- from the top layer to the bottom one).
+-- waybar can't be asked which way a bar is: that's read off the screen's reserved strip (shown, the bar
+-- reserves its height at the top; hidden, it reserves nothing). Not off its layer: the bar is on the
+-- bottom layer either way (config.jsonc), so a popup's backdrop window blurs it with the rest.
 
 BAR_HIDE = { all = false, workspaces = {} }   -- workspaces: id -> true
 local wanted = {}   -- screen name -> shown (true) / hidden (false), as the last check wanted it
@@ -23,7 +24,8 @@ function barApply(force)
             local want = wantShown(mon)
             if want ~= wanted[mon.name] or force then
                 wanted[mon.name] = want
-                if (l.layer >= 2) ~= want then hl.exec_cmd("kill -USR1 " .. l.pid) end
+                local shown = (mon.reserved and mon.reserved.top or 0) > 0
+                if shown ~= want then hl.exec_cmd("kill -USR1 " .. l.pid) end
             end
         end
     end

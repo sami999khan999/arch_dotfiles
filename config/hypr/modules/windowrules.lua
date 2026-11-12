@@ -197,14 +197,6 @@ hl.layer_rule({
   ignore_alpha = 0.5,
 })
 hl.layer_rule({ name = "walker-noanim", match = { namespace = "^walker$" }, no_anim = true })
--- the popup backdrop's strip over the bar (local/lib/panels/barveil.py): blurred like the backdrop
--- window, so the bar goes under the frost with the rest of the screen
-hl.layer_rule({
-  name = "panels-veil",
-  match = { namespace = "^panels-veil$" },
-  blur = true,
-  animation = "fade",
-})
 -- the bar's tooltip cards (config/waybar/bartips): frosted like the bar, fading in and out
 hl.layer_rule({
   name = "bartip",

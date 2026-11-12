@@ -49,8 +49,9 @@ import importlib.machinery, importlib.util, json, math, os, shutil, signal, subp
 # counter that came after (custom/fps "󰓅 60/60": 20 px padding + 7 characters = 69 px)
 # then 202 px more when the controls (Setups … volume at 3 digits) went into the hub's one icon (bartips)
 # and 93 px less for the network speed in the stats (custom/netspeed: two small sparklines), 62 px less
-# for the storage chip (custom/storage; the GPU's shows only with an NVIDIA / AMD card, not modelled)
-GAP_REF, TITLE_REF = 174, 30
+# for the storage chip (custom/storage; the GPU's shows only with an NVIDIA / AMD card, not modelled),
+# and 93 px more again when the network speed left the bar
+GAP_REF, TITLE_REF = 267, 30
 COUNT_REF = "\U000f0570 1/1"   # the group count's text in the reference
 CLOCK_REF_LEN = 17             # "Thu 01 Oct  22:43": the short clock
 CHAR_PX = 7.0         # px per character of the 12 px bar font (JetBrains Mono; measured with Pango)

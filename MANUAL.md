@@ -181,11 +181,6 @@ frame Hyprland draws (wlr-screencopy), with the frame's time. That costs next to
 Hyprland counts a screencast, and a fullscreen game isn't scanned out directly. Hide it in Settings →
 Power & bar → Top bar.
 
-Before it, the network speed: two small sparklines, download (blue) over upload (amber), each the last
-20 s as bars scaled to its own peak, with the speed now beside it (`▁▂▅▇▆ 287K`), over every network at once (the cable and a phone's hotspot added up; not Docker's or a VPN's), every 2 s, dimmed
-while next to nothing moves. Its card has the exact speeds and, when two networks both carry traffic,
-each one's share; click it for the network panel (`scripts/netspeed.py`).
-
 Then the CPU, the GPU (only with an NVIDIA or AMD card), memory and storage, each with a card of its own:
 - **CPU** (`scripts/cpu.py`): the model and threads, the load over the last 3 minutes as a graph,
   temperature, clock and load average, a column per thread, and the apps using the most. Click: System.
@@ -1117,8 +1112,8 @@ unpins a popup for the while, as Hyprland won't make a pinned window fullscreen)
 Documents also hide their header and hints there.
 A click anywhere outside a text field (a search box…) leaves it, so the panel's keys work again
 (`leave_text` in `gtkkit.py`; Projects goes back to its list).
-While a popup is open the screen behind it is blurred and darkened, the bar excepted (a see-through,
-darkened full-screen window under it that Hyprland blurs like every window, so panels and windows have
+While a popup is open the whole screen behind it is blurred and darkened, the bar too (a see-through,
+darkened full-screen window under it; the bar is on the bottom layer, under windows, so it's covered as well that Hyprland blurs like every window, so panels and windows have
 the same blur, set in one place: Settings → Appearance → Blur; `Backdrop` in `gtkkit.py`,
 `panels-backdrop` in `modules/windowrules.lua`); a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
 and it's still there over its backdrop (it's pinned above the backdrop, so that click can't cover it,

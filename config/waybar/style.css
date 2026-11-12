@@ -40,7 +40,7 @@ window#waybar {
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
 #custom-clock, #custom-wsgroups, #custom-hub, #custom-setups, #custom-sysagent, #custom-keys, #custom-settings,
-#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps, #custom-netspeed,
+#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps,
 #custom-memory, #custom-storage, #custom-gpu, #custom-cpu,
 #custom-idle-indicator, #custom-notifications, #custom-load,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-downloads, #custom-mirror, #custom-lsend, #custom-visualizer {
@@ -52,7 +52,7 @@ window#waybar {
 
 #custom-clock:hover, #custom-wsgroups:hover, #custom-hub:hover, #custom-setups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
-#memory:hover, #temperature:hover, #custom-fps:hover, #custom-netspeed:hover, #custom-memory:hover, #custom-storage:hover, #custom-gpu:hover, #custom-cpu:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover, #custom-mirror:hover, #custom-lsend:hover,
+#memory:hover, #temperature:hover, #custom-fps:hover, #custom-memory:hover, #custom-storage:hover, #custom-gpu:hover, #custom-cpu:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover, #custom-mirror:hover, #custom-lsend:hover,
 #custom-visualizer:hover, #custom-load:hover {
   background: @overlay;
   color: @text;
@@ -267,18 +267,12 @@ window#waybar {
   padding: 0;
 }
 
-#cpu, #memory, #temperature, #battery, #custom-fps, #custom-netspeed, #custom-memory, #custom-storage, #custom-gpu, #custom-cpu {
+#cpu, #memory, #temperature, #battery, #custom-fps, #custom-memory, #custom-storage, #custom-gpu, #custom-cpu {
   color: @text;
 }
 
-/* the network speed: down over up, two small lines in the bar's height */
-#custom-netspeed {
-  font-size: 9px;
-  padding: 0 9px;
-}
-
-/* a still screen: nothing drawn; next to nothing on the network */
-#custom-fps.idle, #custom-netspeed.idle {
+/* a still screen: nothing drawn */
+#custom-fps.idle {
   color: @muted;
 }
 

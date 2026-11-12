@@ -1106,22 +1106,35 @@ process started); it tells the visualizer, which makes room.
 ### Lock screen
 
 `Super + Ctrl + L`, Lock in the power panel, or idle (Settings → Idle & lock) locks the screen with
-`local/bin/lockscreen` (hypridle's `lock_cmd`). It shows the wallpaper blurred and dimmed, a night
-ocean drawn in characters over it, and a frosted-glass card with the clock, the date (always in English) and the password field. Type the
-password and press `Enter` (or click the arrow); `Esc` clears it.
+`local/bin/lockscreen` (hypridle's `lock_cmd`). It shows the wallpaper blurred and dimmed, an
+animation drawn in characters over it (the night ocean or the aurora), and a frosted-glass card with the clock, the date (always in English) and the password field. Type the
+password and press `Enter` (or click the arrow); `Esc` clears it; `Ctrl + ←/→` switches the animation.
 
-- **The password field:** a padlock, the dots, and an arrow that lights up once there's something to
-  send. Under it: a hint, *Checking…* while PAM checks, *Caps Lock is on* (amber), or what went wrong
-  (red). A wrong password turns the field red and shakes it.
-- **The ocean:** waves rolling in perspective under the moon, shaded like a 3D scene in characters
-  (` .·:-=+*#%@`, from dark to bright). Each character shows how much light the water sends back
-  there: the moon's glint path, slopes turned to the moon or away from it, haze on the horizon. Stars
-  twinkle in the sky. Each key you type sends a ripple across the water. A wrong password sends a red
-  one.
+- **The password field:** a padlock, the dots (spaced out, to count them), an eye that shows the
+  password as text (`Ctrl + H`), and an arrow that lights up once there's something to send and turns
+  into a spinner while PAM checks. With more than one keyboard layout, a badge shows the active one
+  (`US`, `DE`…). Under it: a hint, *Checking…*, *Caps Lock is on* (amber, the padlock too), or what went
+  wrong (red). A wrong password turns the field red, shakes it, and says how many tries faillock still
+  allows (*2 tries left*; then *Last try before a 10 min lockout*).
+- **The animation:** Settings → Idle & lock → *Animation* picks it: *Night ocean*, *Aurora*, or *A
+  different one each time*. *Preview* locks for 8 seconds and unlocks by itself. On the lock screen,
+  `Ctrl + ←` / `Ctrl + →` switches to the previous / next one, and that becomes the setting (unless
+  it's *A different one each time*). Both are shaded
+  in characters (` .·:-=+*#%@`, from dark to bright).
+- **The night ocean:** waves rolling in perspective under the moon, shaded like a 3D scene. Each
+  character shows how much light the water sends back there: the moon's glint path, slopes turned to
+  the moon or away from it, haze on the horizon. The moon crosses the sky: it rises from the sea on the
+  left, arcs over, and sets on the right every 8 minutes, and its path of light on the water follows
+  it (the sea goes dark while it's down). Stars twinkle, hidden while the moon passes in front of them.
+  Each key you type sends a ripple across the water. A wrong password sends a red one.
+- **The aurora:** curtains of northern lights fold and drift over a mountain range, green at their
+  foot to violet at the top, rays shimmering, stars between them. A lake at the bottom mirrors it all,
+  wavering. Each key makes the lights flare and ripples the lake. A wrong password turns them red for a
+  moment.
 - **How it's drawn:** it's our own lock screen, `local/lib/lockscreen/locker.py`. It uses GTK4 and the
   Wayland session-lock protocol through gtk4-layer-shell, with PAM through hyprlock's service. NumPy
-  draws the ocean 30 times a second (`ocean.py`: the whole water surface at once, about 2 ms a frame;
-  the sky is drawn once, only the stars change). The GPU colours the characters and blurs them under
+  draws the animation 30 times a second (`ocean.py`, `aurora.py`, sharing `cells.py`): every cell at
+  once, a few ms a frame. The ocean's sky is redrawn only when the moon moves, twice a second. The GPU colours the characters and blurs them under
   the card. Nothing is drawn while the screens are off.
 - **If it fails:** hyprlock is the safety net. If the locker can't lock, or dies while locked, the
   wrapper starts hyprlock to take the lock over (`misc.allow_session_lock_restore`). hyprlock uses the
@@ -1255,7 +1268,7 @@ control applies at once; the bottom line says where it was saved.
 |---|---|
 | Look & feel | Appearance (gaps, borders, corners, opacity, blur, shadow, what's behind an open panel: on / off, how blurry, how dark) · Animations (on/off, speed, workspace slide) · Wallpaper (thumbnails, fill / fit) · Theme & fonts (dark mode, icons, cursor, fonts; nwg-look / qt6ct for more) |
 | Input & display | Keyboard (layouts, switch key, repeat, Num Lock) · Mouse (speed, acceleration, natural scroll, focus follows mouse, zoom) · Key mapping (any key or mouse button, side buttons included, to Copy / Paste / media / a shortcut / a command) · Display (mode and scale, with a 15 s "keep?" that reverts; VRR) · Night light (warmth, schedule) |
-| Power & bar | Idle & lock (lock / screen-off timeouts, lock before sleep, stay awake) · Power profile · Notifications (corner, timeout, Do not disturb, hidden apps) · Top bar (position, height, stats: frames drawn, processor, memory…) |
+| Power & bar | Idle & lock (lock / screen-off timeouts, lock before sleep, the lock screen's animation and a preview, stay awake) · Power profile · Notifications (corner, timeout, Do not disturb, hidden apps) · Top bar (position, height, stats: frames drawn, processor, memory…) |
 | System | Default apps (terminal, browser…, and what opens links / files) · Date & time (time zone, NTP, 24-hour clock) · More settings (opens the other panels) · About this PC |
 
 Where values go (`local/lib/panels/settingslib.py` does the reading and writing; `settingsgui.py`

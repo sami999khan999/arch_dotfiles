@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
 # The lock screen: one window per screen through the Wayland session-lock protocol (gtk4-layer-shell's
 # Gtk4SessionLock: the compositor keeps the screen locked even if this dies), showing the wallpaper
-# blurred and dimmed under a night ocean drawn in shaded characters (ocean.py), and a frosted-glass card
+# blurred and dimmed under an animation drawn in shaded characters (ANIMATIONS: the night ocean, ocean.py, or
+# the aurora, aurora.py; Settings → Idle & lock picks one, in settings.json, and Ctrl + ←/→ steps through
+# them while locked), and a frosted-glass card
 # with the clock, the date and the password field. Started by local/bin/lockscreen (hypridle's lock_cmd),
 # which falls back to hyprlock if this fails or dies; the password goes through PAM, hyprlock's service
 # (/etc/pam.d/hyprlock).
 #
-# Light on purpose: NumPy draws the ocean FPS times a second (a few ms: the characters as a mask, a colour
+# Light on purpose: NumPy draws the animation FPS times a second (a few ms: the characters as a mask, a colour
 # pixel per cell). Everything else is the GPU's: the colours scaled up under the characters, the blur
 # under the card. Frames stop while the screens are off (no frame callbacks then).
 #
-#   locker.py            lock
-#   locker.py --demo N   lock, and unlock by itself after N seconds (to look at it)
+#   locker.py                    lock
+#   locker.py --demo N [ANIM]    lock, and unlock by itself after N seconds (to look at it; ANIM: one of
+#                                ANIMATIONS instead of the chosen one)
 import ctypes
 import ctypes.util
 import getpass
 import hashlib
+import json
 import math
 import os
+import random
+import re
 import subprocess
 import sys
 import threading
@@ -36,17 +42,23 @@ gi.require_version("Gtk4SessionLock", "1.0")
 from gi.repository import Gdk, GLib, Graphene, Gsk, Gtk, Gtk4SessionLock  # noqa: E402
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
+sys.path.insert(0, os.path.expanduser("~/.local/lib/hypr"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import hyprsock  # noqa: E402
 import themelib  # noqa: E402
+from aurora import Aurora  # noqa: E402
 from ocean import Ocean  # noqa: E402
 
-FPS = 30            # ocean frames a second
+ANIMATIONS = {"ocean": Ocean, "aurora": Aurora}     # Settings' choices, and "random": another each time
+SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")   # ["lockscreen"]["animation"]
+FPS = 30            # animation frames a second
 CACHE = os.path.expanduser("~/.cache/lockscreen")
 WALL = os.path.expanduser("~/.local/state/wallpaper-current")
-FONT = "JetBrainsMono Nerd Font 9"    # the ocean's characters (their size is its grid)
+FONT = "JetBrainsMono Nerd Font 9"    # the animation's characters (their size is its grid)
 SHAKE = 0.45        # s the password field shakes after a wrong password
 CARD = (440, 320)   # the card in the middle (px)
 BLUR = 16           # the card's frosted glass
+FAILLOCK = "/etc/security/faillock.conf"   # deny = wrong passwords before the account locks, for unlock_time s
 
 DAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September",
@@ -129,6 +141,37 @@ def authenticate(password):
     return ok, " ".join(said)
 
 
+def tries_left():
+    """(wrong passwords faillock still allows, minutes it then locks the account for), or None if it doesn't
+    lock or can't be read. Its tally is the user's own file (/run/faillock/<user>), no root needed."""
+    conf = {"deny": 3, "unlock_time": 600}      # pam_faillock's defaults
+    try:
+        with open(FAILLOCK) as f:
+            for line in f:
+                m = re.match(r"\s*(deny|unlock_time)\s*=\s*(\d+)", line)
+                if m:
+                    conf[m.group(1)] = int(m.group(2))
+        out = subprocess.run(["faillock", "--user", getpass.getuser()], capture_output=True, text=True,
+                             timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not conf["deny"]:
+        return None
+    failed = sum(1 for line in out.splitlines() if line.rstrip().endswith(" V"))   # V: still counting
+    return max(conf["deny"] - failed, 0), max(conf["unlock_time"] // 60, 1)
+
+
+def keyboard_layout():
+    """The active layout's code ("US", "DE"…) when there's more than one to switch between, else ""."""
+    devices = hyprsock.query("devices") or {}
+    for k in devices.get("keyboards", []):
+        if k.get("main"):
+            codes = k.get("layout", "").split(",")
+            i = k.get("active_layout_index", 0)
+            return codes[i].upper() if len(codes) > 1 and 0 <= i < len(codes) else ""
+    return ""
+
+
 # ---- the picture ----
 
 def background(w, h):
@@ -155,25 +198,55 @@ def background(w, h):
         return None
 
 
+def setting():
+    """The animation Settings picked: one of ANIMATIONS, "random", or "ocean" if none."""
+    try:
+        with open(SETTINGS) as f:
+            return json.load(f).get("lockscreen", {}).get("animation", "ocean")
+    except (OSError, ValueError):
+        return "ocean"
+
+
+def chosen():
+    """The animation to show (the ocean for a name this version doesn't know)."""
+    name = setting()
+    if name == "random":
+        return random.choice(list(ANIMATIONS))
+    return name if name in ANIMATIONS else "ocean"
+
+
+def keep(name):
+    """Ctrl + ←/→ picked name: it becomes the setting (unless that's "a different one each time"). Through
+    settingslib, so settings.json stays written the one way; a failure here never touches the lock."""
+    if setting() == "random":
+        return
+    try:
+        sys.path.insert(0, os.path.expanduser("~/.local/lib/panels"))
+        import settingslib
+        settingslib.lock_animation_set(name)
+    except Exception:   # noqa: BLE001 — losing the choice is fine, losing the lock screen isn't
+        traceback.print_exc()
+
+
 class Field:
-    """The ocean shared by every screen: its latest frame as textures (mask, colour), made at most FPS
+    """The animation shared by every screen: its latest frame as textures (mask, colour), made at most FPS
     times a second, when a screen is about to draw (so never while they're off)."""
 
-    def __init__(self, w, h):
-        rgb = themelib.rgbf
-        self.ocean = Ocean(w, h, FONT,
-                           [(0, rgb("#24283b")), (.3, rgb("#3b4261")), (.55, rgb("#6b8fe0")),
-                            (.8, rgb("#7dcfff")), (1, rgb("#c0caf5"))],
-                           [(0, rgb("#3b4261")), (.5, rgb("#a9b1d6")), (1, rgb("#cfc9c2"))],
-                           rgb("#f7768e"), 0.9)
-        o = self.ocean
+    def __init__(self, w, h, anim):
+        self.size = w, h
+        self.start(anim)
+
+    def start(self, anim):
+        self.name = anim
+        self.anim = ANIMATIONS[anim](*self.size, FONT, themelib.rgbf)
+        o = self.anim
         self.grid = rect(0, 0, o.px, o.py)
         self.t0 = time.monotonic()
         self.made = 0.0
         self.cur = self.textures()
 
     def textures(self):
-        o = self.ocean
+        o = self.anim
         mask, colour = o.frame(time.monotonic() - self.t0)
         return (Gdk.MemoryTexture.new(o.px, o.py, Gdk.MemoryFormat.A8, GLib.Bytes.new(mask), o.px),
                 Gdk.MemoryTexture.new(o.w, o.h, Gdk.MemoryFormat.R8G8B8A8, GLib.Bytes.new(colour), o.w * 4))
@@ -186,13 +259,19 @@ class Field:
             self.cur = self.textures()
         return self.cur
 
+    def step(self, by):
+        """The next (by 1) or previous (-1) animation, from its start; returns its name."""
+        names = list(ANIMATIONS)
+        self.start(names[(names.index(self.name) + by) % len(names)])
+        return self.name
+
     def ripple(self, kind):
         """Ripples on the water: "key" (typing) or "fail" (a wrong password, red)."""
-        self.ocean.ripple(kind, time.monotonic() - self.t0)
+        self.anim.ripple(kind, time.monotonic() - self.t0)
 
 
 class Scene(Gtk.Widget):
-    """The wallpaper blurred, the ocean over it, the card's frosted glass: drawn on the GPU every frame."""
+    """The wallpaper blurred, the animation over it, the card's frosted glass: drawn on the GPU every frame."""
 
     def __init__(self, field, bg):
         super().__init__()
@@ -249,11 +328,21 @@ CSS = """
 .lock-card .field.fail, .lock-card .field.fail:focus-within { border-color: #f7768e; }
 .lock-card .field .icon { font-size: 15px; color: #565f89; min-width: 44px; }
 .lock-card .field:focus-within .icon { color: #6b8fe0; }
+.lock-card .field.caps .icon, .lock-card .field.caps:focus-within .icon { color: #e0af68; }
 .lock-card .field.fail .icon, .lock-card .field.fail:focus-within .icon { color: #f7768e; }
 .lock-card .field entry {
   min-height: 42px; padding: 0; font-size: 14px; color: #c0caf5; caret-color: #6b8fe0;
   background: none; border: none; border-radius: 0; box-shadow: none; outline: none;
 }
+.lock-card .field entry.masked > text { letter-spacing: 3px; }
+.lock-card .field .layout {
+  font-size: 10px; font-weight: 700; color: #a9b1d6; padding: 1px 5px; margin: 0 4px;
+  border: 1px solid alpha(#3b4261, 0.9);
+}
+.lock-card .field button.eye { min-width: 34px; font-size: 14px; color: #565f89; }
+.lock-card .field button.eye:hover { color: #c0caf5; background: alpha(#6b8fe0, 0.15); }
+.lock-card .field button.eye.on { color: #6b8fe0; }
+.lock-card .field spinner { min-width: 16px; min-height: 16px; margin: 0 14px; color: #6b8fe0; }
 .lock-card .field entry > text > placeholder { color: #565f89; }
 .lock-card .field button {
   min-width: 44px; min-height: 42px; padding: 0; font-size: 15px; color: #3b4261;
@@ -266,16 +355,19 @@ CSS = """
 .lock-card .msg.fail { color: #f7768e; }
 """
 
-HINT = "Enter to unlock \u00b7 Esc to clear"
+HINT = "Enter to unlock \u00b7 Esc to clear \u00b7 Ctrl \u2190\u2192 scene"
 
 
 class Locker:
-    def __init__(self, demo):
+    def __init__(self, demo, anim):
         self.loop = GLib.MainLoop()
         self.buffer = Gtk.EntryBuffer()
         self.buffer.connect("notify::text", self.on_typed)
         self.windows, self.entries, self.fields, self.msgs, self.clocks, self.dates = [], [], [], [], [], []
+        self.eyes, self.gos, self.spinners, self.layouts = [], [], [], []
         self.busy = False
+        self.reveal = False     # the password shown as text (the eye)
+        self.left = None        # (tries faillock still allows, its lockout in minutes), after a wrong one
         self.failed = ""        # what PAM said after the last wrong password, until something is typed
         self.shaken = 0.0       # when the fields started shaking
         self.h24 = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "clock-format"],
@@ -290,7 +382,7 @@ class Locker:
         mons = display.get_monitors()
         big = max((mons.get_item(i).get_geometry() for i in range(mons.get_n_items())),
                   key=lambda g: g.width * g.height)
-        self.field = Field(big.width, big.height)
+        self.field = Field(big.width, big.height, anim)
         self.lock = Gtk4SessionLock.Instance.new()
         self.lock.connect("monitor", self.on_monitor)
         self.lock.connect("failed", lambda *_: self.quit(2))
@@ -313,6 +405,7 @@ class Locker:
         overlay.add_overlay(self.card())
         win.set_child(overlay)
         keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)    # before the entry's own Ctrl + ←/→
         keys.connect("key-pressed", self.on_key)
         win.add_controller(keys)
         self.windows.append(win)
@@ -340,9 +433,15 @@ class Locker:
                           placeholder_text=f"Password for {getpass.getuser()}")
         entry.set_invisible_char("\u25cf")
         entry.connect("activate", self.submit)
+        layout = Gtk.Label(valign=Gtk.Align.CENTER, visible=False, tooltip_text="Keyboard layout")
+        layout.add_css_class("layout")
+        eye = Gtk.Button(label="\uf06e", focusable=False, tooltip_text="Show the password (Ctrl+H)")
+        eye.add_css_class("eye")
+        eye.connect("clicked", lambda *_: self.toggle_reveal())
         go = Gtk.Button(label="\uf061", focusable=False, tooltip_text="Unlock")   # an arrow
         go.connect("clicked", self.submit)
-        for w in (icon, entry, go):
+        spinner = Gtk.Spinner(visible=False, valign=Gtk.Align.CENTER)   # in the arrow's place while PAM checks
+        for w in (icon, entry, layout, eye, go, spinner):
             field.append(w)
 
         msg = Gtk.Label()
@@ -352,20 +451,50 @@ class Locker:
             card.append(w)
         self.entries.append(entry)
         self.fields.append(field)
+        self.eyes.append(eye)
+        self.gos.append(go)
+        self.spinners.append(spinner)
+        self.layouts.append(layout)
         self.msgs.append(msg)
         self.clocks.append(clock)
         self.dates.append(date)
         self.tick_clock()
         self.show()
+        self.show_layout()
         return card
 
-    def on_key(self, _ctl, keyval, _code, _state):
+    def on_key(self, _ctl, keyval, _code, state):
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_Left, Gdk.KEY_Right):
+            keep(self.field.step(1 if keyval == Gdk.KEY_Right else -1))
+            return True
+        if state & Gdk.ModifierType.CONTROL_MASK and keyval in (Gdk.KEY_h, Gdk.KEY_H):
+            self.toggle_reveal()
+            return True
+        # the layout switch key reaches here too: look once Hyprland has switched
+        GLib.timeout_add(120, lambda: self.show_layout() and False)
         if keyval == Gdk.KEY_Escape and not self.busy:
             self.failed = ""
             self.buffer.set_text("", -1)
             self.show()
             return True
         return False
+
+    def toggle_reveal(self):
+        self.reveal = not self.reveal
+        for e in self.entries:
+            e.set_visibility(self.reveal)
+        self.show()
+        for b in self.eyes:
+            b.set_label("\uf070" if self.reveal else "\uf06e")   # eye slashed / eye
+            b.set_tooltip_text(("Hide" if self.reveal else "Show") + " the password (Ctrl+H)")
+            (b.add_css_class if self.reveal else b.remove_css_class)("on")
+
+    def show_layout(self):
+        code = keyboard_layout()
+        for lab in self.layouts:
+            lab.set_text(code)
+            lab.set_visible(bool(code))
+        return True
 
     def on_typed(self, *_):
         if self.buffer.get_length():
@@ -391,6 +520,10 @@ class Locker:
             text, kind = "Checking\u2026", ""
         elif self.failed:
             text, kind = f"\uf00d  {self.failed}", "fail"
+            if self.left and self.left[0] == 1:
+                text, kind = f"\uf071  Last try before a {self.left[1]} min lockout", "fail"
+            elif self.left and self.left[0] > 1:
+                text += f" \u00b7 {self.left[0]} tries left"
         elif caps:
             text, kind = "\uf071  Caps Lock is on", "caps"
         else:
@@ -403,8 +536,15 @@ class Locker:
         for f in self.fields:
             (f.add_css_class if self.failed else f.remove_css_class)("fail")
             (f.add_css_class if ready else f.remove_css_class)("ready")
+            (f.add_css_class if caps else f.remove_css_class)("caps")
+        for go, spin in zip(self.gos, self.spinners):
+            go.set_visible(not self.busy)
+            spin.set_visible(self.busy)
+            spin.set_spinning(self.busy)
         for e in self.entries:
             e.set_editable(not self.busy)
+            # the dots spaced out to be counted (not the placeholder, nor the password shown as text)
+            (e.add_css_class if self.buffer.get_length() and not self.reveal else e.remove_css_class)("masked")
 
     def submit(self, *_):
         password = self.buffer.get_text()
@@ -415,16 +555,17 @@ class Locker:
 
         def work():
             ok, said = authenticate(password)
-            GLib.idle_add(self.done, ok, said)
+            GLib.idle_add(self.done, ok, said, None if ok else tries_left())
         threading.Thread(target=work, daemon=True).start()
 
-    def done(self, ok, said):
+    def done(self, ok, said, left):
         self.busy = False
         if ok:
             self.lock.unlock()
             return False
         self.buffer.set_text("", -1)
         self.failed = said or "Wrong password"
+        self.left = None if said else left      # PAM's own words (e.g. "account locked") say it already
         self.show()
         self.field.ripple("fail")
         self.shaken = time.monotonic()
@@ -449,10 +590,11 @@ class Locker:
 
 def main():
     demo = float(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[1] == "--demo" else 0
+    anim = sys.argv[3] if demo and len(sys.argv) > 3 and sys.argv[3] in ANIMATIONS else chosen()
     Gtk.init()
     if not Gtk4SessionLock.is_supported():
         sys.exit(2)
-    sys.exit(Locker(demo).run())
+    sys.exit(Locker(demo, anim).run())
 
 
 if __name__ == "__main__":

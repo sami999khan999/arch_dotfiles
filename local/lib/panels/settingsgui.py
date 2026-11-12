@@ -72,7 +72,7 @@ class Settings(View):
             Section("Input & display", "night", "", "Night light",
                     "blue light temperature warm schedule evening hyprsunset", self.page_night),
             Section("Power & bar", "idle", "", "Idle & lock",
-                    "lock screen timeout screen off sleep stay awake hypridle", self.page_idle),
+                    "lock screen timeout screen off sleep stay awake hypridle animation ocean aurora moon", self.page_idle),
             Section("Power & bar", "power", "", "Power profile",
                     "performance balanced power saver energy", self.page_power),
             Section("Power & bar", "notifications", "", "Notifications",
@@ -697,6 +697,12 @@ class Settings(View):
                              dropdown(opts, near(i["off"]), lambda v: (S.idle_set(off=v), self.done("hypridle.conf")))))
         p.append(setting_row("Lock before sleep", "Locks the screen when the PC suspends",
                              switch(i["before_sleep"], lambda v: (S.idle_set(before_sleep=v), self.done("hypridle.conf")))))
+        self.heading(p, "Lock screen")
+        p.append(setting_row("Animation", "Behind the clock and the password field",
+                             dropdown(S.LOCK_ANIMATIONS, S.lock_animation_get(),
+                                      lambda v: (S.lock_animation_set(v), self.done("settings.json · from the next lock")))))
+        p.append(setting_row("Preview", "Locks the screen for 8 seconds, then unlocks by itself",
+                             button("Show", S.lock_preview)))
         self.heading(p, "Right now")
         p.append(setting_row("Stay awake", "Never lock or turn the screen off until switched back (Super + Ctrl + I)",
                              switch(i["awake"], lambda v: (S.idle_stay_awake(v), self.say("Stay awake " + ("on" if v else "off"))))))

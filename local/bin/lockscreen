@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# lockscreen — lock the screen: our lock screen (local/lib/lockscreen/locker.py: a night ocean in characters, a frosted
+# lockscreen — lock the screen: our lock screen (local/lib/lockscreen/locker.py: a night ocean or an aurora in characters, a frosted
 # card), with hyprlock as the safety net — if the locker can't lock or dies while locked, hyprlock takes the
 # lock over (Hyprland's misc.allow_session_lock_restore, modules/misc.lua). hypridle's lock_cmd
 # (config/hypr/hypridle.conf), so loginctl lock-session, Super + Ctrl + L and the power panel all come here.
 { pgrep -f '[l]ockscreen/locker\.py' || pidof hyprlock; } >/dev/null && exit 0   # one lock at a time
 # gtk4-layer-shell (the session lock) has to be loaded before libwayland: Python can't link it first
-LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so python3 ~/.local/lib/lockscreen/locker.py && exit 0
-exec hyprlock "$@"
+# (lockscreen --demo N [ANIM]: a preview that unlocks by itself, Settings → Idle & lock)
+LD_PRELOAD=/usr/lib/libgtk4-layer-shell.so python3 ~/.local/lib/lockscreen/locker.py "$@" && exit 0
+exec hyprlock

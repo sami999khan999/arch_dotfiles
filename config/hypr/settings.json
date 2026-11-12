@@ -22,6 +22,9 @@
     "input:natural_scroll": false,
     "input:sensitivity": -0.8
   },
+  "lockscreen": {
+    "animation": "aurora"
+  },
   "nightlight": {
     "temp": 6500
   },

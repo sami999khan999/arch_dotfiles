@@ -654,6 +654,23 @@ def idle_stay_awake(on):
         spawn(f"{SCRIPTS}/toggle.sh", "idle")
 
 
+LOCK_ANIMATIONS = [("ocean", "Night ocean"), ("aurora", "Aurora"), ("random", "A different one each time")]
+
+
+def lock_animation_get():
+    """The lock screen's animation (local/lib/lockscreen/locker.py reads it as it locks)."""
+    return load(SETTINGS).get("lockscreen", {}).get("animation", "ocean")
+
+
+def lock_animation_set(name):
+    remember("lockscreen", "animation", name)
+
+
+def lock_preview(seconds=8):
+    """The lock screen for a few seconds, unlocking by itself (the password works too)."""
+    spawn(f"{HOME}/.local/bin/lockscreen", "--demo", str(seconds))
+
+
 # ---- power profile -----------------------------------------------------------------------------
 def power_get():
     rc, out = sh("powerprofilesctl", "get")

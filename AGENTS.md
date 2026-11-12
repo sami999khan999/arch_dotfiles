@@ -112,7 +112,9 @@ Screenshots: `grim -g "0,0 1366x34" out.png` (the bar; the screen is 1366×768),
 - Window rules matched through a tag (`floating-window`) are applied after plain ones; a size
   override for a tagged window must also match the tag.
 - The audio visualizer fills the bar's gap to the pixel by measuring it (a one-row `grim` finds the
-  dividers either side) while it shows; keep a divider at both ends of that gap. Its threads share
+  dividers either side; the title block's end is worked out from its text and `BLOCK_PX`, keep that in
+  step with style.css). Hidden, the title may run on into the gap: GTK cuts it (max-length), never
+  a measured padding (that pushed the power button off). Its threads share
   one lock: Pango isn't thread-safe (two at once aborted the script). See the `waybar` skill.
 - `mpris` tooltips are plain text (markup shows raw).
 - waybar/GTK prefers ellipsizing a label over moving the centre island, so the window title is

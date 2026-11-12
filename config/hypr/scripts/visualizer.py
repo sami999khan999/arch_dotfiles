@@ -19,10 +19,10 @@ The style is kept in $XDG_STATE_HOME/visualizer-style (it survives a restart); e
 seconds: prints empty text, so waybar hides the module until something plays again. Click:
 play / pause.
 
-The graph fills the gap between the workspace buttons and the right section of the bar, to the
-pixel. The gap is measured on the bar itself while the graph shows: a one-pixel-high screenshot of
-the bar (grim) finds the divider after the workspace buttons and the first one of the right section,
-once waybar has redrawn after a change it hears of (the title, the play button, an indicator, the
+The graph fills the gap between the group count + window title block (right after the workspace
+buttons) and the right section of the bar, to the pixel. The gap is measured on the bar itself: a
+one-pixel-high screenshot of the bar (grim) finds the divider before the block and the first one of
+the right section; the block's width is its text (Pango) and its padding. That's done once waybar has redrawn after a change it hears of (the title, the play button, an indicator, the
 clock) and every 5 s for what nothing announces (the code-backup icon). Silent, it does
 nothing at all: no events followed, no timer; it catches up when the graph starts. Without a
 measurement (grim missing, the dividers not found) the gap is worked out from what's on the right:
@@ -30,6 +30,10 @@ the window title and the group count (their text), the play button, the idle / d
 indicators and the clock's view (short or long). cava always makes RAW_BARS; each shown bar is the
 loudest of its share of them. SIGUSR1: recount now (clock.py and toggle.sh send it when the clock's
 view or an indicator changes).
+
+While the graph isn't drawn (silent, style off, or under MIN_ROOM_PX of room: a long title) the title
+may be long instead (TITLE_LONG, SIGUSR1 to wintitle.py), and GTK cuts it to the room it has
+(max-length): the gap is the title's, and the right section is never pushed.
 
 It's the last module of the left section and may shrink (max-length; the bar has no centre
 section, see config.jsonc): GTK then shrinks it rather than push the right section, so the clock and
@@ -60,10 +64,16 @@ LOAD_STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "loadwatch.
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block or braille character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars ("bars", "mirror")
+MIN_ROOM_PX = 80      # px: with less room than this (a long title) the graph hides: a few bars squeezed
+                      # in reads as clutter, not as a graph. The title may be long instead (TITLE_LONG)
 HAIR = " "       # hair space: exactly 1 px in this font (measured with Pango). The bars are
                       # spaced with these, not with Pango letter_spacing: a label with letter spacing
                       # gets its last character cut ("…") even when it has all the room it asked for
 
+BLOCK_PX = 31         # px of the group count + title block besides their text: the divider before it and
+                      # the paddings, the count's 10 + 6 and the title's 4 + 10 (style.css)
+BLOCK_EMPTY_PX = 21   # an empty workspace: the divider and the count's even padding (10 + 10), no title
+POWER_PX = 40         # px: the power button's divider is closer than this to the right end of the bar
 PROBE_Y = 2           # px from the top: the bar row screenshotted to find the dividers (above the
                       # bars, whose soft top edge at y 4 is near the divider colour)
 DIVIDER = (0x2F, 0x35, 0x4D)   # a section divider as drawn: @line at 70 % over the bar (style.css)
@@ -112,6 +122,8 @@ from hyprsock import follow   # the event socket, reconnecting with a pause
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 PID_DIR = os.path.join(RUN, "waybar-visualizer")   # one file per running copy, named by its pid
 STATE_FILE = os.path.join(RUN, "waybar-visualizer.state")
+TITLE_LONG = os.path.join(RUN, "waybar-wintitle.long")   # "1": the title may be long (wintitle.py)
+TITLE_PIDS = os.path.join(RUN, "waybar-wintitle")         # its copies, told by SIGUSR1
 STYLE_FILE = os.path.join(os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "visualizer-style")
 
 
@@ -153,7 +165,7 @@ def screen_width():
 
 state = {"title": "x" * TITLE_REF, "count": COUNT_REF, "player": True, "indicators": 0, "load": "",
          "clock": CLOCK_REF_LEN, "style": STYLES[0], "shown": 16, "gaps": [1] * 15,
-         "lead": 0, "trail": 0, "playing": False, "covered": False}
+         "lead": 0, "trail": 0, "playing": False, "covered": False, "empty": False, "long": None}
 
 _layout = None
 
@@ -174,9 +186,34 @@ def text_px(text):
     return _layout.get_extents()[1].width / 1024   # Pango units
 
 
-def measured_gap():
-    """The gap as the bar draws it now: from the workspace buttons' divider to the right section's
-    first one, in a one-pixel-high screenshot (grim, PPM). None if it can't tell."""
+_anchors = None   # (the first divider, the power button's): neither ever moves
+_moved = None     # other ones seen once: taken if the next measurement sees them too
+
+
+def anchored(first, last, w):
+    """Whether the screenshot shows the bar settled. The divider after the workspace buttons and the power
+    button's never move: elsewhere, the right section was pushed (a title too long) or the bar was still
+    being drawn (just out of fullscreen everything sat 30 px to the right). A real change (the screen, the
+    workspace buttons) shows twice in a row and is taken."""
+    global _anchors, _moved
+    if last < w - POWER_PX * w / WIDTH:   # the power button isn't at the right end
+        return False
+    if (first, last) == _anchors:
+        return True
+    if _anchors is None or (first, last) == _moved:
+        _anchors, _moved = (first, last), None
+        return True
+    _moved = (first, last)
+    settle()   # look again once the bar has settled
+    return False
+
+
+def measured_gap(plain):
+    """The gap as the bar draws it now, in a one-pixel-high screenshot (grim, PPM): from where the group
+    count + title block ends with the title at its usual length (plain) to the right section's first
+    divider. The block starts at the first divider (the workspace buttons end there) and is its text and
+    padding wide, so where it ends is worked out (Pango), not seen: while the graph is hidden the title
+    is padded on to the right section and nothing marks it. None if it can't tell."""
     try:
         out = subprocess.run(["grim", "-g", f"0,{PROBE_Y} {int(WIDTH)}x1", "-t", "ppm", "-"],
                              capture_output=True, timeout=2).stdout
@@ -191,9 +228,18 @@ def measured_gap():
         r, g, b = px[3 * x:3 * x + 3]
         return abs(r - DIVIDER[0]) <= 4 and abs(g - DIVIDER[1]) <= 4 and abs(b - DIVIDER[2]) <= 5
     lines = [x for x in range(1, w - 1) if divider(x) and not divider(x - 1) and not divider(x + 1)]
-    if len(lines) < 2 or lines[0] > w / 2:
+    if len(lines) < 2 or lines[0] > w / 2 or not anchored(lines[0], lines[-1], w):
         return None
-    return (lines[1] - lines[0] - 1) * WIDTH / w   # px as the bar counts them (a scaled screen)
+    scale = w / WIDTH   # screenshot px per bar px (a scaled screen)
+    if plain:
+        block = BLOCK_PX + text_px(state["count"]) + text_px(plain)
+    else:   # no title (an empty workspace, or no room left for one): the count alone
+        block = (BLOCK_EMPTY_PX if state["empty"] else BLOCK_PX - 14) + text_px(state["count"])
+    end = lines[0] + block * scale   # where the graph's divider is (or would be)
+    right = next((x for x in lines if x > end + 1), None)   # past the graph's own divider
+    if right is None:
+        return None
+    return (right - end - 1) / scale
 
 
 def modelled_gap():
@@ -240,8 +286,7 @@ def settler():
         while SETTLING.is_set():   # each new change restarts the wait
             SETTLING.clear()
             time.sleep(SETTLE)
-        if state["playing"]:
-            recount()
+        recount()
 
 
 def covered():
@@ -252,13 +297,23 @@ def covered():
 
 def _recount():
     s = state
-    s["covered"] = s["playing"] and covered()
+    s["covered"] = covered()
     if s["covered"]:   # nothing drawn meanwhile; its fullscreen>> event recounts once it's gone
         return
-    measured = measured_gap() if s["playing"] else None
+    if not s["playing"] or s["style"] == "off":   # no graph: nothing to measure, the title may be long
+        s["shown"] = 0
+        set_long(True)
+        return
+    read_windows()   # the count and title the block's width is worked out from, as they are now
+    plain = wintitle.title(False)["text"]   # the title at its usual length: the gap is what's left of that
+    s["title"] = plain
+    measured = measured_gap(plain)
     gap = measured if measured is not None else modelled_gap()
     s["measured"] = measured is not None
     room = gap - PADDING
+    if room < MIN_ROOM_PX:
+        room = 0   # n comes out 0: frames() hides the module until a recount finds room again
+    set_long(room == 0)   # no graph: the title may take the gap (GTK cuts it to fit)
     if s["style"] in ("bars", "mirror"):
         # n bars and the n - 1 spaces between them fill the room; none after the last bar, so both
         # ends of the block have the same padding. The px left after the bars are shared out over
@@ -280,6 +335,24 @@ def _recount():
             json.dump({**s, "gap": round(gap, 1), "room": round(room, 1)}, f, ensure_ascii=False)
     except OSError:
         pass
+
+
+def set_long(on):
+    """Tell the title whether it may be long (wintitle.py): the graph has no use for the gap."""
+    if on == state["long"]:
+        return
+    state["long"] = on
+    try:
+        with open(TITLE_LONG, "w") as f:
+            f.write("1" if on else "0")
+        for pid in os.listdir(TITLE_PIDS):
+            try:
+                os.kill(int(pid), signal.SIGUSR1)
+            except (ValueError, OSError):
+                pass
+    except OSError:
+        pass
+    settle()   # measure again once the bar has redrawn the title
 
 
 def shares(levels, n):
@@ -344,12 +417,14 @@ def wave(levels, n):
 
 def read_windows():
     state["title"] = wintitle.title()["text"]
-    state["count"] = wsgroups.bar_status()["text"]
+    status = wsgroups.bar_status()
+    state["count"], state["empty"] = status["text"], "empty" in status["class"]
 
 
 def follow_windows():
     """Hyprland's event socket: the title and the group count change with the focused window. Only
-    while the graph shows: silent, nothing is drawn, and catch_up() reads them when it starts."""
+    while sound plays: silent, nothing is drawn (the title may be long), and catch_up() reads them when
+    it starts."""
     wanted = (b"activewindow>>", b"workspace>>", b"openwindow>>", b"closewindow>>", b"movewindow>>",
               b"fullscreen>>")
 
@@ -403,7 +478,8 @@ def catch_up():
 
 def tick():
     """SIGUSR1 (the clock's view, an indicator, the busy warning) / SIGUSR2 (the style): read them and
-    recount. While the graph shows, also every MEASURE_EVERY s; silent, it sleeps until a signal."""
+    recount. While sound plays, also every MEASURE_EVERY s (for what nothing announces, like the
+    code-backup icon); silent, it sleeps until a signal."""
     signalled = True
     while True:
         if signalled:
@@ -482,26 +558,31 @@ def frames(last):
     """cava's frames, drawn, until it ends (style "off" ends it). Returns the last thing shown."""
     heard = 0.0
     for line in cava.stdout:
+        hushed = False
         levels = [int(v) for v in line.strip().rstrip(";").split(";") if v.isdigit()]
         now = time.time()
         if any(levels):
             heard = now
-        if state["style"] == "off" or now - heard > SILENT_AFTER or not levels or not state["shown"]:
+        if state["style"] == "off" or now - heard > SILENT_AFTER or not levels:
             out = ("", "silent")
-            state["playing"] = False
+            if state["playing"]:
+                state["playing"] = False
+                hushed = True
         elif not state["playing"]:   # starts showing: measure the gap first
             catch_up()
             state["playing"] = True
             recount()
             WAKE.set()   # the tick thread measures every MEASURE_EVERY s from now
             continue
-        elif state["covered"]:   # a fullscreen window over the bar: nobody sees a frame
-            out = ("", "silent")
+        elif state["covered"] or not state["shown"]:   # under a fullscreen window, or no room (the
+            out = ("", "silent")                          # title has it): still measured, nothing drawn
         else:
             out = (draw(levels), state["style"])
         if out != last:
             emit(*out)
             last = out
+        if hushed:    # once waybar has hidden the graph: the title block takes the gap
+            settle()
     return last
 
 

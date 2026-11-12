@@ -8,12 +8,12 @@ description: Add, move or restyle a waybar module in this dotfiles repo (config/
 One full-width strip (no outer margins, 1px line along the bottom), square corners, Tokyo Night. Layout in `config/waybar/config.jsonc`:
 
 ```
-left:   logo │ workspace buttons (custom/ws1…10) │ audio visualizer (custom/visualizer: cava, only
-        while sound plays; styles bars / solid / mirror / dots / wave / off, Super + Alt + B), filling the gap
-        to the right section; it may shrink (max-length), so it can never push it
-right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
-        (custom/window, max 22 chars in wintitle.py, hidden on an empty workspace) │
-        codesync, the hub (one icon: Setups, System agent, keys, settings, bt, net, volume in its
+left:   logo │ workspace buttons (custom/ws1…10) │ group label + window title in one block
+        (custom/wsgroups + custom/window, max 22 chars in wintitle.py, hidden on an empty workspace) │
+        audio visualizer (custom/visualizer: cava, only while sound plays; styles bars / solid / mirror /
+        dots / wave / off, Super + Alt + B), filling the gap to the right section; it may shrink
+        (max-length), so it can never push it
+right:  │ (custom/divider) media (play/pause, only while playing/paused) │ codesync, the hub (one icon: Setups, System agent, keys, settings, bt, net, volume in its
         menu) │ stats (frame rate / Hz per screen, cpu mem temp battery) │
         clock (custom/clock: scripts/clock.py) + notification bell (custom/notifications:
         scripts/notifications.py; always shown) + idle indicator │ power (far right)
@@ -80,16 +80,24 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 - A live `pkill -SIGUSR2 waybar` can crash waybar, at once (bar geometry: `margin-*`, `height`,
   `layer`, `position`) or minutes later (it segfaulted in glibmm's dispatcher after reloads that
   restarted the custom scripts). Prefer `systemctl --user restart waybar` to apply a change.
-- **The power button never moves.** The visualizer is the last module of the left section, with
-  max-length: GTK shrinks it rather than push the right section. Don't fill the gap with several
+- **The power button never moves.** The visualizer is the last module of the left section and the
+  title the one before it, both with max-length: GTK shrinks them rather than push the right section. Don't fill the gap with several
   modules: a row of them has no such shrinking and pushes the right section off when it runs out of
   room.
-- To fill the gap exactly (no `…`, no empty strip), `scripts/visualizer.py` measures it on the bar
-  while the bars show: a one-pixel-high `grim` of the bar (`PROBE_Y` 2, above the bars, whose soft
-  top edge at y 4 is near the divider colour) finds the divider after the workspace buttons and the
-  right section's first divider (`#2F354D`, `DIVIDER`), every second and 0.3 s after a window event
-  or a play-button change. So the right side may change width freely; keep a divider at both ends of
-  the gap. When it can't measure (silent, grim missing) it falls back to sums over what's on the
+- To fill the gap exactly (no `…`, no empty strip), `scripts/visualizer.py` measures it on the bar:
+  a one-pixel-high `grim` of the bar (`PROBE_Y` 2, above the bars, whose soft top edge at y 4 is
+  near the divider colour) finds the divider before the group count + title block and the right
+  section's first one (`#2F354D`, `DIVIDER`; `custom/divider`), every 5 s while it shows and 0.3 s
+  after a window event or a play-button change. The block's end isn't seen but worked out: its text
+  (Pango) plus its padding (`BLOCK_PX`, from style.css: change both together). So the right side may
+  change width freely; keep the divider before the block and the one starting the right section. The
+  one between the title and the graph is the visualizer's own `border-left`, so it goes with it.
+  Whenever the graph isn't drawn (silent, style off, under `MIN_ROOM_PX` of room) the title may be long
+  (`waybar-wintitle.long`, SIGUSR1 to wintitle.py); `custom/window` has max-length, so GTK cuts it to
+  the room rather than push the right section. Never pad or size a module to a measured width: a rigid
+  one pushed the power button off whenever the right side grew before the next measurement. Measurements
+  count only when the first divider and the power button's are where they were (a half-drawn bar, just
+  out of fullscreen, sat 30 px to the right). When it can't measure (silent, grim missing) it falls back to sums over what's on the
   right (title, group count, play button, indicators, clock view) from `GAP_REF`.
 - Its recounts run under one lock: Pango isn't thread-safe, and two threads measuring text at once
   aborted the script (`fc_thread_func: code should not be reached`), freezing the bars.

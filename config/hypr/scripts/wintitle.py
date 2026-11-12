@@ -11,6 +11,11 @@ With a long title and the play button the right section fills the bar: while the
 extra width, or the power button went off the screen. loadwatch.py writes its text to
 $XDG_RUNTIME_DIR/loadwatch.json, the clock its view to waybar-clock.json; both send SIGUSR1 to the pids
 in $XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
+
+While the audio graph isn't drawn (silent, off, or too little room for it) the title may be long:
+visualizer.py writes 1 to waybar-wintitle.long (SIGUSR1), and the whole title goes out. The module has
+max-length (config.jsonc), so GTK cuts it ("…") to the room left of the right section rather than push
+it: the power button can't move, whatever the right side does.
 """
 import json, os, re, signal, sys, time
 
@@ -19,6 +24,7 @@ RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 LOAD_STATE = os.path.join(RUN, "loadwatch.json")
 CLOCK_STATE = os.path.join(RUN, "waybar-clock.json")
 PID_DIR = os.path.join(RUN, "waybar-wintitle")
+LONG_FILE = os.path.join(RUN, "waybar-wintitle.long")   # "1": the graph is hidden (visualizer.py)
 
 CLEANUP = [
     re.compile(r"^[^\w(]+\s+"),                      # spinner / status glyphs: "✳ Claude Code"
@@ -63,7 +69,16 @@ def room():
     return (len(text) + 1 if text else 0) + (len(time.strftime("%A")) - 3 + 1 + 7 if long else 0)
 
 
-def title():
+def long_allowed():
+    """Whether the title may be long: the audio graph isn't drawn (visualizer.py)."""
+    try:
+        return open(LONG_FILE).read().strip() == "1"
+    except OSError:
+        return False
+
+
+def title(long=None):
+    """The title as the bar shows it: cut to MAX, or whole while `long` (None: what visualizer.py says)."""
     global shown
     win = focused()
     shown = win.get("address", "")
@@ -75,7 +90,9 @@ def title():
     full, most = t, max(MAX - room(), 0)
     if len(t) > most:
         t = t[:most - 1].rstrip() + "…" if most > 1 else ""
-    return {"text": t, "tooltip": full if full != t else "", "class": "empty" if not t else "window"}
+    if t and (long_allowed() if long is None else long):
+        t = full   # GTK cuts it to the room (max-length); an empty one stays hidden
+    return {"text": t, "tooltip": full if len(full) > MAX else "", "class": "empty" if not t else "window"}
 
 
 WANTED = (b"activewindow>>", b"workspace>>", b"closewindow>>", b"focusedmon>>")

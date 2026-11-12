@@ -1,6 +1,6 @@
 /* Waybar — Tokyo Night, one full-width strip, square corners. Colors match walker, mako and the
    Control Center.
-   Layout:  logo | workspaces | visualizer      media | group + title | controls | stats | clock | power */
+   Layout:  logo | workspaces | group + title | visualizer      media | controls | stats | clock | power */
 @define-color base     #1a1b26;
 @define-color surface  #24283b;
 @define-color overlay  #292e42;
@@ -59,29 +59,31 @@ window#waybar {
 }
 
 /* dividers between sections: 1px, full height, same colour as the bottom line */
-/* #custom-divider: closes the group count + title block; a zero-width module of its own, so the
-   divider stays when the title is hidden (empty workspace) and when the codesync icon is (no sync) */
+/* #custom-divider: starts the right section; a zero-width module of its own, so the divider is there
+   whatever shows first (the play button, or the icons after it) */
 /* #custom-notifications: the bell is its own block after the clock */
 #stats, #custom-clock, #custom-notifications, #custom-power, #custom-divider {
   border-left: 1px solid alpha(@line, 0.7);
 }
-/* the right section starts with a divider (the play button's, or the group count's when nothing
-   plays), like the left section ends with one */
-#mpris.playing, #mpris.paused, #custom-wsgroups {
+/* the group count + title block starts with one (the workspace buttons end there); the play button
+   ends with one, before the icons */
+#custom-wsgroups {
   border-left: 1px solid alpha(@line, 0.7);
+}
+#mpris.playing, #mpris.paused {
+  border-right: 1px solid alpha(@line, 0.7);
 }
 #custom-divider {
   padding: 0;
   margin: 0;
 }
-/* the workspace buttons always end with a divider, title or not */
-#wsbuttons {
-  border-right: 1px solid alpha(@line, 0.7);
-}
+/* the divider between the title and the graph is the visualizer's: with the graph hidden (silent, or too
+   little room) the title block runs on to the right section (wintitle.py pads it), no empty box */
 
 /* ---- left, after the workspaces: audio visualizer (scripts/visualizer.py, while sound plays) */
 /* it fills the gap to the right section exactly (visualizer.py), so its hover block meets the divider */
 #custom-visualizer {
+  border-left: 1px solid alpha(@line, 0.7);
   color: @accent;
   font-size: 13px;
   padding: 0 14px;   /* PADDING in visualizer.py */
@@ -181,7 +183,7 @@ window#waybar {
 }
 
 /* the focused window's title, in one block with the group count (an empty workspace hides it).
-   As wide as its text; the visualizer left of it grows or shrinks to fill what's left */
+   As wide as its text; the visualizer right of it fills what's left (hidden, the title is padded to) */
 #custom-window {
   color: @text;
   margin: 0;
@@ -227,7 +229,7 @@ window#waybar {
   color: @accent;
 }
 
-/* ---- right: group, controls, stats, power ---------------------------------------------- */
+/* ---- left, after the workspaces: the group count (one block with the title) ------------ */
 #custom-wsgroups {
   color: @text;
   margin: 0;

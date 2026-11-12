@@ -31,20 +31,6 @@ hl.config({
     },
 })
 
-hl.animation({ leaf = "global", enabled = true, speed = 6.0,   bezier = "default" })
-hl.animation({ leaf = "border", enabled = true, speed = 3.23, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windows", enabled = true, speed = 2.27, bezier = "easeOutQuint" })
-hl.animation({ leaf = "windowsIn", enabled = true, speed = 2.46,  bezier = "easeOutQuint", style = "popin 87%" })
-hl.animation({ leaf = "windowsOut", enabled = true, speed = 0.89, bezier = "linear",       style = "popin 87%" })
-hl.animation({ leaf = "fadeIn", enabled = true, speed = 1.04, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeOut", enabled = true, speed = 0.88, bezier = "almostLinear" })
-hl.animation({ leaf = "fade", enabled = true, speed = 1.82, bezier = "quick" })
-hl.animation({ leaf = "layers", enabled = true, speed = 2.29, bezier = "easeOutQuint" })
-hl.animation({ leaf = "layersIn", enabled = true, speed = 2.4,    bezier = "easeOutQuint", style = "fade" })
-hl.animation({ leaf = "layersOut", enabled = true, speed = 0.9,  bezier = "linear",       style = "fade" })
-hl.animation({ leaf = "fadeLayersIn", enabled = true, speed = 1.07, bezier = "almostLinear" })
-hl.animation({ leaf = "fadeLayersOut", enabled = true, speed = 0.83, bezier = "almostLinear" })
-
 -- key mapping (Settings → Key mapping): Copy / Paste… to the focused window, terminals aside
 local remapTerms = { kitty = true, agentmux = true, ghostty = true, Alacritty = true, konsole = true }
 local function remapInTerm()

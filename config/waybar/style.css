@@ -10,6 +10,8 @@
 @define-color text     #c0caf5;
 @define-color accent   #6b8fe0;
 @define-color alert    #f7768e;
+@define-color green    #9ece6a;
+@define-color amber    #e0af68;
 
 * {
   border: none;
@@ -37,8 +39,9 @@ window#waybar {
 }
 
 /* ---- every module: same chip size, same hover ------------------------------------------ */
-#custom-clock, #custom-wsgroups, #custom-setups, #custom-sysagent, #custom-keys, #custom-settings,
-#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps,
+#custom-clock, #custom-wsgroups, #custom-hub, #custom-setups, #custom-sysagent, #custom-keys, #custom-settings,
+#bluetooth, #network, #pulseaudio, #cpu, #battery, #memory, #temperature, #custom-fps, #custom-netspeed,
+#custom-memory, #custom-storage, #custom-gpu, #custom-cpu,
 #custom-idle-indicator, #custom-notifications, #custom-load,
 #custom-window, #mpris, #custom-power, #custom-codesync, #custom-downloads, #custom-mirror, #custom-lsend, #custom-visualizer {
   padding: 0 10px;
@@ -47,9 +50,9 @@ window#waybar {
   transition: background-color 150ms, color 150ms;
 }
 
-#custom-clock:hover, #custom-wsgroups:hover, #custom-setups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
+#custom-clock:hover, #custom-wsgroups:hover, #custom-hub:hover, #custom-setups:hover, #custom-sysagent:hover, #custom-keys:hover, #custom-settings:hover,
 #bluetooth:hover, #network:hover, #pulseaudio:hover, #cpu:hover, #battery:hover,
-#memory:hover, #temperature:hover, #custom-fps:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover, #custom-mirror:hover, #custom-lsend:hover,
+#memory:hover, #temperature:hover, #custom-fps:hover, #custom-netspeed:hover, #custom-memory:hover, #custom-storage:hover, #custom-gpu:hover, #custom-cpu:hover, #mpris:hover, #custom-codesync:hover, #custom-downloads:hover, #custom-mirror:hover, #custom-lsend:hover,
 #custom-visualizer:hover, #custom-load:hover {
   background: @overlay;
   color: @text;
@@ -245,7 +248,7 @@ window#waybar {
   padding: 0 10px;
 }
 
-#custom-setups, #custom-sysagent, #custom-keys, #custom-settings, #bluetooth, #network {
+#custom-hub, #custom-setups, #custom-sysagent, #custom-keys, #custom-settings, #bluetooth, #network {
   color: @muted;
 }
 
@@ -262,17 +265,23 @@ window#waybar {
   padding: 0;
 }
 
-#cpu, #memory, #temperature, #battery, #custom-fps {
+#cpu, #memory, #temperature, #battery, #custom-fps, #custom-netspeed, #custom-memory, #custom-storage, #custom-gpu, #custom-cpu {
   color: @text;
 }
 
-/* a still screen: nothing drawn */
-#custom-fps.idle {
+/* the network speed: down over up, two small lines in the bar's height */
+#custom-netspeed {
+  font-size: 9px;
+  padding: 0 9px;
+}
+
+/* a still screen: nothing drawn; next to nothing on the network */
+#custom-fps.idle, #custom-netspeed.idle {
   color: @muted;
 }
 
 /* room for "100%": reaching three digits doesn't widen the right section */
-#cpu, #memory {
+#cpu, #memory, #custom-cpu, #custom-memory, #custom-storage, #custom-gpu {
   min-width: 42px;
 }
 
@@ -295,6 +304,7 @@ window#waybar {
    so the bar's widths (and visualizer.py's sums) don't change. */
 #custom-sysagent  { padding: 0 12px 0 8px; }
 #custom-keys      { padding: 0 12px 0 8px; }
+#custom-hub       { padding: 0 12px 0 8px; }   /* the sliders are drawn wider than their cell: centred on screen */
 #custom-settings  { padding: 0 12px 0 8px; }   /* the cog: 2 px right of centre on screen */
 #network.wifi,
 #network.disconnected { padding: 0 13px 0 7px; }
@@ -307,6 +317,10 @@ window#waybar {
 #battery.warning,
 #battery.critical,
 #cpu.critical,
+#custom-cpu.critical,
+#custom-memory.alert,
+#custom-storage.alert,
+#custom-gpu.alert,
 #temperature.critical {
   color: @alert;
 }
@@ -315,8 +329,8 @@ window#waybar {
   opacity: 0;
 }
 
-/* every tooltip: a first line in bold (what it is), then values, then dimmed hints (markup's
-   alpha='55%', so they follow the theme's text colour) */
+/* GTK's own tooltips: what's left of them (bartips stops them on the bar; this is the fallback when
+   its .so isn't built) */
 tooltip {
   background: alpha(@base, 0.97);
   border: 1px solid alpha(@line, 0.7);
@@ -325,6 +339,166 @@ tooltip {
 tooltip label {
   color: @text;
   padding: 8px 12px;
+}
+
+/* ---- the tooltip cards (bartips/bartips.c): a card under the hovered module, a layer of its own
+   ("bartip", blurred by windowrules.lua). A header (the module's icon, the name, a dimmed detail, keys),
+   the values as a two-column list, then the hints (key caps + what they do) under a rule */
+window.bartip {
+  background: transparent;
+}
+.bartip-card {
+  background: alpha(@base, 0.9);
+  border: 1px solid alpha(@line, 0.7);
+  border-top: 2px solid @accent;
+  padding: 10px 14px 11px;
+}
+.bartip-head {
+  margin-bottom: 3px;
+}
+.bartip-icon {
+  color: @accent;
+  font-size: 14px;
+}
+.bartip-title {
+  color: @text;
+  font-weight: bold;
+}
+.bartip-detail {
+  color: @muted;
+}
+.bartip-body {
+  color: @subtext;
+}
+.bartip-kv-what {
+  color: @muted;
+}
+.bartip-kv-value {
+  color: @text;
+}
+.bartip-hint {
+  color: @muted;
+  font-size: 11px;
+}
+.bartip-key {
+  color: @subtext;
+  background: @overlay;
+  border: 1px solid alpha(@line, 0.7);
+  border-bottom-width: 2px;
+  padding: 0 5px;
+  font-size: 10px;
+}
+.bartip-rule {
+  background: alpha(@line, 0.7);
+  min-height: 1px;
+  margin: 7px 0 4px;
+}
+
+/* the hub's menu (#custom-hub): OPEN (the panels, with their keys) and STATUS (with their values);
+   a row per module, the whole row clickable, its icon in a tile that lights up under the pointer */
+.bartip-hub {
+  min-width: 330px;
+}
+.bartip-heading {
+  color: @muted;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  margin: 4px 0 2px;
+}
+.bartip-row {
+  padding: 5px 8px;
+  margin: 0 -8px;
+  transition: background-color 120ms;
+}
+.bartip-row:hover {   /* bartips sets the hover state itself (GTK 3 doesn't on an event box) */
+  background: alpha(@overlay, 0.9);
+}
+.bartip-tile {
+  color: @accent;
+  background: alpha(@overlay, 0.9);
+  font-size: 14px;   /* 30 px square: TILE in bartips.c */
+  transition: background-color 120ms, color 120ms;
+}
+.bartip-row:hover .bartip-tile {
+  background: @accent;
+  color: @base;
+}
+.bartip-sub {
+  color: @muted;
+  font-size: 11px;
+}
+.bartip-value {
+  color: @subtext;
+  font-size: 11px;
+}
+.bartip-big {
+  color: @text;
+  font-weight: bold;
+}
+.bartip-meter trough {
+  min-height: 3px;
+  min-width: 120px;
+  margin-top: 3px;
+  background: @overlay;
+}
+.bartip-meter progress {
+  min-height: 3px;
+  background: @accent;
+}
+
+/* the rich cards (cards.c: storage, memory, GPU): sections, meters, drawings; text in a named colour */
+.bartip-rich {
+  min-width: 300px;
+}
+.bartip-section {
+  margin-top: 1px;
+}
+.bartip-art {
+  margin: 8px 0 4px;
+}
+.bartip-meterblock {
+  margin: 3px 0 1px;
+}
+.c-green { color: @green; }
+.c-amber { color: @amber; }
+.c-alert { color: @alert; }
+.c-accent { color: @accent; }
+.c-muted { color: @muted; }
+.c-subtext { color: @subtext; }
+
+/* the clock's calendar */
+.bartip-away {
+  color: @accent;
+  font-size: 11px;
+}
+.bartip-cal {
+  margin-top: 4px;
+}
+.bartip-cal label {
+  min-width: 28px;
+  min-height: 22px;
+  color: @subtext;
+}
+.bartip-cal .cal-dow {
+  color: @muted;
+  font-size: 11px;
+}
+.bartip-cal .cal-wk {
+  color: alpha(@muted, 0.7);
+  font-size: 11px;
+  min-width: 24px;
+}
+.bartip-cal .weekend {
+  color: @muted;
+}
+.bartip-cal .out {
+  color: alpha(@muted, 0.45);
+}
+.bartip-cal .today {
+  background: @accent;
+  color: @base;
+  font-weight: bold;
 }
 
 /* the colour theme (local/bin/theme): its colours after these, which stay when it's missing */

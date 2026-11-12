@@ -1,0 +1,10 @@
+# system/hwinfo: hwinfo.service at boot, then every 30 minutes
+[Unit]
+Description=Save SMART and memory details for the bar, every 30 minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target

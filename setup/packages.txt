@@ -87,6 +87,8 @@ gst-plugin-va
 gst-plugins-bad
 gst-plugins-ugly
 gtk4
+gtk-layer-shell
+json-glib
 gtk4-layer-shell
 hdparm
 httpie

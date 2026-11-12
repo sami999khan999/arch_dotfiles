@@ -23,3 +23,6 @@ __pycache__/
 config/codesync/machine.json
 config/hypr/settings.local.json
 config/hypr/modules/settings_local.lua
+
+# ---- Built on each PC (scripts/waybars.py compiles the bar's tooltips plugin)
+config/waybar/bartips/bartips.so

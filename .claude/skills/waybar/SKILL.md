@@ -13,7 +13,8 @@ left:   logo │ workspace buttons (custom/ws1…10) │ audio visualizer (custo
         to the right section; it may shrink (max-length), so it can never push it
 right:  │ media (play/pause, only while playing/paused) │ group label + window title in one block
         (custom/window, max 22 chars in wintitle.py, hidden on an empty workspace) │
-        codesync, keys, tray, bt, net, volume │ stats (frame rate / Hz per screen, cpu mem temp battery) │
+        codesync, the hub (one icon: Setups, System agent, keys, settings, bt, net, volume in its
+        menu) │ stats (frame rate / Hz per screen, cpu mem temp battery) │
         clock (custom/clock: scripts/clock.py) + notification bell (custom/notifications:
         scripts/notifications.py; always shown) + idle indicator │ power (far right)
 ```
@@ -44,7 +45,26 @@ right:  │ media (play/pause, only while playing/paused) │ group label + wind
 ## Known quirks
 
 - The clock is `custom/clock` (`scripts/clock.py`), not waybar's `clock`: the visualizer has to
-  know whether the long view (click) is on. Its tooltip calendar is built there too.
+  know whether the long view (click) is on. Its hover calendar is drawn by bartips (below).
+- **Tooltips are ours** (`bartips/bartips.c`, the `cffi/bartips` module: a C plugin in each waybar,
+  compiled by `scripts/waybars.py` when the `.c` is newer than the gitignored `.so`). It stops GTK's
+  tooltip and shows a layer-shell card (namespace `bartip`, blurred in `windowrules.lua`) built from the
+  module's tooltip markup, so a module's `tooltip-format` / JSON `tooltip` is all you write. Shape it
+  so the card reads well: `<b>Title</b>  <span alpha='55%'>Super + X</span>` is a title row with key caps;
+  other lines are the body; a line that is all `<span alpha='55%'>…</span>` or starts with `Click:` /
+  `Scroll:` goes under a rule as a hint. Styles: `.bartip-*` in `style.css`. A change to the `.c`:
+  `systemctl --user restart waybar` rebuilds it; to see a card without hovering, include `bartips.c`
+  in a small GTK3 program that calls `build_tooltip()` into a `GtkOffscreenWindow` under `broadwayd`.
+- **Rich cards** (`bartips/cards.c`): a script whose tooltip is `bartip.card(blocks)` (`local/lib/hypr/bartip.py`)
+  gets a card of blocks — `head` / `section`, `kv` rows, `meter`, `stack` (style `dimm`: a memory stick),
+  `chip` (a GPU die with gauges), `bars` (a column per value), `spark` (a history), `table`, `text`, `rule`, `hints`. Colours are the `@define-color` names
+  (`green`, `amber`, `alert`, `accent`…), so themes reach them. See `scripts/cpu.py`, `storage.py`, `memory.py`,
+  `gpu.py`; render one off-screen by calling `build_rich()` in a small GTK3 program under `broadwayd`.
+- **The hub** (`group/hub`, first module `custom/hub`): bartips moves the group's other modules off the
+  bar into an offscreen window (waybar keeps updating them) and its card lists them; a row forwards its
+  click / scroll to the module as a GDK event, so their `on-click` etc. stay in config.jsonc. To add a
+  control there, add its module to `group/hub`; its tooltip's first line is the row's title, the next
+  line its state.
 - `mpris` `tooltip-format` is plain text; tags show up literally.
 - GTK ellipsizes a `max-length` label before it moves the centre island, and an ellipsizing label
   in the left section can't cross the middle of the bar. Truncate in the script instead

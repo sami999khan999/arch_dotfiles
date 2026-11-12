@@ -149,7 +149,7 @@ Once on a new PC, to make it the same as the others (MANUAL.md "Bootstrap a new 
   pkexec ~/dotfiles/system/greeter/install.sh   login screen (greetd + noctalia-greeter)
   pkexec ~/dotfiles/system/boot-splash.sh       loading screen at boot and shutdown
   pkexec ~/dotfiles/system/swap-setup.sh        SSD swapfile after zram
-  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, dev servers at normal priority + kept in RAM, snapshots listable + 10 kept, Docker closed to the network + its on/off switch, downloads over two networks, the data drive where it's attached
+  pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, dev servers at normal priority + kept in RAM, snapshots listable + 10 kept, Docker closed to the network + its on/off switch, downloads over two networks, drive health + memory sticks for the bar (hwinfo), the data drive where it's attached
   pkexec ~/dotfiles/system/dokploy-setup.sh     Dokploy (deploy dashboard on localhost:23300), off at boot
   codesync enable                               code backup (asks where the code is)
   sign in: VS Code Settings Sync, Chrome, claude / codex / opencode / agy

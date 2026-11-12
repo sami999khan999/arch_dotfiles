@@ -197,3 +197,11 @@ hl.layer_rule({
   ignore_alpha = 0.5,
 })
 hl.layer_rule({ name = "walker-noanim", match = { namespace = "^walker$" }, no_anim = true })
+-- the bar's tooltip cards (config/waybar/bartips): frosted like the bar, fading in and out
+hl.layer_rule({
+  name = "bartip",
+  match = { namespace = "^bartip$" },
+  blur = true,
+  ignore_alpha = 0.5,
+  animation = "fade",
+})

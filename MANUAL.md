@@ -110,7 +110,7 @@ colours, with one line:
 | agentmux (tmux) | `source-file -q` in `app.conf`, `agents.conf` | the same files |
 | starship | `STARSHIP_CONFIG` (`fish/config.fish`) | `starship.toml` |
 
-The GTK panels, agentmux's screens, the clock's tooltip and the greeting swap their colours
+The GTK panels, agentmux's screens, the clock and the greeting swap their colours
 themselves at start (`local/lib/theme/themelib.py`: `recolor(text)`, `rgbf("#6b8fe0")` for cairo).
 With Tokyo Night active none of this changes anything: its files are the originals' bytes or empty,
 and `recolor` returns its text untouched. A missing file (a new PC before its first login) means
@@ -130,6 +130,27 @@ installed as root, so `theme apply` can't change it).
 Not themed: Dolphin's own KDE colours (Files, the file manager, is) (`config/kdeglobals`: KDE has no include, and Settings writes
 that file), the polkit password prompt
 (`hypr/hyprtoolkit.conf`), lazydocker, wiremix, and VS Code (Settings Sync).
+
+**The bar's tooltips** are our own cards, not GTK's: hover a module and a frosted card fades in
+under it. A header with the module's icon, its name in bold and a dimmed detail (the screen, the network),
+the shortcut as key caps (`Super` `I`); values as a two-column list (what on the left, the value on the
+right); what a click or a scroll does under a rule, the action as a key cap (`Click` networks). Moving
+along the bar switches cards at once; a click hides it until you move to another module. A card that updates while
+it's open (speeds, temperatures, the apps list) only ever grows: a shorter number never shrinks it or
+moves anything under the pointer; it opens at its own size again next time.
+
+Setups, System agent, Shortcuts, Settings, Bluetooth, network and volume share one icon (sliders,
+`group/hub`): hover or click it for a menu of them in two parts: **Open** (the panels, with their
+keys) and **Status** (Bluetooth, the network, the volume with a level meter), each row's icon in a tile
+that lights up under the pointer. Clicking a row does what clicking its icon did; right-click
+and scroll too (mute, volume ±5). The modules still run, off the bar, so the menu is always current.
+
+The pointer can move onto a card and it stays; it fades out once the pointer
+is off both the card and its module. The clock's card is a month calendar: ISO weeks, today in a blue square, the
+days around the month dimmed; scroll over the clock or its card for the previous / next month (it starts at this
+month every time). It's a small plugin inside waybar (`config/waybar/bartips/bartips.c`, a `cffi`
+module), compiled by `scripts/waybars.py` when its source changes (`systemctl --user restart waybar`);
+its colours are in waybar's `style.css` (`.bartip-*`), so the colour themes reach it.
 
 **The audio visualizer** fills the bar's gap (between the workspace buttons and the right side) while
 something plays (cava), and hides when it's silent; click it to play / pause. `Super + Alt + B` (or a
@@ -156,6 +177,28 @@ don't move it. Hyprland has no counter to ask, so `scripts/fps.py` gets a one-pi
 frame Hyprland draws (wlr-screencopy), with the frame's time. That costs next to nothing, but while it runs
 Hyprland counts a screencast, and a fullscreen game isn't scanned out directly. Hide it in Settings →
 Power & bar → Top bar.
+
+Before it, the network speed: two small sparklines, download (blue) over upload (amber), each the last
+20 s as bars scaled to its own peak, with the speed now beside it (`▁▂▅▇▆ 287K`), over every network at once (the cable and a phone's hotspot added up; not Docker's or a VPN's), every 2 s, dimmed
+while next to nothing moves. Its card has the exact speeds and, when two networks both carry traffic,
+each one's share; click it for the network panel (`scripts/netspeed.py`).
+
+Then the CPU, the GPU (only with an NVIDIA or AMD card), memory and storage, each with a card of its own:
+- **CPU** (`scripts/cpu.py`): the model and threads, the load over the last 3 minutes as a graph,
+  temperature, clock and load average, a column per thread, and the apps using the most. Click: System.
+- **Memory** (`scripts/memory.py`): in use and swap, a memory stick drawn with what it holds (apps, cache,
+  buffers, free), the sticks (slot, size, DDR type, speed) and the four apps holding the most (each
+  app's cgroup, as System → Apps counts them). Click: System.
+- **Storage** (`scripts/storage.py`; the bar shows how full the system drive is): a part per drive —
+  what it's for, model, size, NVMe / SSD / HDD, temperature (amber / red when warm for its kind), health
+  and life left, terabytes written, reading / writing now, and a bar of how full it is. Click: Storage.
+- **GPU** (`scripts/gpu.py`): temperature, video memory, power, load, fan, a GPU die drawn with a gauge
+  for each, and the apps on it. NVIDIA through one `nvidia-smi` left running; AMD from sysfs.
+
+Health, wear and the memory sticks need root to read: `pkexec ~/dotfiles/system/root-setup.sh` once
+installs `hwinfo.timer` (`system/hwinfo/`), which saves SMART and dmidecode's memory details to
+`/run/hwinfo` at boot and every 30 minutes (only reading), and loads `drivetemp` for SATA drives'
+temperatures. Until then those lines say so.
 
 Wallpapers live in `local/share/backgrounds/wallpapers`; `Super+Ctrl+Space`
 cycles them. awww draws them (`scripts/wallpaper.sh`): a screen whose workspace has windows shows a

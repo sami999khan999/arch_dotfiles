@@ -2,16 +2,15 @@
 """clock.py — waybar module: the clock, in place of waybar's built-in one.
 
   clock.py               the module itself (waybar exec): one JSON line per minute, and at once
-                         when the view or the tooltip's month changes
+                         when the view changes
   clock.py toggle        click: switch between the short and the long view
-  clock.py scroll up     scroll: the tooltip calendar shows the previous / next month
-  clock.py scroll down
 
-Same look as the built-in clock: short "Thu 01 Oct  22:43", long "Thursday  01 Oct  wk 40  22:43",
-a month calendar as the tooltip. It's a script so other scripts can know which view is on: the
+Same look as the built-in clock: short "Thu 01 Oct  22:43", long "Thursday  01 Oct  wk 40  22:43".
+The month calendar shown on hover is drawn by the bar's tooltips (config/waybar/bartips).
+It's a script so other scripts can know which view is on: the
 visualizer (visualizer.py) needs the clock's width to fill the bar without pushing anything off.
 """
-import calendar, datetime, json, os, signal, sys, time
+import datetime, json, os, signal, sys, time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib/theme"))
 try:   # the colour theme (local/bin/theme): colours here are Tokyo Night's, recolored to the active theme's
@@ -21,10 +20,10 @@ except ImportError:
         return text
 
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-STATE = f"{RUN}/waybar-clock.json"   # {"long": bool, "month": offset of the tooltip's month}
+STATE = f"{RUN}/waybar-clock.json"   # {"long": bool}
 PID = f"{RUN}/waybar-clock.pid"
 
-DIM, SUB, TEXT, LINE, ACCENT = (recolor(c) for c in ("#565f89", "#a9b1d6", "#c0caf5", "#3b4261", "#6b8fe0"))   # the colour theme (local/bin/theme)
+DIM, SUB = (recolor(c) for c in ("#565f89", "#a9b1d6"))   # the colour theme (local/bin/theme)
 SETTINGS = os.path.expanduser("~/.config/hypr/settings.json")   # the Settings panel's 24-hour switch
 
 
@@ -43,7 +42,7 @@ def load():
         s = json.load(open(STATE))
     except (OSError, ValueError):
         s = {}
-    return {"long": bool(s.get("long")), "month": int(s.get("month", 0))}
+    return {"long": bool(s.get("long"))}
 
 
 def save(state):
@@ -75,31 +74,9 @@ def markup(long, now):
     return f"<span color='{DIM}'>{now:%a}</span> <span color='{SUB}'>{now:%d %b}</span>  {time_markup(now)}"
 
 
-def month_calendar(offset, today):
-    """The tooltip: a month with ISO week numbers on the left, today highlighted."""
-    y, m = divmod(today.year * 12 + today.month - 1 + offset, 12)
-    m += 1
-    title = datetime.date(y, m, 1).strftime("%B %Y")
-    lines = [f"<span color='{TEXT}'><b>{title:^24}</b></span>",
-             f"<span color='{DIM}'>    Mo Tu We Th Fr Sa Su</span>"]
-    for week in calendar.Calendar(firstweekday=0).monthdatescalendar(y, m):
-        cells = []
-        for d in week:
-            if d.month != m:
-                cells.append("  ")
-            elif d == today:
-                cells.append(f"<span color='{ACCENT}'><b><u>{d.day:2}</u></b></span>")
-            else:
-                cells.append(f"{d.day:2}")
-        wk = week[3].isocalendar()[1]   # Thursday decides the ISO week
-        lines.append(f"<span color='{LINE}'>{wk:2}</span>  " + " ".join(cells))
-    return "<tt>" + "\n".join(lines) + "</tt>"
-
-
 def emit():
     state, now = load(), datetime.datetime.now()
     print(json.dumps({"text": markup(state["long"], now),
-                      "tooltip": month_calendar(state["month"], now.date()),
                       "class": "long" if state["long"] else "short"}, ensure_ascii=False), flush=True)
 
 
@@ -140,11 +117,6 @@ def main(argv):
     elif argv[1] == "toggle":
         state = load()
         state["long"] = not state["long"]
-        save(state)
-        poke()
-    elif argv[1] == "scroll" and len(argv) == 3:
-        state = load()
-        state["month"] += -1 if argv[2] == "up" else 1
         save(state)
         poke()
     else:

@@ -9,6 +9,7 @@
   "margin-left": 0,
   "margin-right": 0,
   "modules-left": [
+    "cffi/bartips",
     "custom/logo",
     "custom/wsbar",
     "group/wsbuttons",
@@ -26,13 +27,7 @@
     "custom/lsend",
     "custom/downloads",
     "custom/codesync",
-    "custom/setups",
-    "custom/sysagent",
-    "custom/keys",
-    "custom/settings",
-    "bluetooth",
-    "network",
-    "pulseaudio",
+    "group/hub",
     "group/stats",
     "custom/clock",
     "custom/notifications",
@@ -40,15 +35,42 @@
     "custom/idle-indicator",
     "custom/power"
   ],
+  // one icon for these: bartips takes the others off the bar and lists them in the icon's card (hover
+  // or click it); a row there does what clicking / scrolling its icon did
+  "group/hub": {
+    "orientation": "inherit",
+    "modules": [
+      "custom/hub",
+      "custom/setups",
+      "custom/sysagent",
+      "custom/keys",
+      "custom/settings",
+      "bluetooth",
+      "network",
+      "pulseaudio"
+    ]
+  },
+  "custom/hub": {
+    "format": "\uf1de",
+    "tooltip": false
+  },
   "group/stats": {
     "orientation": "inherit",
     "modules": [
+      "custom/netspeed",
       "custom/fps",
-      "cpu",
-      "memory",
+      "custom/cpu",
+      "custom/gpu",
+      "custom/memory",
+      "custom/storage",
       "temperature",
       "battery"
     ]
+  },
+  // the tooltips: our own card under the hovered module (bartips/bartips.c, built by scripts/waybars.py);
+  // an empty, zero-width widget. The path is from waybar's working directory, the home folder
+  "cffi/bartips": {
+    "module_path": ".config/waybar/bartips/bartips.so"
   },
   "custom/power": {
     "format": "󰐥",
@@ -262,11 +284,21 @@
     "return-type": "json",
     "restart-interval": 5
   },
-  "memory": {
-    "interval": 5,
-    "format": "󰘚{percentage:>3}%",
-    // plain text: memory and temperature show a tooltip as text (markup came out raw)
-    "tooltip-format": "Memory\n{used:0.1f} G used of {total:0.1f} G\nClick: what's using it",
+  // memory, storage and the GPU: scripts whose cards (bartips) draw a memory stick, every drive's health
+  // and fill, a GPU die (scripts/memory.py, storage.py, gpu.py; the GPU hides without NVIDIA / AMD)
+  "custom/memory": {
+    "exec": "~/.config/hypr/scripts/memory.py",
+    "return-type": "json",
+    "on-click": "~/.local/lib/panels/sysgui.py"
+  },
+  "custom/storage": {
+    "exec": "~/.config/hypr/scripts/storage.py",
+    "return-type": "json",
+    "on-click": "~/.local/lib/panels/storagegui.py"
+  },
+  "custom/gpu": {
+    "exec": "~/.config/hypr/scripts/gpu.py",
+    "return-type": "json",
     "on-click": "~/.local/lib/panels/sysgui.py"
   },
   "temperature": {
@@ -277,22 +309,26 @@
     "format": "󰔏{temperatureC:>3}°",
     "tooltip-format": "CPU temperature\n{temperatureC}°C, package"
   },
-  "cpu": {
-    "interval": 5,
-    "format": "󰍛{usage:>3}%",
-    "states": {
-      "critical": 90
-    },
+  // the CPU: a script whose card (bartips) has the load's history, a column per thread and the busiest
+  // apps (scripts/cpu.py)
+  "custom/cpu": {
+    "exec": "~/.config/hypr/scripts/cpu.py",
+    "return-type": "json",
     "on-click": "~/.local/lib/panels/sysgui.py"
   },
   // the clock is a script (scripts/clock.py) so the visualizer can know which view is on: the long
-  // one (click) is wider. Scroll: the tooltip calendar's month
+  // one (click) is wider. Its calendar (hover; scroll: the month) is drawn by bartips
   "custom/clock": {
     "exec": "~/.config/hypr/scripts/clock.py",
     "return-type": "json",
-    "on-click": "~/.config/hypr/scripts/clock.py toggle",
-    "on-scroll-up": "~/.config/hypr/scripts/clock.py scroll up",
-    "on-scroll-down": "~/.config/hypr/scripts/clock.py scroll down"
+    "tooltip": false,
+    "on-click": "~/.config/hypr/scripts/clock.py toggle"
+  },
+  // the network's speed, down and up, every physical interface added up (scripts/netspeed.py)
+  "custom/netspeed": {
+    "exec": "~/.config/hypr/scripts/netspeed.py",
+    "return-type": "json",
+    "on-click": "~/.local/lib/panels/netgui.py"
   },
   "network": {
     "format-icons": [
@@ -393,7 +429,7 @@
   },
   "custom/setups": {
     "format": "󰠔",
-    "tooltip-format": "<b>Setups</b>  <span alpha='55%'>Super + Ctrl + R</span>\n<span alpha='55%'>Save and open work environments: windows, folders, tabs</span>",
+    "tooltip-format": "<b>Setups</b>  <span alpha='55%'>Super + Ctrl + R</span>\n<span alpha='55%'>Your windows, folders and tabs, reopened</span>",
     "on-click": "~/.local/lib/panels/setupsgui.py"
   },
   "custom/sysagent": {

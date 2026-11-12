@@ -102,7 +102,18 @@ else
   echo "   no NetworkManager: skipped"
 fi
 
-echo "== 7. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
+echo "== 7. Drive health and memory sticks for the bar's cards (system/hwinfo: SMART, dmidecode into /run/hwinfo)"
+install -Dm755 "$REPO/system/hwinfo/hwinfo.sh" /usr/local/lib/dotfiles/hwinfo
+install -Dm644 "$REPO/system/hwinfo/hwinfo.service" /etc/systemd/system/hwinfo.service
+install -Dm644 "$REPO/system/hwinfo/hwinfo.timer" /etc/systemd/system/hwinfo.timer
+echo drivetemp > /etc/modules-load.d/drivetemp.conf   # SATA drives' temperatures in hwmon (NVMe has its own)
+modprobe drivetemp || true
+systemctl daemon-reload
+systemctl enable --now hwinfo.timer
+systemctl start hwinfo.service
+echo "   /run/hwinfo: smart-<drive>.json, memory.txt (at boot, then every 30 min)"
+
+echo "== 8. Mount the data HDD at /mnt/data at every boot (system/fstab-data)"
 uuid=$(grep -o '^UUID=[^ ]*' "$REPO/system/fstab-data")
 if [ ! -e "/dev/disk/by-uuid/${uuid#UUID=}" ]; then
   echo "   that drive isn't in this PC: skipped"

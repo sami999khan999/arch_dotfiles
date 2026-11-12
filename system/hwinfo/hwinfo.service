@@ -1,0 +1,9 @@
+# system/hwinfo: SMART and memory-stick details into /run/hwinfo for the bar's cards (hwinfo.sh)
+[Unit]
+Description=Save SMART and memory details for the bar
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/dotfiles/hwinfo
+Nice=19
+IOSchedulingClass=idle

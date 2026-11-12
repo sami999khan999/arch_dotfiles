@@ -594,7 +594,8 @@ def hypr_events(win, wanted, on_event):
 class Backdrop(Gtk.Widget):
     """Behind a popup: the screen darkened, and blurred by Hyprland (the backdrop window is see-through
     and gets the windows' blur: modules/windowrules.lua), so a popup's blur is every window's. Live, not
-    a picture: what plays behind keeps moving, blurred. The bar's strip stays clear (the bar is above)."""
+    a picture: what plays behind keeps moving, blurred. The bar is above every window: barveil.py
+    covers its strip the same way (PanelApp.veil_bar)."""
 
     def __init__(self, darken):
         super().__init__(hexpand=True, vexpand=True)
@@ -689,6 +690,12 @@ class ViewHost:
         if mon:   # full size from its first frame: Hyprland stretches a smaller first frame to the rule's
             win.set_default_size(*mon)   # size (a zoomed-in corner)
         win.set_child(Backdrop(darken))
+        veil = self.veil_bar(darken)
+        if veil:
+            def unveil(*_):   # it quits on its stdin closing; then reap it
+                veil.stdin.close()
+                GLib.timeout_add(300, lambda: veil.poll() is None)
+            win.connect("destroy", unveil)
         click = Gtk.GestureClick()
         click.connect("pressed", lambda *_: self.close_from_backdrop())
         win.add_controller(click)
@@ -696,6 +703,19 @@ class ViewHost:
         keys.connect("key-pressed", self._on_key)
         win.add_controller(keys)
         return win
+
+    def veil_bar(self, darken):
+        """The backdrop's part over the bar (barveil.py): the bar is above every window, the backdrop
+        too. Its own process (gtk4-layer-shell has to be preloaded); it ends when its stdin closes, so
+        with the backdrop, or with this process however it ends."""
+        import json
+        try:
+            mon = next(m["name"] for m in json.loads(hypr_socket("j/monitors") or "[]") if m["focused"])
+            return subprocess.Popen(["python3", os.path.join(os.path.dirname(os.path.abspath(__file__)), "barveil.py"),
+                                     mon, str(darken)], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                    env={**os.environ, "LD_PRELOAD": "/usr/lib/libgtk4-layer-shell.so"})
+        except (ValueError, StopIteration, KeyError, OSError):
+            return None
 
     def focused_monitor(self):
         """The focused monitor's size in layout px (width, height), or None."""

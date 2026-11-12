@@ -51,7 +51,7 @@
                                the same, for what a sidebar saw on screen
   agentmux clear-notices <thread>
                                dismiss its "needs your input" / error notifications (no longer true)
-  agentmux hooks               install those hooks in each agent's own config (idempotent)
+  agentmux hooks               install those hooks in each agent's own config, and its browser (idempotent)
   agentmux paste <pane>        Ctrl+V in a Codex / agy thread: the clipboard's text, as a terminal paste
   agentmux account             the accounts (logins) of each agent that can have several, * the default
   agentmux account add <shown name> [h]
@@ -1463,6 +1463,55 @@ def install_hooks():
     done.append("Antigravity")
 
     print("agentmux hooks installed: " + ", ".join(done))
+    install_browser()
+
+
+# ---- the agents' browser ------------------------------------------------------------------------
+# every agent gets the "browser" MCP server (local/bin/browser-mcp: a throwaway headless Chrome per
+# thread) to test the project it works on. Each through its own CLI where it has one (they write their
+# configs themselves: ~/.claude.json is rewritten by every running Claude Code), opencode in its JSON.
+BROWSER_CMD = os.path.expanduser("~/.local/bin/browser-mcp")
+
+
+def install_browser():
+    """Register browser-mcp with Claude Code (main and every account: each has its own ~/.claude.json),
+    Codex (its accounts share config.toml), agy and opencode. Safe to run again: only what's missing."""
+    import shutil
+    done = []
+    quiet = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if shutil.which("claude"):
+        for account in lib.accounts("claude"):
+            folder = lib.account_dir("claude", account)
+            conf = os.path.expanduser("~/.claude.json") if account == "main" else f"{folder}/.claude.json"
+            try:
+                have = json.load(open(conf)).get("mcpServers", {}).get("browser", {}).get("command")
+            except (OSError, ValueError):
+                have = None
+            if have != BROWSER_CMD:
+                env = dict(os.environ, **({"CLAUDE_CONFIG_DIR": folder} if account != "main" else {}))
+                subprocess.run(["claude", "mcp", "remove", "--scope", "user", "browser"], env=env, **quiet)
+                subprocess.run(["claude", "mcp", "add", "--scope", "user", "browser", "--", BROWSER_CMD], env=env, **quiet)
+        done.append("Claude Code")
+    if shutil.which("codex"):
+        try:
+            have = "[mcp_servers.browser]" in open(os.path.expanduser("~/.codex/config.toml")).read()
+        except OSError:
+            have = False
+        if not have:
+            subprocess.run(["codex", "mcp", "add", "browser", "--", BROWSER_CMD], **quiet)
+        done.append("Codex")
+    if shutil.which("agy"):   # agy's add also updates
+        subprocess.run(["agy", "mcp", "add", "browser", BROWSER_CMD], **quiet)
+        done.append("Antigravity")
+    oc = os.path.expanduser("~/.config/opencode/opencode.json")
+    try:
+        o = json.load(open(oc))
+    except (OSError, ValueError):
+        o = {"$schema": "https://opencode.ai/config.json"}
+    o.setdefault("mcp", {})["browser"] = {"type": "local", "command": [BROWSER_CMD], "enabled": True}
+    _write_json(oc, o)
+    done.append("opencode")
+    print("agentmux browser added: " + ", ".join(done))
 
 
 # ---- shortcuts, status bar, help: all from the settings (lib.load_settings) ---------------------

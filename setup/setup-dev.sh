@@ -40,8 +40,19 @@ install_agent agy    https://antigravity.google/cli/install.sh
 for cmd in opencode codex; do
   command -v "$cmd" >/dev/null && say "ok       $cmd" || say "$cmd missing - install packages first"
 done
+# the agents' browser (local/bin/browser-mcp): chrome-devtools-mcp at a pinned version, in a folder
+# of its own (not npm -g: mise's node versions each have their own globals)
+BROWSER_MCP_VERSION=1.13.0
+bdir="$HOME/.local/share/browser-mcp"
+if [[ "$(node -p "require('$bdir/node_modules/chrome-devtools-mcp/package.json').version" 2>/dev/null)" == "$BROWSER_MCP_VERSION" ]]; then
+  say "ok       chrome-devtools-mcp $BROWSER_MCP_VERSION"
+elif npm install --silent --no-fund --no-audit --prefix "$bdir" "chrome-devtools-mcp@$BROWSER_MCP_VERSION" >/dev/null; then
+  say "installed chrome-devtools-mcp $BROWSER_MCP_VERSION"
+else
+  say "FAILED   chrome-devtools-mcp (network?) - re-run setup/setup-dev.sh"
+fi
 # agentmux hears from the agents through their own hooks (Claude Code, Codex, agy configs live
-# outside this repo): install them, merged into whatever is there
+# outside this repo): install them, merged into whatever is there; it also gives each the browser
 [[ -x "$HOME/.local/bin/agentmux" ]] && "$HOME/.local/bin/agentmux" hooks | sed 's/^/  /'
 
 head_ "docker"

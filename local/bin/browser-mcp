@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# browser-mcp — the "browser" MCP server every coding agent has (Claude Code, Codex, opencode, agy;
+# registered by `agentmux hooks`): Google's chrome-devtools-mcp, so an agent can open the project it
+# runs (localhost…), click and type, take screenshots, read the console and network requests, trace
+# performance. Installed (a pinned version) by setup/setup-dev.sh into ~/.local/share/browser-mcp.
+#
+# Each agent thread starts its own copy, and Chrome only on its first browser call: headless (nothing
+# on screen) and --isolated (a throwaway profile, deleted when it closes), so it never sees your own
+# Chrome's logins, tabs or cookies, and threads testing at once don't share a browser.
+# BROWSER_MCP_SHOW=1 in the agent's environment shows the window instead (to watch it click around).
+set -euo pipefail
+
+bin="${XDG_DATA_HOME:-$HOME/.local/share}/browser-mcp/node_modules/.bin/chrome-devtools-mcp"
+if [[ ! -x "$bin" ]]; then
+  echo "browser-mcp: not installed - run ~/dotfiles/setup/setup-dev.sh" >&2
+  exit 1
+fi
+# an agent may start it with a bare PATH: node comes from mise
+export PATH="$HOME/.local/share/mise/shims:$PATH"
+
+# a laptop-sized page (headless Chrome's own was 1905x2053): screenshots like a user sees; resize_page changes it
+args=(--isolated --executablePath /usr/bin/google-chrome-stable --no-usage-statistics --viewport 1366x768)
+[[ "${BROWSER_MCP_SHOW:-}" == 1 ]] || args+=(--headless)
+exec "$bin" "${args[@]}" "$@"

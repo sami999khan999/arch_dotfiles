@@ -1453,6 +1453,14 @@ counts from that reading instead (*since 08:10*, or *since Tue 18:40*). *this th
   thread stays *working* ("· 2 agents") while its subagents or background agents run, even after its
   own turn ended, and notifies *done* when the last one finishes (SubagentStart / SubagentStop hooks,
   Claude's `◯ <agent> <task>` rows on screen, agy's `fullyIdle`).
+- **A browser for every agent**, to test the project it works on: ask it to "open localhost:3000 and
+  check the sign-up form" and it opens pages, clicks and types, takes screenshots, reads the console
+  and network requests, runs Lighthouse or a performance trace. It's the `browser` MCP server
+  (`browser-mcp`: Google's chrome-devtools-mcp, a pinned version installed by `setup/setup-dev.sh`),
+  registered for Claude Code (every account), Codex, opencode and agy by `agentmux hooks`. Each
+  thread gets its own Chrome, started on its first browser call: headless (nothing on screen),
+  1366×768, with a throwaway profile deleted when it closes, so it never sees your own Chrome's logins,
+  tabs or cookies. To watch one click around, start the agent with `BROWSER_MCP_SHOW=1`.
 - **Terminals, like VS Code's:** the shown terminal takes the column's full height; a thin list at
   its right names every terminal of the project (`+` in its header, or `Ctrl+Alt+T`, adds one).
   Click a row (or `↑↓` `↵` in the list, `Ctrl+Alt+↑↓` anywhere) to show it; a long list scrolls

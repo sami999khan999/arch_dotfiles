@@ -15,7 +15,7 @@ from bartip import card, level, size, temp_colour
 
 DELAY = 3
 HWINFO = "/run/hwinfo"
-DISK = "\uf0a0"   # a drive
+DISK = "\U000f02ca"   # a drive (filled, like the other stats' icons)
 KINDS = {"nvme": "NVMe", "ssd": "SSD", "hdd": "HDD"}
 WARM = {"nvme": (60, 70), "ssd": (50, 60), "hdd": (45, 55)}   # °C: getting warm, too hot
 ROLES = {"/": "System", "/mnt/data": "Data", "/home": "Home"}

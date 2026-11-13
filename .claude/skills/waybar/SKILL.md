@@ -9,7 +9,7 @@ One full-width strip (no outer margins, 1px line along the bottom), square corne
 
 ```
 left:   logo │ workspace buttons (custom/ws1…10) │ group label + window title in one block
-        (custom/wsgroups + custom/window, max 22 chars in wintitle.py, hidden on an empty workspace) │
+        (custom/wsgroups + custom/window, max 13 chars in wintitle.py while something plays, hidden on an empty workspace) │
         audio visualizer (custom/visualizer: cava, only while sound plays; styles bars / solid / mirror /
         dots / wave / off, Super + Alt + B), filling the gap to the right section; it may shrink
         (max-length), so it can never push it
@@ -92,9 +92,9 @@ right:  │ (custom/divider) media (play/pause, only while playing/paused) │ c
   (Pango) plus its padding (`BLOCK_PX`, from style.css: change both together). So the right side may
   change width freely; keep the divider before the block and the one starting the right section. The
   one between the title and the graph is the visualizer's own `border-left`, so it goes with it.
-  Whenever the graph isn't drawn (silent, style off, under `MIN_ROOM_PX` of room) the title may be long
-  (`waybar-wintitle.long`, SIGUSR1 to wintitle.py); `custom/window` has max-length, so GTK cuts it to
-  the room rather than push the right section. Never pad or size a module to a measured width: a rigid
+  While nothing plays (silent, style off) the title may be long (`waybar-wintitle.long`, SIGUSR1 to
+  wintitle.py); `custom/window` has max-length, so GTK cuts it to the room rather than push the right
+  section. While something plays it stays short (`MAX`), the graph shown or not. Never pad or size a module to a measured width: a rigid
   one pushed the power button off whenever the right side grew before the next measurement. Measurements
   count only when the first divider and the power button's are where they were (a half-drawn bar, just
   out of fullscreen, sat 30 px to the right). When it can't measure (silent, grim missing) it falls back to sums over what's on the

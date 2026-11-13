@@ -78,7 +78,7 @@ window#waybar {
   margin: 0;
 }
 /* the divider between the title and the graph is the visualizer's: with the graph hidden (silent, or too
-   little room) the title block runs on to the right section (wintitle.py pads it), no empty box */
+   little room) there's no empty box; while nothing plays the title runs on to the right section */
 
 /* ---- left, after the workspaces: audio visualizer (scripts/visualizer.py, while sound plays) */
 /* it fills the gap to the right section exactly (visualizer.py), so its hover block meets the divider */

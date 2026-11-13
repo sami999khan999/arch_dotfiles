@@ -245,8 +245,8 @@
     "on-scroll-up": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e-1\" })'",
     "on-scroll-down": "hyprctl dispatch 'hl.dsp.focus({ workspace = \"e+1\" })'"
   },
-  // max-length lets GTK cut a long title ("…") to the room it has rather than push the right section:
-  // it's long while the audio graph is hidden (wintitle.py), filling what the graph would
+  // the title: short while something plays (wintitle.py); long while nothing does, and then max-length
+  // lets GTK cut it ("…") to the room it has rather than push the right section
   "custom/window": {
     "exec": "~/.config/hypr/scripts/wintitle.py",
     "max-length": 200,

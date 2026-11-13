@@ -3,28 +3,20 @@
 
 Replaces waybar's hyprland/window. That module ellipsizes inside GTK, and GTK would rather shrink
 an ellipsizing label than move the centre island. Cutting the text here instead gives the label
-its full width; MAX keeps the centre section compact, so it stays put as titles change length.
-Prints one JSON line per change (return-type json).
+its full width; MAX keeps it small while something plays (the whole title is in its tooltip). Prints one
+JSON line per change (return-type json).
 
-With a long title and the play button the right section fills the bar: while the busy-CPU warning shows
-(custom/load, loadwatch.py) or the clock is in its long view (clock.py toggle) the title gives up their
-extra width, or the power button went off the screen. loadwatch.py writes its text to
-$XDG_RUNTIME_DIR/loadwatch.json, the clock its view to waybar-clock.json; both send SIGUSR1 to the pids
-in $XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar).
-
-While the audio graph isn't drawn (silent, off, or too little room for it) the title may be long:
-visualizer.py writes 1 to waybar-wintitle.long (SIGUSR1), and the whole title goes out. The module has
-max-length (config.jsonc), so GTK cuts it ("…") to the room left of the right section rather than push
-it: the power button can't move, whatever the right side does.
+While nothing plays (the audio graph's silent) the title may be long: visualizer.py writes 1 to
+waybar-wintitle.long and sends SIGUSR1 to the pids in $XDG_RUNTIME_DIR/waybar-wintitle/ (one copy per bar),
+and the whole title goes out. The module has max-length (config.jsonc), so GTK cuts it ("…") to the room
+left of the right section rather than push it: the power button can't move, whatever the right side does.
 """
-import json, os, re, signal, sys, time
+import json, os, re, signal, sys
 
-MAX = 22  # max width of the title, in characters (longer ones end in …)
+MAX = 13  # max width of the title while something plays, in characters (longer ones end in …)
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-LOAD_STATE = os.path.join(RUN, "loadwatch.json")
-CLOCK_STATE = os.path.join(RUN, "waybar-clock.json")
 PID_DIR = os.path.join(RUN, "waybar-wintitle")
-LONG_FILE = os.path.join(RUN, "waybar-wintitle.long")   # "1": the graph is hidden (visualizer.py)
+LONG_FILE = os.path.join(RUN, "waybar-wintitle.long")   # "1": nothing plays (visualizer.py)
 
 CLEANUP = [
     re.compile(r"^[^\w(]+\s+"),                      # spinner / status glyphs: "✳ Claude Code"
@@ -54,23 +46,8 @@ def focused():
     return next((c for c in recent if not c["class"].startswith(POPUPS) and c["workspace"]["id"] == ws), {})
 
 
-def room():
-    """Characters the title gives up: the busy-CPU warning's while it shows (its text, 11px, a little
-    narrower than the title's characters, and its padding), and what the clock's long view adds to the
-    short one ("Wednesday  14 Oct  wk 42" for "Wed 14 Oct": the day's full name and the week)."""
-    try:
-        text = json.load(open(LOAD_STATE)).get("text", "")
-    except (OSError, ValueError):
-        text = ""
-    try:
-        long = json.load(open(CLOCK_STATE)).get("long")
-    except (OSError, ValueError):
-        long = False
-    return (len(text) + 1 if text else 0) + (len(time.strftime("%A")) - 3 + 1 + 7 if long else 0)
-
-
 def long_allowed():
-    """Whether the title may be long: the audio graph isn't drawn (visualizer.py)."""
+    """Whether the title may be long: nothing plays (visualizer.py)."""
     try:
         return open(LONG_FILE).read().strip() == "1"
     except OSError:
@@ -85,13 +62,9 @@ def title(long=None):
     t = win.get("title", "").strip()
     for rx in CLEANUP:
         t = rx.sub("", t)
-    # the warning and the clock's long view together can take more than MAX: no room is no title
-    # (a negative cut would slice from the end and keep nearly the whole title)
-    full, most = t, max(MAX - room(), 0)
-    if len(t) > most:
-        t = t[:most - 1].rstrip() + "…" if most > 1 else ""
-    if t and (long_allowed() if long is None else long):
-        t = full   # GTK cuts it to the room (max-length); an empty one stays hidden
+    full = t
+    if len(t) > MAX and not (long_allowed() if long is None else long):
+        t = t[:MAX - 1].rstrip() + "…"   # long, GTK cuts it to the room (max-length)
     return {"text": t, "tooltip": full if len(full) > MAX else "", "class": "empty" if not t else "window"}
 
 
@@ -121,9 +94,9 @@ def main():
             last = out
 
     os.makedirs(PID_DIR, exist_ok=True)
-    me = os.path.join(PID_DIR, str(os.getpid()))   # loadwatch signals by pid: a name match hits editors too
+    me = os.path.join(PID_DIR, str(os.getpid()))   # signalled by pid: a name match hits editors too
     open(me, "w").close()
-    signal.signal(signal.SIGUSR1, lambda *_: emit())   # the warning or the clock's long view: the title's room changed
+    signal.signal(signal.SIGUSR1, lambda *_: emit())   # something started or stopped playing
     signal.signal(signal.SIGTERM, lambda *_: (os.path.exists(me) and os.remove(me), os._exit(0)))
     follow(lambda events: concerns(events) and emit(), emit)
 

@@ -163,11 +163,11 @@ right click on it) switches its style, and the choice is kept:
   quick ripples), each as tall as its part of the sound is loud
 - **off**: nothing
 It's drawn exactly as wide as the gap, which it measures on the bar, so it follows the right side as
-that changes (a longer title, the play button, the clock's long view) and never moves or resizes
+that changes (the play button, the clock's long view) and never moves or resizes
 anything else (`scripts/visualizer.py`); when the gap gets too narrow for a proper graph (under 80 px) it
-hides until there's room again. Whenever the graph isn't drawn (silent, **off**, or too little room) the
-window title may run on into the gap (cut with … to the room there is; 22 characters otherwise). Nothing
-on the right ever moves for it. It costs nothing while silent (it doesn't follow the bar until
+hides until there's room again. While something plays the window title stays small: 13 characters,
+cut with … (the whole title is its tooltip); while nothing does it runs on into the gap (cut with … to the
+room there is). Nothing on the right ever moves for it. It costs nothing while silent (it doesn't follow the bar until
 something plays), ends cava on **off** (frozen, it held up all audio once the earbuds reconnected), and draws nothing under a fullscreen window.
 
 The stats start with the frame rate: `󰓅 60/60` is how smoothly *this* screen drew whatever moved

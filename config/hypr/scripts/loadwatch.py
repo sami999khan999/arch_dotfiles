@@ -9,7 +9,7 @@ HIDE_AFTER seconds: it hides. Click: the System panel's Apps tab (sysgui.py --ta
 
 The visualizer (waybar) fills the gap left of the right section, so it's told when the warning comes,
 goes or changes width: its text in $XDG_RUNTIME_DIR/loadwatch.json, SIGUSR1 to its pids, as toggle.sh
-does for the idle indicator. So is the window title (wintitle.py), which gives up the room it takes.
+does for the idle indicator.
 """
 import html, json, os, signal, sys, time
 
@@ -23,8 +23,7 @@ GLYPH = "\U000f035b"       # the cpu module's chip
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 STATE = os.path.join(RUN, "loadwatch.json")
 VISUALIZER = os.path.join(RUN, "waybar-visualizer")
-WINTITLE = os.path.join(RUN, "waybar-wintitle")
-MAX_NAME = 10   # the bar is full with a long title: the title gives up this much (wintitle.py)
+MAX_NAME = 10   # characters of the source's name (longer ones end in …)
 
 
 def busy_ticks():
@@ -42,12 +41,11 @@ def emit(out, moved=True):
             json.dump({"text": out["text"]}, f, ensure_ascii=False)
     except OSError:
         pass
-    for folder in (WINTITLE, VISUALIZER):   # the title makes room, then the visualizer recounts the gap
-        for pid in os.listdir(folder) if os.path.isdir(folder) else []:
-            try:
-                os.kill(int(pid), signal.SIGUSR1)
-            except (OSError, ValueError):
-                pass
+    for pid in os.listdir(VISUALIZER) if os.path.isdir(VISUALIZER) else []:   # it recounts the gap
+        try:
+            os.kill(int(pid), signal.SIGUSR1)
+        except (OSError, ValueError):
+            pass
 
 
 def leader(rows, named):

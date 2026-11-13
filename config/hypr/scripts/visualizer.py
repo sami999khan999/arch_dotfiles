@@ -31,9 +31,9 @@ indicators and the clock's view (short or long). cava always makes RAW_BARS; eac
 loudest of its share of them. SIGUSR1: recount now (clock.py and toggle.sh send it when the clock's
 view or an indicator changes).
 
-While the graph isn't drawn (silent, style off, or under MIN_ROOM_PX of room: a long title) the title
-may be long instead (TITLE_LONG, SIGUSR1 to wintitle.py), and GTK cuts it to the room it has
-(max-length): the gap is the title's, and the right section is never pushed.
+While nothing plays (silent, or style off: then it can't tell) the title may be long (TITLE_LONG, SIGUSR1 to
+wintitle.py), and GTK cuts it to the room it has (max-length): the gap is the title's, and the right
+section is never pushed. While something plays it stays short, the graph shown or not.
 
 It's the last module of the left section and may shrink (max-length; the bar has no centre
 section, see config.jsonc): GTK then shrinks it rather than push the right section, so the clock and
@@ -65,8 +65,8 @@ LOAD_STATE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "loadwatch.
 PADDING = 28          # px: this module's own left + right padding (style.css #custom-visualizer)
 GLYPH_PX = 8.0        # px: one block or braille character at 13 px (measured with Pango)
 MIN_GAP_PX = 1.0      # px: the least space between two bars ("bars", "mirror")
-MIN_ROOM_PX = 80      # px: with less room than this (a long title) the graph hides: a few bars squeezed
-                      # in reads as clutter, not as a graph. The title may be long instead (TITLE_LONG)
+MIN_ROOM_PX = 80      # px: with less room than this the graph hides: a few bars squeezed in reads as
+                      # clutter, not as a graph
 HAIR = " "       # hair space: exactly 1 px in this font (measured with Pango). The bars are
                       # spaced with these, not with Pango letter_spacing: a label with letter spacing
                       # gets its last character cut ("…") even when it has all the room it asked for
@@ -301,20 +301,18 @@ def _recount():
     s["covered"] = covered()
     if s["covered"]:   # nothing drawn meanwhile; its fullscreen>> event recounts once it's gone
         return
-    if not s["playing"] or s["style"] == "off":   # no graph: nothing to measure, the title may be long
+    set_long(not s["playing"] or s["style"] == "off")
+    if not s["playing"] or s["style"] == "off":   # no graph: nothing to measure
         s["shown"] = 0
-        set_long(True)
         return
     read_windows()   # the count and title the block's width is worked out from, as they are now
-    plain = wintitle.title(False)["text"]   # the title at its usual length: the gap is what's left of that
-    s["title"] = plain
-    measured = measured_gap(plain)
+    s["title"] = wintitle.title(False)["text"]
+    measured = measured_gap(s["title"])
     gap = measured if measured is not None else modelled_gap()
     s["measured"] = measured is not None
     room = gap - PADDING
     if room < MIN_ROOM_PX:
         room = 0   # n comes out 0: frames() hides the module until a recount finds room again
-    set_long(room == 0)   # no graph: the title may take the gap (GTK cuts it to fit)
     if s["style"] in ("bars", "mirror"):
         # n bars and the n - 1 spaces between them fill the room; none after the last bar, so both
         # ends of the block have the same padding. The px left after the bars are shared out over
@@ -339,7 +337,7 @@ def _recount():
 
 
 def set_long(on):
-    """Tell the title whether it may be long (wintitle.py): the graph has no use for the gap."""
+    """Tell the title whether it may be long (wintitle.py): nothing plays."""
     if on == state["long"]:
         return
     state["long"] = on

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# The login screen (noctalia-greeter under greetd): greetd's config (greetd.toml -> /etc/greetd) and
-# greetd as the display manager (instead of whatever a fresh install came with), then greeter.toml and
-# the desktop's current wallpaper into /var/lib/noctalia-greeter, owned by the greeter user, both in the
-# active colour theme (config/themes/active), and your picture for the login card (AccountsService).
+# The login screen (greetd): greetd's config (greetd.toml -> /etc/greetd) and greetd as the display manager
+# (instead of whatever a fresh install came with); our greeter, the lock screen's look (greeter.py), copied
+# root-owned to /usr/local/lib/dotfiles/greeter with what it reads (the wallpaper, the theme, the animation,
+# the clock format: it can't read your home); noctalia-greeter, its fallback and its compositor:
+# greeter.toml and the desktop's current wallpaper into /var/lib/noctalia-greeter, owned by the greeter user,
+# both in the active colour theme (config/themes/active); your picture for the login card (AccountsService).
 # greetd's PAM also unlocks the keyring at login.
-# Idempotent; run it again after changing greeter.toml, the wallpaper, the colour theme or ~/.face.
+# Idempotent; run it again after changing the greeter, the wallpaper, the colour theme, the lock screen's
+# animation, the clock format or ~/.face.
 # Takes effect at the next login screen.
 # Run with: pkexec /home/sami/dotfiles/system/greeter/install.sh
 set -euo pipefail
@@ -39,6 +42,38 @@ if ! grep -q pam_gnome_keyring "$PAM"; then
   echo "pam:       $PAM unlocks the keyring at login (old one: greetd.bak)"
 fi
 
+# our greeter: the lock screen's code and what it needs from the repo, laid out as in the repo so its paths work
+# the same (themelib finds config/themes three folders up), root-owned (the greeter user only reads it)
+APP=/usr/local/lib/dotfiles/greeter
+rm -rf "$APP"
+install -d "$APP/local/lib/lockscreen" "$APP/local/lib/theme" "$APP/config/themes"
+install -m644 "$REPO"/local/lib/lockscreen/*.py "$APP/local/lib/lockscreen/"
+install -m644 "$REPO/local/lib/theme/themelib.py" "$APP/local/lib/theme/"
+for t in "$REPO"/config/themes/*/theme.json; do
+  install -Dm644 "$t" "$APP/config/themes/$(basename "$(dirname "$t")")/theme.json"
+done
+install -m644 "$REPO/config/themes/active" "$APP/config/themes/active" 2>/dev/null || true
+install -m755 "$HERE/greeter" "$APP/greeter"
+install -m644 "$wall" "$APP/wallpaper"   # magick reads it whatever its type
+h24=true
+[[ "$(runuser -u "$user" -- gsettings get org.gnome.desktop.interface clock-format 2>/dev/null)" == "'12h'" ]] && h24=false
+python3 - "$APP" "$user" "$APP/wallpaper" "$h24" "$REPO/config/hypr/settings.json" <<'PY'
+import json, shlex, sys
+app, user, wall, h24, settings = sys.argv[1:]
+try:
+    anim = json.load(open(settings)).get("lockscreen", {}).get("animation", "ocean")
+except (OSError, ValueError):
+    anim = "ocean"
+desk = {}
+for line in open("/usr/share/wayland-sessions/hyprland-uwsm.desktop"):
+    k, _, v = line.strip().partition("=")
+    desk.setdefault(k, v)
+json.dump({"user": user, "session": shlex.split(desk["Exec"]), "desktop": desk.get("DesktopNames", "Hyprland"),
+           "wallpaper": wall, "animation": anim, "h24": h24 == "true"}, open(app + "/greeter.json", "w"), indent=2)
+PY
+python3 -m compileall -q "$APP/local/lib"     # it can't write its own __pycache__: compiled once, here
+echo "greeter:   $APP  (the lock screen's look; noctalia-greeter if it fails)"
+
 # the files are written in Tokyo Night's colours, like every file in the repo: the active theme swaps them
 recolor() {
   python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import themelib; sys.stdout.write(themelib.recolor(sys.stdin.read()))' \
@@ -50,7 +85,7 @@ install -d -o greeter -g greeter -m 0750 "$DEST"
 recolor < "$HERE/greeter.toml" > "$DEST/greeter.toml"
 chown greeter:greeter "$DEST/greeter.toml"
 chmod 0640 "$DEST/greeter.toml"
-echo "config:    $DEST/greeter.toml  (colours: $theme)"
+echo "fallback:  $DEST/greeter.toml  (noctalia-greeter; colours: $theme)"
 
 # blurred, under a light overlay of the theme's base colour and a vignette of it (the greeter can't blur by
 # itself): calm at the edges, the login card in focus. Shrink → blur → enlarge: looks like a big blur,

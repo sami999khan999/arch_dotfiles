@@ -146,7 +146,7 @@ Done. Log out and back in so Hyprland reloads.
 (Without --packages, install them with: ~/dotfiles/setup/install.sh --packages)
 
 Once on a new PC, to make it the same as the others (MANUAL.md "Bootstrap a new machine"):
-  pkexec ~/dotfiles/system/greeter/install.sh   login screen (greetd + noctalia-greeter)
+  pkexec ~/dotfiles/system/greeter/install.sh   login screen (greetd + the lock screen's look)
   pkexec ~/dotfiles/system/boot-splash.sh       loading screen at boot and shutdown
   pkexec ~/dotfiles/system/swap-setup.sh        SSD swapfile after zram
   pkexec ~/dotfiles/system/root-setup.sh        Chrome policy, LocalSend through the firewall, dev servers at normal priority + kept in RAM, snapshots listable + 10 kept, Docker closed to the network + its on/off switch, downloads over two networks, drive health + memory sticks for the bar (hwinfo), the data drive where it's attached

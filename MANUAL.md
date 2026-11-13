@@ -24,7 +24,7 @@ first PC), the same config, toolchains, coding agents and their agentmux hooks. 
 root or a choice, once per PC (`install.sh` prints the list at the end):
 
 ```bash
-pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + noctalia-greeter
+pkexec ~/dotfiles/system/greeter/install.sh   # login screen: greetd + the lock screen's look
 pkexec ~/dotfiles/system/boot-splash.sh       # loading screen instead of boot text
 pkexec ~/dotfiles/system/swap-setup.sh        # SSD swapfile after zram (the root btrfs)
 pkexec ~/dotfiles/system/root-setup.sh        # Chrome policies (Memory Saver; the download manager's extension); dev servers at normal priority and kept in RAM; LocalSend and Mirror through the firewall; snapshots listable, 10 kept; Docker closed to the network + its on/off switch; downloads over two networks at once; the data drive, where it's attached
@@ -51,7 +51,7 @@ packages out on a PC without an NVIDIA card. The XDG Projects folder (file manag
 | `local/share/` | `~/.local/share/` | assets — cursor theme, wallpapers, launcher overrides |
 | `icons/` | `~/.icons/` | legacy cursor stub (`default/index.theme`) |
 | `system/` | *manual, needs root* | `/etc` files — Chrome policies (Memory Saver at Maximum: idle tabs discarded, no memory or CPU, reload when you go back; localhost kept; nothing left running after the last window closes; its flags are `config/chrome-flags.conf`: one process per site), this PC's data-drive fstab line |
-| `system/greeter/` | *manual, needs root* | login screen (noctalia-greeter): the active colour theme, the desktop's wallpaper blurred with a vignette, your picture on the card (`~/.face`, else your initial); run it again after changing the theme, the wallpaper or `~/.face`; unlocks the keyring at login (its password must be the login password) — `pkexec ~/dotfiles/system/greeter/install.sh` |
+| `system/greeter/` | *manual, needs root* | login screen: our greeter, the lock screen's look (its animation, the card, the password field; see *Lock screen*), with noctalia-greeter as its fallback; the active colour theme, the desktop's wallpaper, your picture on the card (`~/.face`, else your initial); run it again after changing the theme, the wallpaper, the lock screen's animation, the clock format or `~/.face`; unlocks the keyring at login (its password must be the login password) — `pkexec ~/dotfiles/system/greeter/install.sh` |
 | `system/swap-setup.sh` | *manual, needs root* | 16 GB swapfile on the SSD (subvolume `@swap` at `/swap`, priority 10, after zram) so systemd-oomd doesn't kill VS Code when RAM fills — `pkexec ~/dotfiles/system/swap-setup.sh` |
 | `system/boot-splash.sh` | *manual, needs root* | boot and shutdown show the loading screen (Plymouth) instead of text: adds `quiet …` to GRUB's kernel command line — `pkexec ~/dotfiles/system/boot-splash.sh` |
 | `setup/` | — | `install.sh`, `setup-dev.sh`, package lists (`packages.txt`, `packages-aur.txt`), `vscode-extensions.txt` |
@@ -1151,12 +1151,15 @@ process started); it tells the visualizer, which makes room.
 animation drawn in characters over it (the night ocean or the aurora), and a frosted-glass card with the clock, the date (always in English) and the password field. Type the
 password and press `Enter` (or click the arrow); `Esc` clears it; `Ctrl + ←/→` switches the animation.
 
-- **The password field:** a padlock, the dots (spaced out, to count them), an eye that shows the
-  password as text (`Ctrl + H`), and an arrow that lights up once there's something to send and turns
-  into a spinner while PAM checks. With more than one keyboard layout, a badge shows the active one
-  (`US`, `DE`…). Under it: a hint, *Checking…*, *Caps Lock is on* (amber, the padlock too), or what went
-  wrong (red). A wrong password turns the field red, shakes it, and says how many tries faillock still
-  allows (*2 tries left*; then *Last try before a 10 min lockout*).
+- **Who:** your picture (or your initial) and name above the field.
+- **The password field:** a padlock, a square for each character (each pops in, lit blue for a
+  moment; the newest stay in view), an eye that shows the password as text (`Ctrl + H`), and an arrow
+  that fills blue once there's something to send. While it's checked, a blue line sweeps along the
+  field's foot. The field glows blue while you type, amber with Caps Lock on, red after a wrong password
+  (it shakes, and says how many tries faillock still allows: *2 tries left*; then *Last try before a
+  10 min lockout*), green when it's right (the padlock opens). With more than one keyboard layout, a
+  badge shows the active one (`US`, `DE`…). Under it: the keys (`Enter`, `Esc`, `Ctrl ←→` on key caps),
+  *Checking…*, *Caps Lock is on*, or what went wrong.
 - **The animation:** Settings → Idle & lock → *Animation* picks it: *Night ocean*, *Aurora*, or *A
   different one each time*. *Preview* locks for 8 seconds and unlocks by itself. On the lock screen,
   `Ctrl + ←` / `Ctrl + →` switches to the previous / next one, and that becomes the setting (unless
@@ -1172,7 +1175,15 @@ password and press `Enter` (or click the arrow); `Esc` clears it; `Ctrl + ←/�
   foot to violet at the top, rays shimmering, stars between them. A lake at the bottom mirrors it all,
   wavering. Each key makes the lights flare and ripples the lake. A wrong password turns them red for a
   moment.
-- **How it's drawn:** it's our own lock screen, `local/lib/lockscreen/locker.py`. It uses GTK4 and the
+- **The login screen** is the same: the animation, the card, the password field (*Log in*), with
+  suspend, restart and power off in the bottom-right corner. It's `greeter.py` beside the locker,
+  logging in through greetd, inside noctalia-greeter's compositor; `system/greeter/install.sh` copies it
+  root-owned to `/usr/local/lib/dotfiles/greeter` with what it can't read from your home (the wallpaper,
+  the theme, the animation from Settings, the clock format), so run that again after changing them
+  (`Ctrl + ←/→` there only switches for the moment). If it can't start or dies, noctalia-greeter
+  takes over (`system/greeter/greeter`).
+- **How it's drawn:** it's our own lock screen, `local/lib/lockscreen/locker.py`, drawing with `ui.py`
+  (shared with the login screen). It uses GTK4 and the
   Wayland session-lock protocol through gtk4-layer-shell, with PAM through hyprlock's service. NumPy
   draws the animation 30 times a second (`ocean.py`, `aurora.py`, sharing `cells.py`): every cell at
   once, a few ms a frame. The ocean's sky is redrawn only when the moon moves, twice a second. The GPU colours the characters and blurs them under

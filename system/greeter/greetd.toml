@@ -1,8 +1,9 @@
-# /etc/greetd/config.toml: greetd runs the noctalia-greeter login screen (system/greeter/install.sh
-# puts this in place and makes greetd the display manager).
+# /etc/greetd/config.toml: greetd runs the login screen — our greeter (system/greeter/greeter, the lock
+# screen's look) inside noctalia-greeter's compositor, noctalia-greeter itself if ours fails
+# (system/greeter/install.sh puts this in place and makes greetd the display manager).
 [terminal]
 vt = 1
 
 [default_session]
-command = "/usr/bin/noctalia-greeter-session"
+command = "env NOCTALIA_GREETER_BIN=/usr/local/lib/dotfiles/greeter/greeter /usr/bin/noctalia-greeter-session"
 user = "greeter"

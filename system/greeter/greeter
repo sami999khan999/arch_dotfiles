@@ -1,0 +1,7 @@
+#!/bin/sh
+# The login screen's program, run by noctalia-greeter's compositor (NOCTALIA_GREETER_BIN, greetd.toml): our
+# greeter (local/lib/lockscreen/greeter.py, the lock screen's look), from its root-owned copy beside this
+# file (system/greeter/install.sh). If it can't start or dies before logging in, noctalia-greeter takes over:
+# never a login screen that can't log in.
+python3 "$(dirname "$0")/local/lib/lockscreen/greeter.py" && exit 0
+exec /usr/bin/noctalia-greeter "$@"

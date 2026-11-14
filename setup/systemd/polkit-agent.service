@@ -1,0 +1,19 @@
+# The password prompt: polkit's authentication agent for the Hyprland session (local/lib/panels/polkitgui.py).
+# Linked into ~/.config/systemd/user by setup/install.sh, started by modules/autostart.lua. hyprpolkitagent is
+# the fallback: one agent per session, so they conflict, and it starts if this one fails for good.
+[Unit]
+Description=Password prompt (polkit agent, polkitgui.py)
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+Conflicts=hyprpolkitagent.service
+OnFailure=hyprpolkitagent.service
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/lib/panels/polkitgui.py
+Slice=session.slice
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5sec

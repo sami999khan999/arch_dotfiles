@@ -14,7 +14,8 @@ hl.on("hyprland.start", function ()
     hl.exec_cmd(launch .. "hypridle")
     hl.exec_cmd(launch .. "elephant")
     hl.exec_cmd(launch .. "walker --gapplication-service")
-    hl.exec_cmd("systemctl --user start hyprpolkitagent")
+    -- the password prompt (polkitgui.py); hyprpolkitagent if it fails
+    hl.exec_cmd("systemctl --user start polkit-agent.service")
     hl.exec_cmd("~/.config/hypr/scripts/wallpaper.sh restore")
     hl.exec_cmd("~/.config/hypr/scripts/toggle.sh nightlight auto quiet") -- on now if inside its schedule (Settings)
     -- gsettings (theme, cursor, fonts, clock) back in line with the repo: a new PC, or a change synced from the other one

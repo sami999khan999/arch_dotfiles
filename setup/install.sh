@@ -94,6 +94,9 @@ link_children "$REPO/local/lib" "$HOME/.local/lib"
 head_ "waybar  ->  one bar per screen (a drop-in for its systemd service)"
 link "$REPO/config/waybar/waybar.service.conf" "$HOME/.config/systemd/user/waybar.service.d/screens.conf"
 
+head_ "the password prompt (polkit agent, a user service)"
+link "$REPO/setup/systemd/polkit-agent.service" "$HOME/.config/systemd/user/polkit-agent.service"
+
 head_ "tmux panes (dev servers, agents) swapped out last (systemd drop-ins)"
 link "$REPO/setup/systemd/tmux-pane-memory.conf" "$HOME/.config/systemd/user/tmux-spawn-.scope.d/memory.conf"
 for slice in app app-graphical; do

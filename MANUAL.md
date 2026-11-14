@@ -128,8 +128,7 @@ The login screen takes the theme when you run `pkexec ~/dotfiles/system/greeter/
 installed as root, so `theme apply` can't change it).
 
 Not themed: Dolphin's own KDE colours (Files, the file manager, is) (`config/kdeglobals`: KDE has no include, and Settings writes
-that file), the polkit password prompt
-(`hypr/hyprtoolkit.conf`), lazydocker, wiremix, and VS Code (Settings Sync).
+that file), lazydocker, wiremix, and VS Code (Settings Sync).
 
 **The bar's tooltips** are our own cards, not GTK's: hover a module and a frosted card fades in
 under it. A header with the module's icon, its name in bold and a dimmed detail (the screen, the network),
@@ -675,6 +674,15 @@ workspace 7 too).
   app copied paste here. A name that's taken gets " (2)". A drive without a trash (NTFS, `/tmp`) asks
   before deleting for good. It remembers the last folder, the hidden-files choice and whether the details
   pane is open (`~/.local/state/files`).
+
+**The password prompt.** When something needs your password (pkexec, starting a system service, mounting
+a disk), a popup in the panels' look asks for it (`polkitgui.py`, polkit's agent, the user service
+`polkit-agent.service`): what wants it, the command pkexec will run, who to authenticate as when there's a
+choice, then the password, in the login screen's field (squares popping in, amber for Caps Lock, a sweep while
+it's checked, red and a shake when wrong, green when right). Enter or the arrow authenticates, Ctrl + H shows the
+password, Esc or Cancel says no; a wrong password asks again. Details
+shows the polkit action. polkit's own helper checks the password; if the prompt can't start,
+hyprpolkitagent does the job instead (its prompt is styled by `hypr/hyprtoolkit.conf`).
 
 **The file picker.** The Open / Save dialogs apps show (a browser's upload and Save as, VS Code's Open
 Folder, GTK apps…) are Files windows too (`pickergui.py`): the same places, path, table and theme, the

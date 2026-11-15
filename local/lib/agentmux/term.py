@@ -218,7 +218,7 @@ KEYS = {"\x1b[A": "up", "\x1b[B": "down", "\x1b[C": "right", "\x1b[D": "left", "
         "\x1bOC": "right", "\x1bOD": "left", "\x1b[H": "home", "\x1b[F": "end", "\x1b[1~": "home", "\x1b[4~": "end",
         "\x1b[5~": "pgup", "\x1b[6~": "pgdn", "\x1b[3~": "delete", "\x1b[Z": "btab", "\x1b\r": "alt-enter",
         "\x1b[13;2u": "shift-enter", "\x1b[13;3u": "alt-enter", "\x1b[13;5u": "ctrl-enter", "\x1b[27;2;13~": "shift-enter",
-        "\x1b[I": "focus-in", "\x1b[O": "focus-out",
+        "\x1b[1;2A": "shift-up", "\x1b[1;2B": "shift-down", "\x1b[I": "focus-in", "\x1b[O": "focus-out",
         "\r": "enter", "\n": "ctrl-j", "\t": "tab", "\x7f": "backspace", "\x08": "backspace", "\x15": "ctrl-u",
         "\x17": "ctrl-w", "\x03": "ctrl-c", "\x1b": "esc"}
 MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
@@ -227,7 +227,7 @@ CSI = re.compile(r"\x1b(\[[0-9;<?]*[ -/]*[@-~]|O.|.)?")
 
 class App:
     """Subclass: render(w, h) -> [Line], key(k) with k a name from KEYS, a printable character,
-    ("click", x, y), ("wheel", ±1, x, y) or (motion = True) ("hover", x, y). self.cursor = (y, x) shows the text cursor there.
+    ("click", x, y), ("release", x, y), ("wheel", ±1, x, y) or (motion = True) ("hover", x, y), ("drag", x, y). self.cursor = (y, x) shows the text cursor there.
     self.watch(fd, callback) adds a file descriptor to wait on; self.quit = True ends run()."""
     cursor = None
     motion = False   # True: pointer moves arrive as ("hover", x, y) too (any-event mouse mode)
@@ -284,6 +284,10 @@ class App:
                     keys.append(("wheel", -1 if b == 64 else 1, x, y))
                 elif b == 0 and kind == "M":
                     keys.append(("click", x, y))
+                elif b == 0:   # the left button let go (after a click, or a drag)
+                    keys.append(("release", x, y))
+                elif b == 32:   # the pointer moved with the left button held (motion = True)
+                    keys.append(("drag", x, y))
                 elif b == 35:   # the pointer moved, no button (motion = True)
                     keys.append(("hover", x, y))
                 i = m.end()

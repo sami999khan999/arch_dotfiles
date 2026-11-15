@@ -19,7 +19,7 @@ DEFAULT_OPTS = {o: d for o, _, _, d in lib.OPTIONS}
 # the shortcuts page, in groups: (heading, action ids)
 GROUPS = [
     ("Focus", ["focus-projects", "focus-threads", "focus-thread", "focus-terminals", "focus-next"]),
-    ("Threads & projects", ["new-thread", "next-thread", "previous-thread", "close-thread", "open-project"]),
+    ("Threads & projects", ["new-thread", "next-thread", "previous-thread", "move-up", "move-down", "close-thread", "open-project"]),
     ("Terminals", ["new-terminal", "split-terminal", "next-terminal", "previous-terminal", "close-terminal"]),
     ("Columns", ["toggle-projects", "toggle-threads", "toggle-terminals", "maximize", "resize-left", "resize-right"]),
     ("agentmux", ["settings", "reload", "help"]),

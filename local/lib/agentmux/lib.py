@@ -190,8 +190,30 @@ def threads():
         for k in ("attached", "created", "activity"):
             t[k] = int(t[k] or 0)
         rows.append(t)
-    rows.sort(key=lambda t: t["created"])
-    return rows
+    return ordered(rows)
+
+
+def ordered(ts, state=None):
+    """Threads in the Threads list's order: the ones moved by hand (state "thread_order", Shift+↑↓ or a
+    drag in the sidebar) in their places, the rest after them, oldest first (a new one goes last)."""
+    at = {n: i for i, n in enumerate((state or load_state()).get("thread_order", []))}
+    return sorted(ts, key=lambda t: (at.get(t["name"], len(at)), t["created"]))
+
+
+def move_item(key, among, item, to, keep=None):
+    """Moves item to place `to` of `among` (a list as the sidebar shows it, which state[key] orders:
+    "order" for projects, "thread_order" for threads) and saves the new order. Only among's places
+    in the whole list change (another project's threads keep theirs); keep: the names still alive
+    (the rest are dropped, so closed threads don't pile up)."""
+    s = load_state()
+    full = [x for x in dict.fromkeys(s.get(key, [])) if keep is None or x in keep]
+    full += [x for x in among if x not in full]
+    seq = [x for x in among if x != item]
+    seq.insert(max(0, min(to, len(seq))), item)
+    slots = [i for i, x in enumerate(full) if x in among]   # among's places, in the order shown
+    for i, x in zip(slots, seq):
+        full[i] = x
+    update_state(**{key: full})
 
 
 def subagents_of(t):
@@ -299,6 +321,8 @@ ACTIONS = [
     ("split-terminal", "Split terminal", "split-term", "C-M-d"),
     ("next-thread", "Next thread (Projects focused: next project)", "next-thread 1", "C-Tab"),
     ("previous-thread", "Previous thread (Projects focused: previous project)", "next-thread -1", "C-BTab"),
+    ("move-up", "Move up the list (the selected row in a sidebar, else the shown thread)", "move -1", "M-S-Up"),
+    ("move-down", "Move down the list (the selected row in a sidebar, else the shown thread)", "move 1", "M-S-Down"),
     ("next-terminal", "Next terminal", "next-term 1", "C-M-Down"),
     ("previous-terminal", "Previous terminal", "next-term -1", "C-M-Up"),
     ("close-terminal", "Close terminal", "close-term", "C-M-w"),

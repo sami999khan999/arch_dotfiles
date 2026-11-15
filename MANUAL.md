@@ -1409,6 +1409,10 @@ shells). Drag the borders (or `Ctrl+Alt+←→`) to resize; widths are remembere
 - **The Projects list** shows what you opened, what has a thread and what's open in VS Code, in a
   fixed order: each project keeps the place it first got (a new one goes last), so nothing
   moves as threads and VS Code windows come and go (`order` in `state.json`).
+- **Reorder projects and threads** by dragging a row up or down its list, or with **`Alt+Shift+↑↓`**
+  (remappable): with a sidebar focused it moves the selected row, anywhere else the shown thread
+  (`Shift+↑↓` / `K` `J` also work while a sidebar has the keyboard). The order is kept (`order` / `thread_order` in `state.json`) and is the one
+  `Ctrl+Tab` and the home screen go by; a new thread goes last.
 - **Picking a project** (`Ctrl+Alt+O`, or `+ Open project`) is a folder browser. The first time (agentmux
   opens it by itself) it asks for your projects folder, the **root**, and remembers it
   (`~/.local/state/agentmux/state.json`); after that it opens there. `→` or a click goes into a folder,

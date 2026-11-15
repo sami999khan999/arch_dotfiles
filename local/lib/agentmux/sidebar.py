@@ -13,6 +13,8 @@
 #        row: y / ↵ / the red button closes, n / Esc / a click elsewhere cancels)
 #        projects: o open project     threads: n new · ↵ on a ⚠ row adopts it · r rescan the VS Code kittys
 #        c or the header's ‹: collapse to a strip of the rows' icons (› or c again: back to its width)
+#        Shift+↑↓ / K J, Alt+Shift+↑↓ (agentmux move) or a drag: move the project / thread up or down the list (the order is kept:
+#        state "order" / "thread_order")
 import os, subprocess, sys, textwrap, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -95,6 +97,7 @@ class Sidebar(App):
         self.ask_at, self.buttons_at, self.button_y, self.button_x = set(), None, None, None   # the open question's lines
         self.close_ys = {}    # screen row -> the row whose × is drawn there (the selected and the hovered one)
         self.hover = None     # the row under the pointer
+        self.drag = None      # (the item held, the pointer's last row on screen) while a row is dragged
         self.last_state = {}  # thread -> its state on the previous update (to see work finish)
         self.cpu = {}         # thread -> (pct, busiest command, (usec, time) of the reading)
         self.working = False  # a thread of the shown project is working (its CPU is followed)
@@ -277,7 +280,7 @@ class Sidebar(App):
             else:
                 shown = state.get("threads", {}).get(project, "")
                 sessions = state.get("sessions", {})
-                mine = [t for t in self.threads if t["project"] == project and lib.runs_agent(t)]
+                mine = lib.ordered([t for t in self.threads if t["project"] == project and lib.runs_agent(t)], state)
                 self.cpu = {k: v for k, v in self.cpu.items() if k in {t["name"] for t in mine}}
                 self.working = any(look(t) == "working" for t in mine)
                 for t in mine:
@@ -565,8 +568,8 @@ class Sidebar(App):
             subprocess.Popen([AGENTMUX, "show", name])
 
     def key(self, k):
-        if self.confirm and isinstance(k, tuple) and k[0] in ("hover", "wheel"):
-            self.still = k[0] == "hover"   # moving the pointer leaves the question open
+        if self.confirm and isinstance(k, tuple) and k[0] in ("hover", "wheel", "drag", "release"):
+            self.still = k[0] != "wheel"   # moving the pointer (or letting go of the ×) leaves the question open
             return
         if self.confirm:   # y / Enter / the red button: do it; anything else (n, Esc, a click away) cancels
             fn, self.confirm = self.confirm["fn"], None
@@ -605,7 +608,15 @@ class Sidebar(App):
             i = self.ys.get(k[2])
             if i is not None:
                 self.sel = i
+                if self.movable(self.rows[i].action):   # held and moved: a drag (drag_to)
+                    self.drag = (self.rows[i].action, k[2])
                 self.act(self.rows[i].action)
+        elif isinstance(k, tuple) and k[0] == "drag":
+            self.drag_to(k[2])
+        elif isinstance(k, tuple) and k[0] == "release":
+            self.still, self.drag = self.drag is None, None
+        elif k in ("shift-up", "shift-down", "K", "J"):
+            self.shift(sel, -1 if k in ("shift-up", "K") else 1)
         elif isinstance(k, tuple) and k[0] == "wheel":   # scrolls the view; the highlight stays put
             self.scroll += 3 * k[1]
             self.free = True
@@ -618,6 +629,56 @@ class Sidebar(App):
         elif self.role == "agents" and k == "r":
             self.scan_unshared(force=True)
             self.msg = "rescanned"
+
+    # ---- moving a project / thread up or down the list ----
+    @staticmethod
+    def movable(action):
+        return bool(action) and action[0] in ("project", "show")
+
+    def shift(self, action, d):
+        """Shift+↑↓: the selected project / thread one place up or down."""
+        if not self.movable(action):
+            return
+        among = [r.action for r in self.rows if r.action and r.action[0] == action[0]]
+        to = among.index(action) + d
+        if 0 <= to < len(among):
+            self.place(action, to, among)
+
+    def drag_to(self, y):
+        """The held row follows the pointer: over another of its kind, it takes that one's place. Only
+        toward where the pointer is going (rows of different heights swapped back and forth otherwise)."""
+        if not self.drag:
+            self.still = True
+            return
+        action, last = self.drag
+        self.drag = (action, y)
+        i = self.ys.get(y)
+        among = [r.action for r in self.rows if r.action and r.action[0] == action[0]]
+        target = self.rows[i].action if i is not None else None
+        if target not in among or target == action or action not in among:
+            self.still = True
+            return
+        to, at = among.index(target), among.index(action)
+        if (to > at) == (y > last):
+            self.place(action, to, among)
+        else:
+            self.still = True
+
+    def place(self, action, to, among):
+        """Saves the list with action moved to place `to`; the home screen's thread list follows."""
+        names = [a[1] for a in among]
+        if action[0] == "project":
+            lib.move_item("order", names, action[1], to)
+        else:
+            lib.move_item("thread_order", names, action[1], to, keep={t["name"] for t in self.threads})
+            pid = lib.app("show-option", "-gqv", "@pid_home")[1].strip()
+            if pid.isdigit():
+                try:
+                    os.kill(int(pid), 10)
+                except OSError:
+                    pass
+        self.sel = next((n for n, r in enumerate(self.rows) if r.action == action), self.sel)
+        self.free = False
 
     def ask_close(self, sel, row=None):
         """x or the ×: close the selected project or thread, once confirmed. The question says what
@@ -651,7 +712,13 @@ class Sidebar(App):
 
     def on_signal(self):
         """agentmux close-thread (Ctrl+Alt+X, remappable) asks a sidebar to close something: the
-        selected row, or a given thread (state "ask"). Only the sidebar it names acts on it."""
+        selected row, or a given thread (state "ask"); agentmux move (Alt+Shift+↑↓) to move the selected
+        row (state "move"). Only the sidebar it names acts on it."""
+        mv = lib.load_state().get("move")
+        if mv and mv.get("role") == self.role:
+            lib.update_state(move=None)
+            self.build()
+            self.shift(self.rows[self.sel].action if self.rows else None, mv.get("step", 1))
         ask = lib.load_state().get("ask")
         if not ask or ask.get("role") != self.role:
             return

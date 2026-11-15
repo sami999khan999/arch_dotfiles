@@ -16,6 +16,8 @@
   agentmux next-term [1|-1]    show the next / previous terminal
   agentmux next-thread [1|-1]  show the project's next / previous thread, as the Threads list has them (Ctrl+Tab);
                                with Projects focused, the next / previous project
+  agentmux move [1|-1]         move the focused sidebar's selected row, else the shown thread, down / up its
+                               list (Alt+Shift+↑↓); the order is kept
   agentmux thread <n>          show the project's nth thread (Ctrl+1 … Ctrl+9); with Projects focused, the nth project
   agentmux collapse-list collapse|expand
                                the terminal list down to its icons, or back to its width
@@ -888,6 +890,21 @@ def close_term(target=None):
     lib.agents("kill-pane", "-t", target)
     if panes > 2:   # the splits left share the height again
         lib.agents("select-layout", "-t", window, "even-vertical")
+
+
+def move(step):
+    """Alt+Shift+↑↓ (remappable): with a sidebar focused, its selected row moves (state "move", then a
+    poke: the sidebar knows what's selected); else the shown thread moves in the Threads list."""
+    role = focused_role()
+    if role in ("projects", "agents"):
+        lib.update_state(move={"role": role, "step": step})
+        return poke()
+    items, current = project_threads()
+    if current not in items:
+        return msg("No thread to move")
+    lib.move_item("thread_order", items, current, items.index(current) + step,
+                  keep={t["name"] for t in lib.threads()})
+    poke()
 
 
 def close_thread():
@@ -1862,6 +1879,7 @@ def main(argv):
                                          pfile[0] if pfile else None, acct[0] if acct else None),
         "open": lambda: popup("project"), "first-run": first_run, "new": new_from_desktop,
         "next-thread": lambda: next_thread(int(args[0]) if args else 1), "thread": lambda: nth_thread(int(args[0])),
+        "move": lambda: move(int(args[0]) if args else 1),
         "term": term, "split-term": lambda: split_term(args[0] if args else None), "next-term": lambda: next_term(int(args[0]) if args else 1),
         "close-term": lambda: close_term(args[0] if args else None), "terms-closed": lambda: terms_closed(args[0]),
         "close-thread": close_thread, "collapse-list": lambda: collapse_list(args[0] if args else "collapse"),

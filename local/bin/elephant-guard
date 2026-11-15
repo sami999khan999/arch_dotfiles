@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+# elephant-guard — runs elephant (walker's backend; its clipboard provider keeps the history behind Super + V)
+# and restarts it when that provider deadlocks. Started at login by modules/autostart.lua, in elephant's place.
+#
+# Why: elephant 2.22's clipboard provider can freeze for good. A copy takes the history lock and then sends
+# on an unbuffered channel to the saver, while the saver (its 5 s timer just fired) is waiting for that same
+# lock. Neither moves again: every clipboard query hangs, so the panel and walker show an empty clipboard, and
+# nothing is recorded any more. Upstream is on hold, and a patched plugin would have to match elephant's
+# exact build, so the fix is here instead: shortly after each copy (the only moment it can freeze), ask for
+# one clipboard item; if that doesn't answer, twice, restart elephant. The history is on disk
+# (~/.cache/elephant/clipboard.gob), so a restart loses nothing it had saved.
+# One small query per copy, nothing at all while idle. Restarts go to the journal (journalctl -t elephant-guard).
+import os, select, signal, subprocess, sys, syslog, time
+
+SETTLE = 2          # seconds after a copy before probing: elephant has taken it in by then (or frozen on it)
+PROBE_TIMEOUT = 3   # a healthy query takes a few ms
+
+syslog.openlog("elephant-guard")
+
+
+def start():
+    # its own process group, so a restart also takes its wl-paste watcher with it
+    return subprocess.Popen(["elephant"], start_new_session=True,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def stop(proc):
+    for sig, wait in ((signal.SIGTERM, 3), (signal.SIGKILL, 3)):
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(wait)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def answers():
+    for _ in range(2):
+        try:
+            subprocess.run(["elephant", "query", "--json", "clipboard;;1;false"], timeout=PROBE_TIMEOUT,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except subprocess.TimeoutExpired:
+            pass
+    return False
+
+
+def main():
+    proc = start()
+    signal.signal(signal.SIGTERM, lambda *_: (stop(proc), sys.exit(0)))
+    signal.signal(signal.SIGHUP, lambda *_: (stop(proc), sys.exit(0)))
+    watch = subprocess.Popen(["wl-paste", "--watch", "echo"], stdout=subprocess.PIPE)
+    exited = os.pidfd_open(proc.pid)
+    probe_at = None
+    while True:
+        wait = None if probe_at is None else max(0, probe_at - time.monotonic())
+        ready, _, _ = select.select([watch.stdout, exited], [], [], wait)
+        if watch.stdout in ready:
+            if not watch.stdout.readline():   # the compositor is gone: the session is ending
+                stop(proc)
+                return
+            probe_at = time.monotonic() + SETTLE
+            continue
+        if exited in ready:
+            syslog.syslog(f"elephant exited ({proc.wait()}), starting it again")
+            time.sleep(1)                     # no tight loop if it can't start at all
+        elif probe_at is not None:
+            probe_at = None
+            if answers():
+                continue
+            syslog.syslog("elephant's clipboard stopped answering (deadlocked), restarting it")
+            stop(proc)
+        else:
+            continue
+        os.close(exited)
+        proc = start()
+        exited = os.pidfd_open(proc.pid)
+
+
+if __name__ == "__main__":
+    main()

@@ -1220,7 +1220,9 @@ and signals the bell (waybar signal 10). Nothing polls.
 `Super + V` opens the clipboard history (`clipgui.py`); `Super + Ctrl + V` is walker's quick list of the same
 history (`Ctrl+P` pins, `Ctrl+D` deletes there too). The history is elephant's clipboard provider
 (`~/.cache/elephant/clipboard.gob`, images in `clipboardimages/`); `config/elephant/clipboard.toml` keeps pinned
-items on top.
+items on top. Elephant runs under `elephant-guard`: its clipboard provider can freeze (a copy landing just as
+it saves), after which the history looks empty and records nothing; the guard asks it for one item shortly
+after each copy and restarts it if it doesn't answer (`journalctl -t elephant-guard` lists the restarts).
 
 - Tabs on the left: All, Pinned, Text, Images, Links, with counts (`Ctrl+1…5`, `Ctrl+Tab`). Typing searches
   the text of the whole history; the list draws the newest 300 of what matches.

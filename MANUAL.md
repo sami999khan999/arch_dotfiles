@@ -140,14 +140,22 @@ moves anything under the pointer; it opens at its own size again next time.
 
 Setups, System agent, Shortcuts, Settings, Bluetooth, network and volume share one icon (sliders,
 `group/hub`): hover or click it for a menu of them in two parts: **Open** (the panels, with their
-keys) and **Status** (Bluetooth, the network, the volume with a level meter), each row's icon in a tile
+keys) and **Status** (Bluetooth, the network, the volume with a slider: click or drag it), each row's icon in a tile
 that lights up under the pointer. Clicking a row does what clicking its icon did; right-click
 and scroll too (mute, volume ±5). The modules still run, off the bar, so the menu is always current.
 
 The pointer can move onto a card and it stays; it fades out once the pointer
 is off both the card and its module. The clock's card is a month calendar: ISO weeks, today in a blue square, the
 days around the month dimmed; scroll over the clock or its card for the previous / next month (it starts at this
-month every time). It's a small plugin inside waybar (`config/waybar/bartips/bartips.c`, a `cffi`
+month every time). The player's card (the play / pause icon, shown while something plays) is a remote: the
+cover, the title and artist, a seek bar (a knob under the pointer: click or drag it to seek) with the time, and
+previous / play-pause / next buttons. Previous goes back to the start once past 3 s, or when the player has no
+previous track; next is dimmed when there is none. On YouTube, next / previous are YouTube's own next video
+(the playlist's, or Up next) and the playlist's previous, else the video before: Chrome offers them to the desktop
+because the Desktop Companion extension sets them in the page (`downloads/chrome/youtube.js`), so the media keys
+work there too. Scroll over the card (or the icon) for
+the next / previous track; it reads the position once a second only while it's open (`bartips/media.c`, over
+MPRIS). It's a small plugin inside waybar (`config/waybar/bartips/bartips.c`, a `cffi`
 module), compiled by `scripts/waybars.py` when its source changes (`systemctl --user restart waybar`);
 its colours are in waybar's `style.css` (`.bartip-*`), so the colour themes reach it.
 
@@ -904,6 +912,9 @@ pasted (`Ctrl+V`) or typed at the top is downloaded too (`downloads add <url>…
 - **Background tabs stay dormant:** the same extension discards a tab opened in the background (a Setups
   restore, a saved tab group, Chrome's own restore, a link opened in a new tab) as soon as its address is known:
   no page runs until you go to it, then Chrome loads it. Until then it shows its address, not its title or icon.
+- **YouTube's next / previous for the desktop:** it also gives YouTube pages the Media Session's next / previous
+  (`youtube.js`, where YouTube leaves them empty), so the bar's player card, its scroll and the media keys go to
+  the next video or the one before.
 - **Setup:** `downloads enable` (run by `setup/install.sh`) starts `downloads.service`, packs the extension
   with this PC's own key (`~/.local/share/downloads/chrome`, never in the repo) and registers the native
   host. `system/root-setup.sh` then force-installs the extension by Chrome policy, from the service on

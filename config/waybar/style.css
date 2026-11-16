@@ -432,15 +432,8 @@ window.bartip {
   color: @text;
   font-weight: bold;
 }
-.bartip-meter trough {
-  min-height: 3px;
-  min-width: 120px;
-  margin-top: 3px;
-  background: @overlay;
-}
-.bartip-meter progress {
-  min-height: 3px;
-  background: @accent;
+.bartip-slider {   /* the volume (and the player's seek bar): drawn in bartips.c, a knob under the pointer */
+  margin-top: 1px;
 }
 
 /* the rich cards (cards.c: storage, memory, GPU): sections, meters, drawings; text in a named colour */
@@ -462,6 +455,31 @@ window.bartip {
 .c-accent { color: @accent; }
 .c-muted { color: @muted; }
 .c-subtext { color: @subtext; }
+
+/* the player's card (bartips/media.c): cover, title, a seek bar (click or drag), the buttons as tiles */
+.bartip-media {
+  min-width: 300px;
+}
+.bartip-cover {
+  border: 1px solid alpha(@line, 0.7);
+}
+.bartip-seek {   /* drawn in media.c (line, accent, text); the knob shows under the pointer */
+  margin-top: 4px;
+}
+.bartip-time {
+  color: @muted;
+  font-size: 11px;
+}
+.bartip-btn.main .bartip-tile {
+  color: @text;
+}
+.bartip-btn:hover .bartip-tile {
+  background: @accent;
+  color: @base;
+}
+.bartip-btn.off .bartip-tile {
+  color: alpha(@muted, 0.5);
+}
 
 /* the clock's calendar */
 .bartip-away {

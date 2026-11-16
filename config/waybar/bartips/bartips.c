@@ -20,6 +20,7 @@
  * taken off the bar into an offscreen window, where waybar keeps updating them, and its card is a menu
  * of them (their icon, tooltip title, state and keys), opened by hovering or clicking the icon. A row
  * hands its click / right-click / scroll to its module, so it does exactly what that icon did.
+ * The player (#mpris) has its own card: cover, title, a seek bar and buttons (media.c).
  * A tooltip that is JSON ({"bartip": 1, "blocks": […]}) is a rich card: meters, a memory stick, a GPU
  * die, tables (cards.c; the scripts storage.py, memory.py, gpu.py make them).
  * Colours and sizes are in style.css (.bartip-*), so the colour themes reach it too.
@@ -44,7 +45,7 @@ static GtkWidget *popup, *card;
 static GtkWidget *anchor;    /* the module's event box under the pointer (weak) */
 static GtkWidget *source;    /* the widget whose tooltip the card shows (weak) */
 static gulong source_notify;
-enum { TIP, CLOCK, HUB };
+enum { TIP, CLOCK, HUB, MEDIA };
 static int kind;             /* what the card shows */
 static gboolean clicked;
 static GtkWidget *holder;    /* the hub's modules, off the bar: realized and updating, never shown */
@@ -53,6 +54,7 @@ static int month_offset;
 static double scroll_sum;
 static guint show_timer, hide_timer;
 static gint64 hidden_at;
+static gboolean on_card;     /* the pointer is on the card */
 static GtkWidget *kept_for;  /* the module whose card's size is being kept (weak) */
 static int keep_w, keep_h;   /* its largest size so far: a live card grows but never shrinks */
 static GRegex *row_re, *hint_re, *keys_re, *kv_re, *space_re, *pct_re;
@@ -422,6 +424,106 @@ static void build_calendar(void) {
     add_footer(card, "Scroll: month · Click: long date");
 }
 
+/* ---- a slider: the player's seek bar, the hub's volume ----------------------------------------- */
+
+/* A line filled to its value, with a knob under the pointer and while dragged; click or drag it. fn hears
+   each move (done FALSE) and the release (done TRUE). While one is held the card isn't rebuilt under it. */
+typedef void (*SlideFn)(GtkWidget *s, double f, gboolean done);
+typedef struct { double value; gboolean can, hover, held; SlideFn fn; } Slide;
+static gboolean slider_held;
+
+#define KNOB 10   /* px: the knob's square; the line is 4 px */
+
+static gboolean slider_draw(GtkWidget *w, cairo_t *cr, gpointer d) {
+    Slide *sl = d;
+    int W = gtk_widget_get_allocated_width(w), H = gtk_widget_get_allocated_height(w);
+    int x0 = KNOB / 2, span = MAX(1, W - KNOB);   /* the knob stays inside at both ends */
+    double mid = H / 2.0, f = CLAMP(sl->value, 0, 1);
+    gboolean active = sl->can && (sl->hover || sl->held);
+    set_colour(cr, w, active ? "line" : "overlay", 1);
+    cairo_rectangle(cr, x0, mid - 2, span, 4);
+    cairo_fill(cr);
+    set_colour(cr, w, "accent", 1);
+    cairo_rectangle(cr, x0, mid - 2, f * span, 4);
+    cairo_fill(cr);
+    if (active) {
+        set_colour(cr, w, "text", 1);
+        cairo_rectangle(cr, x0 + f * span - KNOB / 2.0, mid - KNOB / 2.0, KNOB, KNOB);
+        cairo_fill(cr);
+    }
+    return TRUE;
+}
+
+static void slider_to(GtkWidget *w, Slide *sl, double x, gboolean done) {
+    sl->value = CLAMP((x - KNOB / 2.0) / MAX(1, gtk_widget_get_allocated_width(w) - KNOB), 0, 1);
+    gtk_widget_queue_draw(w);
+    sl->fn(w, sl->value, done);
+}
+
+static gboolean slider_press(GtkWidget *w, GdkEventButton *e, gpointer d) {
+    Slide *sl = d;
+    if (e->button != 1 || !sl->can) return FALSE;
+    sl->held = slider_held = TRUE;
+    slider_to(w, sl, e->x, FALSE);
+    return TRUE;
+}
+
+static gboolean slider_motion(GtkWidget *w, GdkEventMotion *e, gpointer d) {
+    Slide *sl = d;
+    if (sl->held) slider_to(w, sl, e->x, FALSE);   /* the press's grab keeps it coming, off the line too */
+    return sl->held;
+}
+
+static gboolean slider_release(GtkWidget *w, GdkEventButton *e, gpointer d) {
+    Slide *sl = d;
+    if (e->button != 1 || !sl->held) return FALSE;
+    sl->held = slider_held = FALSE;
+    slider_to(w, sl, e->x, TRUE);
+    return TRUE;
+}
+
+static gboolean slider_cross(GtkWidget *w, GdkEventCrossing *e, gpointer d) {
+    ((Slide *)d)->hover = e->type == GDK_ENTER_NOTIFY;
+    gtk_widget_queue_draw(w);
+    return FALSE;
+}
+
+static GtkWidget *slider(double value, gboolean can, SlideFn fn) {
+    Slide *sl = g_new0(Slide, 1);
+    sl->value = value; sl->can = can; sl->fn = fn;
+    GtkWidget *w = gtk_drawing_area_new();
+    g_object_set_data_full(G_OBJECT(w), "slide", sl, g_free);
+    gtk_widget_set_size_request(w, 120, 16);   /* taller than its line: easy to hit */
+    add_class(w, "bartip-slider");
+    gtk_widget_add_events(w, GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_POINTER_MOTION_MASK |
+                             GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+    g_signal_connect(w, "draw", G_CALLBACK(slider_draw), sl);
+    g_signal_connect(w, "button-press-event", G_CALLBACK(slider_press), sl);
+    g_signal_connect(w, "motion-notify-event", G_CALLBACK(slider_motion), sl);
+    g_signal_connect(w, "button-release-event", G_CALLBACK(slider_release), sl);
+    g_signal_connect(w, "enter-notify-event", G_CALLBACK(slider_cross), sl);
+    g_signal_connect(w, "leave-notify-event", G_CALLBACK(slider_cross), sl);
+    return w;
+}
+
+static void slider_set(GtkWidget *w, double value) {   /* from outside; not while it's held */
+    Slide *sl = g_object_get_data(G_OBJECT(w), "slide");
+    if (sl->held) return;
+    sl->value = value;
+    gtk_widget_queue_draw(w);
+}
+
+/* the hub's volume: pamixer, as the module's own scroll; once per whole percent while dragging */
+static void volume_moved(GtkWidget *s, double f, gboolean done) {
+    static int last = -1;
+    int pct = (int)lround(f * 100);
+    if (pct == last && !done) return;
+    last = done ? -1 : pct;
+    gchar *cmd = g_strdup_printf("pamixer --set-volume %d", pct);
+    g_spawn_command_line_async(cmd, NULL);
+    g_free(cmd);
+}
+
 /* ---- the hub ------------------------------------------------------------------------------------ */
 
 static void hide_card(void);
@@ -546,12 +648,8 @@ static GtkWidget *hub_row(GtkWidget *eb, gboolean *status) {
         if (sub_what) gtk_box_pack_start(GTK_BOX(s), text(sub_what, "bartip-sub"), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(words), s, FALSE, FALSE, 0);
     }
-    if (pct >= 0) {   /* the volume: how loud, as a meter */
-        GtkWidget *meter = gtk_progress_bar_new();
-        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(meter), CLAMP(pct, 0, 100) / 100.0);
-        add_class(meter, "bartip-meter");
-        gtk_box_pack_start(GTK_BOX(words), meter, FALSE, FALSE, 0);
-    }
+    if (pct >= 0)   /* the volume: how loud, as a slider (click or drag it) */
+        gtk_box_pack_start(GTK_BOX(words), slider(CLAMP(pct, 0, 100) / 100.0, TRUE, volume_moved), FALSE, FALSE, 0);
     gtk_widget_set_valign(words, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(line), words, TRUE, TRUE, 0);
     if (keys) {
@@ -593,7 +691,7 @@ static void build_hub(void) {
 }
 
 static void hub_changed(GObject *o, GParamSpec *p, gpointer d) {
-    if (popup && gtk_widget_get_visible(popup) && kind == HUB) rebuild();   /* the volume while scrolling */
+    if (popup && gtk_widget_get_visible(popup) && kind == HUB && !slider_held) rebuild();   /* the volume while scrolling */
 }
 
 static void watch(GtkWidget *w, gpointer d) {
@@ -640,6 +738,8 @@ static gboolean adopt(gpointer root) {
     return G_SOURCE_REMOVE;
 }
 
+#include "media.c"   /* the player's card (mpris): cover, seek bar, buttons */
+
 /* ---- the card ----------------------------------------------------------------------------------- */
 
 static void make_popup(void) {
@@ -669,6 +769,7 @@ static void hide_card(void) {
     if (hide_timer) { g_source_remove(hide_timer); hide_timer = 0; }
     if (popup && gtk_widget_get_visible(popup)) {
         gtk_widget_hide(popup);
+        on_card = FALSE;
         hidden_at = g_get_monotonic_time();
     }
 }
@@ -699,6 +800,7 @@ static void rebuild(void) {
     gtk_container_foreach(GTK_CONTAINER(card), (GtkCallback)gtk_widget_destroy, NULL);
     gtk_style_context_remove_class(gtk_widget_get_style_context(card), "bartip-hub");
     gtk_style_context_remove_class(gtk_widget_get_style_context(card), "bartip-rich");
+    gtk_style_context_remove_class(gtk_widget_get_style_context(card), "bartip-media");
     if (kind == CLOCK) {
         build_calendar();
     } else if (kind == HUB) {
@@ -706,11 +808,9 @@ static void rebuild(void) {
     } else {
         gchar *m = source ? gtk_widget_get_tooltip_markup(source) : NULL;
         if (!m || !*m) { g_free(m); hide_card(); return; }
-        if (!build_rich(m)) {
-            gchar *icon = module_icon(anchor);
-            build_tooltip(m, icon);
-            g_free(icon);
-        }
+        gchar *icon = module_icon(anchor);
+        if (!(kind == MEDIA && build_media(m)) && !build_rich(m)) build_tooltip(m, icon);
+        g_free(icon);
         g_free(m);
     }
     gtk_widget_show_all(card);
@@ -732,7 +832,7 @@ static void show_card(void) {
     if (!anchor) return;
     if (!popup) make_popup();
     rebuild();
-    if (anchor && (kind != TIP || source) && !gtk_widget_get_visible(popup)) {
+    if (anchor && ((kind != TIP && kind != MEDIA) || source) && !gtk_widget_get_visible(popup)) {
         gtk_widget_show_all(popup);
     }
 }
@@ -745,13 +845,18 @@ static gboolean show_due(gpointer d) {
 
 static gboolean hide_due(gpointer d) {
     hide_timer = 0;
+    if (on_card && popup && gtk_widget_get_visible(popup)) return G_SOURCE_REMOVE;   /* a module redrawn under it
+        (the player's icon as it pauses) sends a leave: the card stays while the pointer is on it */
     hide_card();
     g_clear_weak_pointer(&anchor);
     return G_SOURCE_REMOVE;
 }
 
 static void source_changed(GObject *o, GParamSpec *p, gpointer d) {
-    if (popup && gtk_widget_get_visible(popup) && kind == TIP) rebuild();   /* live: the volume while scrolling */
+    if (!popup || !gtk_widget_get_visible(popup)) return;
+    if (slider_held) return;   /* rebuilt once it's let go */
+    if (kind == TIP) rebuild();   /* live: the volume while scrolling */
+    else if (kind == MEDIA) media_update();   /* the same track updates in place, under the pointer */
 }
 
 static void set_source(GtkWidget *w) {
@@ -766,14 +871,16 @@ static void set_source(GtkWidget *w) {
 static gboolean on_enter(GSignalInvocationHint *h, guint n, const GValue *v, gpointer d) {
     GtkWidget *w = g_value_get_object(&v[0]);
     if (popup && w == popup) {   /* onto the card: keep it */
+        on_card = TRUE;
         if (hide_timer) { g_source_remove(hide_timer); hide_timer = 0; }
         return TRUE;
     }
     if (!on_bar(w)) return TRUE;
     stop_tooltips(gtk_widget_get_toplevel(w));   /* cheap, and catches tray icons added since */
-    int is = named(w, "custom-clock", TRUE) ? CLOCK : named(w, "custom-hub", TRUE) ? HUB : TIP;
-    GtkWidget *tip = is == TIP ? find_tip(w, TRUE) : NULL;
-    if (!tip && is == TIP) {   /* the bar's background, a module without a tooltip */
+    int is = named(w, "custom-clock", TRUE) ? CLOCK : named(w, "custom-hub", TRUE) ? HUB
+           : named(w, "mpris", TRUE) ? MEDIA : TIP;
+    GtkWidget *tip = is == TIP || is == MEDIA ? find_tip(w, TRUE) : NULL;
+    if (!tip && (is == TIP || is == MEDIA)) {   /* the bar's background, a module without a tooltip */
         if (!hide_timer) hide_timer = g_timeout_add(HIDE_DELAY, hide_due, NULL);
         return TRUE;
     }
@@ -799,6 +906,7 @@ static gboolean on_leave(GSignalInvocationHint *h, guint n, const GValue *v, gpo
     GdkEventCrossing *e = g_value_get_boxed(&v[1]);
     if (e->detail == GDK_NOTIFY_INFERIOR) return TRUE;   /* into a child: still over it */
     if (popup && w == popup) {   /* off the card: back to its module keeps it, anywhere else hides it */
+        on_card = FALSE;
         if (!hide_timer) hide_timer = g_timeout_add(HIDE_DELAY, hide_due, NULL);
         return TRUE;
     }
@@ -829,6 +937,17 @@ static gboolean on_press(GSignalInvocationHint *h, guint n, const GValue *v, gpo
 static gboolean on_scroll(GSignalInvocationHint *h, guint n, const GValue *v, gpointer d) {
     GtkWidget *w = g_value_get_object(&v[0]);
     GdkEventScroll *e = g_value_get_boxed(&v[1]);
+    if (w == popup && kind == MEDIA) {   /* the player's card: the icon's own scroll is waybar's */
+        int step = 0;
+        if (e->direction == GDK_SCROLL_UP) step = -1;
+        else if (e->direction == GDK_SCROLL_DOWN) step = 1;
+        else if (e->direction == GDK_SCROLL_SMOOTH) {
+            scroll_sum += e->delta_y;
+            if (scroll_sum <= -1 || scroll_sum >= 1) { step = scroll_sum > 0 ? 1 : -1; scroll_sum = 0; }
+        }
+        if (step) media_scroll(step);
+        return TRUE;
+    }
     if ((w != anchor && w != popup) || kind != CLOCK) return TRUE;   /* over the clock or its card */
     int step = 0;
     if (e->direction == GDK_SCROLL_UP) step = -1;

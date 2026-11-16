@@ -49,6 +49,10 @@ window.backdrop { background: transparent; }   /* behind a popup: Backdrop draws
    protocol (ext-background-effect) and asks for no blur unless the window has a backdrop-filter: without
    this, what's behind showed through sharp. The strength is Hyprland's (Appearance → Blur), not this px */
 window.panel, window.backdrop { backdrop-filter: blur(10px); }
+/* a popup over its backdrop asks for none: the backdrop under it is already blurred, and a second blur
+   on top (the popup's, redone on each of its redraws over the backdrop's) halved the frame rate on this
+   PC's Intel GPU while a panel was open. Through its .85 background the backdrop's blur shows the same */
+window.panel.over-backdrop { backdrop-filter: none; }
 
 /* every window has the Control Center card's chrome: icon + bold title, details on the right,
    an underline that's blue under the title, key hints on the last line */
@@ -671,6 +675,7 @@ class ViewHost:
         """Show the window: a popup over its backdrop (the screen blurred and darkened, a click on it
         closes the popup), pinned above it; without a backdrop, just the window."""
         if self.backdrop:   # the popup goes up once the backdrop is there, so it's the one on top
+            self.win.add_css_class("over-backdrop")
             self.win.connect("close-request", lambda *_: self.backdrop.destroy() or False)
             self.backdrop.connect("map", lambda *_: GLib.idle_add(lambda: self.win.present() or False))
             self.win.connect("map", lambda *_: GLib.timeout_add(30, self.pin_over_backdrop))

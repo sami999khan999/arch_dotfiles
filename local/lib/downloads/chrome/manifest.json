@@ -1,11 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Desktop Companion",
-  "description": "Connects Chrome to this PC: downloads go to its download manager (Super + Ctrl + J), Setups learns your windows, tabs and tab groups, and background tabs sleep until you visit them.",
-  "version": "1.5",
+  "description": "Connects Chrome to this PC: downloads go to its download manager (Super + Ctrl + J), Setups learns your windows, tabs and tab groups, background tabs sleep until you visit them, and the desktop's media controls reach YouTube's next / previous video.",
+  "version": "1.6",
   "update_url": "http://127.0.0.1:53319/update.xml",
   "permissions": ["downloads", "cookies", "nativeMessaging", "tabs", "tabGroups"],
   "host_permissions": ["<all_urls>"],
   "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
-  "background": { "service_worker": "background.js" }
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"], "js": ["youtube.js"],
+      "world": "MAIN", "run_at": "document_start" }
+  ]
 }

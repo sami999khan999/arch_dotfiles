@@ -9,6 +9,7 @@
 // (Chrome's command line, which opened it, can't).
 // And a tab opened in the background (a Setups restore, a saved tab group, Chrome's own restore, a link opened
 // in a new tab) stays dormant — discarded, no page running — until you go to it, when Chrome loads it.
+// youtube.js (a content script) gives YouTube next / previous for the desktop's media controls (MPRIS).
 // Packed per PC by `downloads enable`; a change here needs the version in manifest.json raised, or Chrome keeps
 // the old one. Its update_url is what Chrome checks for updates once it's installed (the policy's URL only
 // installs it): without it, Chrome never updates it.

@@ -513,12 +513,19 @@ static void slider_set(GtkWidget *w, double value) {   /* from outside; not whil
     gtk_widget_queue_draw(w);
 }
 
-/* the hub's volume: pamixer, as the module's own scroll; once per whole percent while dragging */
+/* the hub's volume: pamixer, as the module's own scroll; once per whole percent while dragging. The
+   card isn't rebuilt while the slider is held, so the number beside it follows the knob from here. */
 static void volume_moved(GtkWidget *s, double f, gboolean done) {
     static int last = -1;
     int pct = (int)lround(f * 100);
     if (pct == last && !done) return;
     last = done ? -1 : pct;
+    GtkWidget *num = g_object_get_data(G_OBJECT(s), "number");
+    if (num) {
+        gchar *t = g_strdup_printf("%d%%", pct);
+        gtk_label_set_text(GTK_LABEL(num), t);
+        g_free(t);
+    }
     gchar *cmd = g_strdup_printf("pamixer --set-volume %d", pct);
     g_spawn_command_line_async(cmd, NULL);
     g_free(cmd);
@@ -648,8 +655,11 @@ static GtkWidget *hub_row(GtkWidget *eb, gboolean *status) {
         if (sub_what) gtk_box_pack_start(GTK_BOX(s), text(sub_what, "bartip-sub"), FALSE, FALSE, 0);
         gtk_box_pack_start(GTK_BOX(words), s, FALSE, FALSE, 0);
     }
-    if (pct >= 0)   /* the volume: how loud, as a slider (click or drag it) */
-        gtk_box_pack_start(GTK_BOX(words), slider(CLAMP(pct, 0, 100) / 100.0, TRUE, volume_moved), FALSE, FALSE, 0);
+    GtkWidget *vol = NULL;
+    if (pct >= 0) {   /* the volume: how loud, as a slider (click or drag it) */
+        vol = slider(CLAMP(pct, 0, 100) / 100.0, TRUE, volume_moved);
+        gtk_box_pack_start(GTK_BOX(words), vol, FALSE, FALSE, 0);
+    }
     gtk_widget_set_valign(words, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(line), words, TRUE, TRUE, 0);
     if (keys) {
@@ -657,6 +667,9 @@ static GtkWidget *hub_row(GtkWidget *eb, gboolean *status) {
     } else if (pct >= 0) {
         GtkWidget *v = text(detail, "bartip-big");
         gtk_widget_set_valign(v, GTK_ALIGN_CENTER);
+        gtk_label_set_width_chars(GTK_LABEL(v), 4);   /* room for 100%: the card keeps its size under a drag */
+        gtk_label_set_xalign(GTK_LABEL(v), 1);
+        g_object_set_data(G_OBJECT(vol), "number", v);
         gtk_box_pack_end(GTK_BOX(line), v, FALSE, FALSE, 0);
     }
     gtk_container_add(GTK_CONTAINER(row), line);

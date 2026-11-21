@@ -649,8 +649,33 @@ def termlist_cmd(project):
     return f"exec python3 {HERE}/termlist.py {shlex.quote(project)}"
 
 
+def column_lock():
+    """Held while the column is opened or closed: two at once (a key and a project switch) each saw no
+    column and split one, and the first, its @p_terms overwritten, stayed on screen for good."""
+    import fcntl
+    os.makedirs(lib.RUN, exist_ok=True)
+    lock = open(os.path.join(lib.RUN, "terms.lock"), "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock   # used in a with: closing the file releases the lock
+
+
+def stray_terms():
+    """Terminals or terminal-list panes that no role points at (left by a race like the one above)."""
+    keep = {pane("terms"), pane("termlist")}
+    rc, out = lib.app("list-panes", "-a", "-F", "#{pane_id}\t#{@label}")
+    return [pid for pid, _, label in (line.partition("\t") for line in out.splitlines())
+            if (label.startswith("Terminals · ") or label == "Terminal list") and pid not in keep]
+
+
 def open_terms(project):
     """The terminals column (the project's terminals session and their list), at its remembered width."""
+    with column_lock():
+        for p in stray_terms():
+            lib.app("kill-pane", "-t", p)
+        return _open_terms(project)
+
+
+def _open_terms(project):
     col = pane("terms")
     if col is None:   # its share of the whole window, in columns (a % would be of the middle pane)
         total = int(lib.app("display-message", "-p", "-t", pane("main"), "#{window_width}")[1] or 0)
@@ -683,11 +708,13 @@ def close_terms_column():
     """Hide the column (both its panes); the shells keep running."""
     if opt("@max") == "terms":   # its own window goes with it
         set_opt("@max", "")
-    save_widths()
-    # both panes in one tmux command: one redraw, and the thread is resized once, not twice
-    kill = [a for p in filter(None, (pane("terms"), pane("termlist"))) for a in (";", "kill-pane", "-t", p)][1:]
-    if kill:
-        lib.app(*kill)
+    with column_lock():
+        save_widths()
+        # all its panes in one tmux command: one redraw, and the thread is resized once, not twice
+        panes = list(filter(None, (pane("terms"), pane("termlist")))) + stray_terms()
+        kill = [a for p in panes for a in (";", "kill-pane", "-t", p)][1:]
+        if kill:
+            lib.app(*kill)
 
 
 def terms_closed(project):

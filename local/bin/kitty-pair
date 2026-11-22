@@ -8,7 +8,8 @@
 Open: starts kitty right away (a new VS Code window shows alone until its kitty is there), as its
 own app (uwsm), with the class code-term-<address>: that's how codepair.lua knows which VS Code
 window the kitty belongs to. It starts in the folder the window's title names
-("file - cloud_track - Visual Studio Code") if it already does, else in ~/code; once VS Code shows
+("file - cloud_track - Visual Studio Code") if it already does (the title has only the name: the path
+is the one VS Code says it has open, see resolve()), else in ~/code; once VS Code shows
 its project, codepair.lua runs --follow and the kitty cd's there. Does nothing if that window
 already has its kitty. The VS Code window is focused first: a new column opens beside the focused one.
 
@@ -24,7 +25,7 @@ only sees tmux running in a tab, not the shell's cd. So the kitty maps it here (
 opens in the directory the shown tab's thread is in, as a thread of the same project.
 Talks to the kitty through its remote-control socket ($XDG_RUNTIME_DIR/kitty-pair-<address>).
 """
-import json, os, shlex, shutil, subprocess, sys, time
+import json, os, shlex, shutil, subprocess, sys, time, urllib.parse
 
 ROOT = os.path.expanduser("~/code")
 APP = " - Visual Studio Code"
@@ -69,6 +70,52 @@ def find_folder(name, depth=5):
     return best
 
 
+def vscode_folders():
+    """The folders VS Code says it has open (its windowsState in storage.json), newest window last."""
+    try:
+        with open(os.path.expanduser("~/.config/Code/User/globalStorage/storage.json")) as f:
+            ws = json.load(f).get("windowsState") or {}
+    except (OSError, ValueError):
+        return []
+    out = []
+    for w in ws.get("openedWindows", []) + [ws.get("lastActiveWindow") or {}]:
+        uri = w.get("folder") or ""
+        if uri.startswith("file://"):
+            path = urllib.parse.unquote(uri[len("file://"):])
+            if path not in out:
+                out.append(path)
+    return out
+
+
+def resolve(name, addr):
+    """The folder a VS Code window titled name has open. The title gives only the folder's name, and
+    ~/code has several "templates": guessing the newest one paired a window with the wrong project
+    (and a duplicate agentmux project). So first the folders VS Code itself has open, then a project
+    agentmux already works in, and only then a search of ~/code."""
+    taken = {remembered(a) for a in paired() if a != addr}
+    for paths in (vscode_folders(), agentmux_projects()):
+        hits = [p for p in paths if os.path.basename(p.rstrip("/")) == name and os.path.isdir(p)]
+        free = [p for p in hits if p not in taken]   # two windows on two "templates": one each
+        if free or hits:
+            return (free or hits)[-1]
+    return find_folder(name)
+
+
+def paired():
+    """The VS Code window addresses that have a kitty (its socket)."""
+    return [f[len("kitty-pair-"):] for f in os.listdir(RUN) if f.startswith("kitty-pair-") and "." not in f]
+
+
+def agentmux_projects():
+    lib = agentmux()
+    if lib is None:
+        return []
+    try:
+        return [t["project"] for t in lib.threads() if t["project"]]
+    except Exception:   # tmux not running: nothing known
+        return []
+
+
 def socket_of(addr):
     return f"{RUN}/kitty-pair-{addr}"
 
@@ -98,7 +145,7 @@ def open_pair(addr):
     if win is None:
         return  # the VS Code window closed meanwhile
     name = root_name(win["title"])
-    folder = (find_folder(name) if name else None) or ROOT
+    folder = (resolve(name, addr) if name else None) or ROOT
     remember(addr, folder)
     subprocess.run(["hyprctl", "dispatch", f'hl.dsp.focus({{ window = "address:{addr}" }})'],
                    capture_output=True)
@@ -175,7 +222,7 @@ def tmux_thread(lib, window):
 def follow(addr):
     win = next((c for c in clients() if c["address"] == addr), None)
     name = root_name(win["title"]) if win else None
-    folder = find_folder(name) if name else None
+    folder = resolve(name, addr) if name else None
     if not folder or folder == remembered(addr):
         return  # not a project we know, or the same one
     end = time.time() + STARTUP

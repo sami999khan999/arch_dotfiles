@@ -221,6 +221,12 @@ class Picker(fg.Files):
     def paste(self):
         pass
 
+    def extract(self):
+        pass
+
+    def compress(self):
+        pass
+
     def copy(self, cut=False):
         if not cut:
             super().copy()

@@ -96,6 +96,27 @@ def kind_of(name, is_dir):
     return glyph, cls, Gio.content_type_get_description(ctype) if ctype else (ext.upper() or "File")
 
 
+ARCHIVES = (".zip", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.zst", ".tzst", ".tar.bz2", ".tbz2",
+            ".7z", ".rar", ".gz", ".xz", ".zst", ".bz2", ".cpio", ".iso", ".jar", ".apk", ".deb")
+
+
+def is_archive(name, is_dir):
+    return not is_dir and name.lower().endswith(ARCHIVES)
+
+
+def archive_stem(name):
+    """The name without its archive extension ("a.tar.gz" → "a"); the name as it is otherwise."""
+    low = name.lower()
+    ext = max((x for x in ARCHIVES if low.endswith(x)), key=len, default="")
+    return name[:len(name) - len(ext)] or name if ext else name
+
+
+def bsdtar_error(stderr):
+    """bsdtar's first complaint, without its name (its last line is only "Error exit delayed…")."""
+    first = next((l for l in stderr.splitlines() if l.strip()), "bsdtar failed")
+    return first.removeprefix("bsdtar: ")
+
+
 def free_name(folder, name):
     """name in folder, or "name (2)", "name (3)"… if it's taken."""
     if not os.path.lexists(os.path.join(folder, name)):
@@ -133,7 +154,7 @@ class Files(View):
     interval = 0
     css = CSS
     hints = [("Enter", "open"), ("Bksp", "back"), ("F2", "rename"), ("Del", "trash"), ("Ctrl+C/X/V", "copy / cut / paste"),
-             ("Ctrl+H", "hidden"), ("/", "filter"), ("Ctrl+I", "details"), ("F4", "terminal")]
+             ("Ctrl+E", "extract"), ("Ctrl+H", "hidden"), ("/", "filter"), ("Ctrl+I", "details"), ("F4", "terminal")]
 
     def __init__(self, start=None):
         super().__init__()
@@ -683,6 +704,83 @@ class Files(View):
         self.ask("New file" if file else "New folder", done, name="new file.txt" if file else "New folder",
                  ok="Create")
 
+    # ---- archives (bsdtar: libarchive, which pacman needs, reads zip, tar.*, 7z, rar; it refuses ".." and
+    # absolute paths in an archive, so nothing lands outside the folder) ---------------------------------
+    def extract(self):
+        archives = [e for e in self.selected() if is_archive(e.name, e.is_dir)]
+        if not archives:
+            self.say("select an archive to extract", "bad")
+            return
+        dest = self.cwd
+        self.say(f"extracting {plural(len(archives), 'archive')}…", seconds=600)
+
+        def work():
+            names, errors = set(), []
+            for e in archives:
+                # into a hidden folder first: an archive holding one thing comes out as that thing, one
+                # holding several as a folder named after the archive (not files strewn over this one)
+                tmp = os.path.join(dest, free_name(dest, f".extracting {e.name}"))
+                try:
+                    os.mkdir(tmp)
+                    r = subprocess.run(["bsdtar", "-xf", e.path, "-C", tmp], capture_output=True, text=True)
+                    if r.returncode:
+                        raise OSError(0, bsdtar_error(r.stderr))
+                    inside = os.listdir(tmp)
+                    if len(inside) == 1:
+                        name = free_name(dest, inside[0])
+                        os.rename(os.path.join(tmp, inside[0]), os.path.join(dest, name))
+                        os.rmdir(tmp)
+                    else:
+                        name = free_name(dest, archive_stem(e.name))
+                        os.rename(tmp, os.path.join(dest, name))
+                    names.add(name)
+                except OSError as err:
+                    shutil.rmtree(tmp, ignore_errors=True)
+                    errors.append(f"{e.name}: {err.strerror or err}")
+
+            def after():
+                self.say(errors[0] if errors else f"extracted {plural(len(names), 'item')}", "bad" if errors else "ok")
+                if self.cwd == dest:
+                    self.go(dest, remember=False, keep=names)
+                return False
+            GLib.idle_add(after)
+        threading.Thread(target=work, daemon=True).start()
+
+    def compress(self):
+        sel = self.selected()
+        if not sel:
+            return
+        dest = self.cwd
+        base = archive_stem(sel[0].name) if len(sel) == 1 else os.path.basename(dest.rstrip("/")) or "Archive"
+
+        def done(name):
+            if "/" in name:
+                self.say("a name can't have / in it", "bad")
+                return
+            name = free_name(dest, name if name.lower().endswith(".zip") else name + ".zip")
+            self.say(f"compressing {plural(len(sel), 'item')}…", seconds=600)
+
+            def work():
+                # links stored as links; the names relative to here, so the zip holds them as they're shown
+                r = subprocess.run(["bsdtar", "-a", "-cf", os.path.join(dest, name), "-C", dest, "--",
+                                    *[e.name for e in sel]], capture_output=True, text=True)
+
+                def after():
+                    if r.returncode:
+                        try:
+                            os.remove(os.path.join(dest, name))   # half a zip is no use
+                        except OSError:
+                            pass
+                        self.say(f"couldn't compress: {bsdtar_error(r.stderr)}", "bad")
+                    else:
+                        self.say(f"made “{name}”", "ok")
+                    if self.cwd == dest:
+                        self.go(dest, remember=False, keep={name})
+                    return False
+                GLib.idle_add(after)
+            threading.Thread(target=work, daemon=True).start()
+        self.ask("Compress to", done, name=base + ".zip", ok="Compress")
+
     def trash(self, permanent=False):
         sel = self.selected()
         if not sel:
@@ -991,6 +1089,9 @@ class Files(View):
                       None,
                       ("Cut", lambda: self.copy(cut=True), "Ctrl+X"), ("Copy", self.copy, "Ctrl+C"),
                       ("Copy path", self.copy_path, "Ctrl+Shift+C"), None]
+            if any(is_archive(e.name, e.is_dir) for e in sel):
+                items.append(("Extract here", self.extract, "Ctrl+E"))
+            items.append(("Compress to zip…", self.compress, "Ctrl+Shift+E"))
             if len(sel) == 1:
                 items.append(("Rename…", self.rename, "F2"))
             items += [("Move to trash", self.trash, "Del"), ("Delete permanently…", lambda: self.trash(True), "Shift+Del")]
@@ -1068,6 +1169,10 @@ class Files(View):
             self.copy(cut=True)
         elif ctrl and k == Gdk.KEY_v:
             self.paste()
+        elif ctrl and shift and k == Gdk.KEY_e:
+            self.compress()
+        elif ctrl and k == Gdk.KEY_e:
+            self.extract()
         elif keyval == Gdk.KEY_F2:
             self.rename()
         elif keyval == Gdk.KEY_Delete:

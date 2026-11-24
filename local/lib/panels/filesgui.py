@@ -12,7 +12,7 @@ import gc, grp, json, os, pwd, shutil, stat, subprocess, sys, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gtkkit import Gdk, Gio, GLib, Gtk, Pango, PanelApp, View, box, button, clear, collect, label, scrolled
-from gi.repository import GdkPixbuf, GObject
+from gi.repository import GdkPixbuf, GObject, Graphene
 
 HOME = os.path.expanduser("~")
 STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or f"{HOME}/.local/state", "files", "state.json")
@@ -45,6 +45,7 @@ CSS = """
 .files columnview listview > row:hover { background: alpha(#292e42, .45); }
 .files columnview listview > row:selected { background: #292e42; color: #c0caf5; }
 .files columnview listview > row > cell { padding: 3px 8px; }
+.files columnview rubberband { background: alpha(#6b8fe0, .14); border: 1px solid alpha(#6b8fe0, .7); }   /* drag to select */
 .file-glyph { min-width: 18px; }
 .prompt { border-top: 1px solid alpha(#3b4261, .7); padding: 8px 2px 0 2px; }
 .menu-btn { padding: 4px 14px; }
@@ -1075,8 +1076,8 @@ class Files(View):
         pos = item.get_position()
         if not self.sel.is_selected(pos):
             self.sel.select_item(pos, True)
-        _ok, px, py = gesture.get_widget().translate_coordinates(self.table, x, y)
-        self.menu(self.selected(), self.table, px, py)
+        _ok, pt = gesture.get_widget().compute_point(self.table, Graphene.Point().init(x, y))
+        self.menu(self.selected(), self.table, pt.x, pt.y)
 
     def menu(self, sel, parent, x, y):
         pop = Gtk.Popover(has_arrow=False)

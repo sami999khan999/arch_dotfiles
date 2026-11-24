@@ -678,7 +678,7 @@ workspace 7 too).
   (asks), `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy / cut / paste, `Ctrl+Shift+C` copy the path, `Ctrl+H` hidden
   files, `F4` a terminal here, `F5` reload, `Esc` clears the filter or the selection. Right-click a file or
   the empty part for a menu.
-- **Archives:** *Extract here* (`Ctrl+E`, in the menu of a zip, tar.gz / xz / zst / bz2, 7z, rar…): an
+- **Archives:** opening one (double click, `Enter`) or *Extract here* (`Ctrl+E`, in the menu of a zip, tar.gz / xz / zst / bz2, 7z, rar…): an
   archive holding one thing comes out as that thing, one holding several as a folder named after it.
   *Compress to zip…* (`Ctrl+Shift+E`) zips what's selected, asking for the name. Both by `bsdtar`.
 - Copy and cut put the files on the clipboard as file URIs too, so they paste into other apps; files another

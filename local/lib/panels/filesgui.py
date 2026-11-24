@@ -618,6 +618,8 @@ class Files(View):
             return
         if e.is_dir:
             self.go(e.path)
+        elif is_archive(e.name, e.is_dir):   # nothing opens a zip here: opening one extracts it
+            self.extract([e])
         else:   # its default app (mimeapps.list)
             self.launch("xdg-open", e.path)
 
@@ -706,8 +708,8 @@ class Files(View):
 
     # ---- archives (bsdtar: libarchive, which pacman needs, reads zip, tar.*, 7z, rar; it refuses ".." and
     # absolute paths in an archive, so nothing lands outside the folder) ---------------------------------
-    def extract(self):
-        archives = [e for e in self.selected() if is_archive(e.name, e.is_dir)]
+    def extract(self, entries=None):
+        archives = [e for e in entries or self.selected() if is_archive(e.name, e.is_dir)]
         if not archives:
             self.say("select an archive to extract", "bad")
             return

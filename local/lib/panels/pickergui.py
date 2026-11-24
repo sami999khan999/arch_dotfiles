@@ -221,7 +221,7 @@ class Picker(fg.Files):
     def paste(self):
         pass
 
-    def extract(self):
+    def extract(self, entries=None):
         pass
 
     def compress(self):

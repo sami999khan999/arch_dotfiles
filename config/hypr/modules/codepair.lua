@@ -361,6 +361,21 @@ hl.on("window.open", function(w)
             for _, ms in ipairs({ 250, 700 }) do
                 hl.timer(function() focus(code) end, { timeout = ms, type = "oneshot" })
             end
+            -- once settled, VS Code is resized a hair and back: it goes through several widths in
+            -- under a second here (full, then beside its kitty), and sometimes kept a frame from one of
+            -- them — painting only its left part, laid out for another width, the rest showing the
+            -- wallpaper until it was next resized. Only while it still has the focus (colresize acts
+            -- on the focused column).
+            local addr = code.address
+            hl.timer(function()
+                local a = hl.get_active_window()
+                if not (a and a.address == addr) then return end
+                hl.dispatch(hl.dsp.layout("colresize " .. (1 - share - 0.005)))
+                hl.timer(function()
+                    local b = hl.get_active_window()
+                    if b and b.address == addr then hl.dispatch(hl.dsp.layout("colresize " .. (1 - share))) end
+                end, { timeout = 60, type = "oneshot" })
+            end, { timeout = PAIR_SETTLE_MS, type = "oneshot" })
             -- this pair is done once those have run: the next VS Code window's turn
             if pairing == code.address then
                 hl.timer(function()

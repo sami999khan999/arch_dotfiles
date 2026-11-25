@@ -294,15 +294,23 @@ end
 
 local function pairUp(w)
     -- a new column opens right of the focused one: if that was the left column of another pair,
-    -- this window landed inside that pair; hop over to the right of it
-    local left = leftOf(w)
+    -- this window landed inside that pair; hop over to the right of it. Read a moment after it
+    -- opens: on window.open it has no position yet, the hop was skipped, and its kitty then landed
+    -- beyond the old pair (kittyB kittyA codeA codeB)
+    local address = w.address
     focus(w)
-    if left and ((termSide == "left" and isPairTerm(left)) or (termSide == "right" and CODE[left.class])) then
-        hl.dispatch(hl.dsp.layout("swapcol r"))
-    end
-    -- full width until its kitty is there, so it never shows half-width beside the old pair
-    hl.dispatch(hl.dsp.layout("colresize 1.0"))
-    hl.exec_cmd("~/.local/bin/kitty-pair " .. w.address)
+    hl.timer(function()
+        w = hl.get_window("address:" .. address)
+        if not w then return end
+        local left = leftOf(w)
+        focus(w)
+        if left and ((termSide == "left" and isPairTerm(left)) or (termSide == "right" and CODE[left.class])) then
+            hl.dispatch(hl.dsp.layout("swapcol r"))
+        end
+        -- full width until its kitty is there, so it never shows half-width beside the old pair
+        hl.dispatch(hl.dsp.layout("colresize 1.0"))
+        hl.exec_cmd("~/.local/bin/kitty-pair " .. address)
+    end, { timeout = 50, type = "oneshot" })
 end
 
 -- VS Code windows waiting for their kitty. A window opened where no screen shows (Setups opens windows
@@ -376,11 +384,16 @@ hl.on("window.open", function(w)
                     if b and b.address == addr then hl.dispatch(hl.dsp.layout("colresize " .. (1 - share))) end
                 end, { timeout = 60, type = "oneshot" })
             end, { timeout = PAIR_SETTLE_MS, type = "oneshot" })
-            -- this pair is done once those have run: the next VS Code window's turn
+            -- this pair is done once those have run: every pair checked whole (a restore's windows can
+            -- still have split one), then the next VS Code window's turn
             if pairing == code.address then
                 hl.timer(function()
-                    if pairing == code.address then pairing = nil; pairNext() end
-                end, { timeout = PAIR_SETTLE_MS, type = "oneshot" })
+                    if pairing == code.address then
+                        pairing = nil
+                        tidyPairs(hl.get_window("address:" .. addr))
+                        pairNext()
+                    end
+                end, { timeout = PAIR_SETTLE_MS + 100, type = "oneshot" })
             end
         end, { timeout = 50, type = "oneshot" })
     end

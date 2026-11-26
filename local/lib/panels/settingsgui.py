@@ -589,19 +589,28 @@ class Settings(View):
             if m.get("disabled"):
                 continue
             name = m["name"]
+            # The screen's own mode is offered as "preferred", not as its numbers: a 59.998 Hz mode
+            # reads "1920x1080@60.00", and Hyprland given that picks the exact 60 Hz one, the TV
+            # timing, sent in limited-range RGB (washed-out colours). Apply wrote it even when only the
+            # scale changed.
+            avail = [x.removesuffix("Hz") for x in m.get("availableModes", [])]
+            first = avail[0] if avail else None
+            modes = [("preferred", first.replace("@", "  @ ") + " Hz  (default)")] if first else []
+            for mode in avail:
+                if mode != first and mode not in [v for v, _ in modes]:
+                    modes.append((mode, mode.replace("@", "  @ ") + " Hz"))
+            saved = S.store(local=True).get("monitors", {}).get(name, {}).get("mode")
             now = f"{m['width']}x{m['height']}@{m['refreshRate']:.2f}"
-            modes = []
-            for mode in m.get("availableModes", []):
-                mode = mode.removesuffix("Hz")
-                if mode not in modes:
-                    modes.append(mode)
-            if now not in modes:
-                modes.insert(0, now)
+            if saved in [v for v, _ in modes]:
+                now = saved
+            elif first and (saved in (None, "preferred") or now == first):
+                now = "preferred"
+            else:
+                modes.insert(0, (now, now.replace("@", "  @ ") + " Hz"))
             self.heading(p, f"{name} · {m.get('make', '')} {m.get('model', '')}".strip())
             pick = {"mode": now, "scale": float(m["scale"])}
             p.append(setting_row("Resolution and refresh rate", None,
-                                 dropdown([(x, x.replace("@", "  @ ") + " Hz") for x in modes], now,
-                                          lambda v: pick.update(mode=v))))
+                                 dropdown(modes, now, lambda v: pick.update(mode=v))))
             p.append(setting_row("Scale", "Bigger text and windows on high-resolution screens",
                                  dropdown([(s, f"{int(s * 100)} %") for s in (1.0, 1.25, 1.5, 1.75, 2.0)],
                                           float(m["scale"]), lambda v: pick.update(scale=v))))

@@ -298,19 +298,33 @@ local function pairUp(w)
     -- opens: on window.open it has no position yet, the hop was skipped, and its kitty then landed
     -- beyond the old pair (kittyB kittyA codeA codeB)
     local address = w.address
+    local promoted = false
     focus(w)
-    hl.timer(function()
+    local function step()
         w = hl.get_window("address:" .. address)
         if not w then return end
-        local left = leftOf(w)
         focus(w)
+        -- stacked in another window's column (two VS Code windows were found sharing one): a column
+        -- of its own first, or its kitty can't sit beside it; positions read again once it has one
+        if not promoted then
+            for _, o in ipairs(w.workspace:get_windows()) do
+                if o.address ~= w.address and o.mapped and not o.floating and o.at.x == w.at.x then
+                    promoted = true
+                    hl.dispatch(hl.dsp.layout("promote"))
+                    hl.timer(step, { timeout = 50, type = "oneshot" })
+                    return
+                end
+            end
+        end
+        local left = leftOf(w)
         if left and ((termSide == "left" and isPairTerm(left)) or (termSide == "right" and CODE[left.class])) then
             hl.dispatch(hl.dsp.layout("swapcol r"))
         end
         -- full width until its kitty is there, so it never shows half-width beside the old pair
         hl.dispatch(hl.dsp.layout("colresize 1.0"))
         hl.exec_cmd("~/.local/bin/kitty-pair " .. address)
-    end, { timeout = 50, type = "oneshot" })
+    end
+    hl.timer(step, { timeout = 50, type = "oneshot" })
 end
 
 -- VS Code windows waiting for their kitty. A window opened where no screen shows (Setups opens windows
@@ -436,5 +450,18 @@ hl.on("window.close", function(w)
         folderOf[w.address], unpaired[w.address] = nil, nil
         local term = termOf(w)
         if term then hl.dispatch(hl.dsp.window.close({ window = "address:" .. term.address })) end
+    elseif w and isPairTerm(w) then
+        -- a kitty closed on its own (its last tab ended) while its VS Code stays: that window got a
+        -- new kitty only after a reload, and meanwhile sat beside the next pair's kitty, looking paired
+        -- with it (codeA | kittyB codeB). It gets a new one now; checked a moment later, once the
+        -- kitty is gone (a VS Code window closing closes its kitty too: nothing to pair then)
+        local addr = w.class:sub(#TERM + 1)
+        hl.timer(function()
+            local code = hl.get_window("address:" .. addr)
+            if code and onPairWs(code) and not termOf(code) then
+                unpaired[addr] = true
+                pairNext()
+            end
+        end, { timeout = 200, type = "oneshot" })
     end
 end)

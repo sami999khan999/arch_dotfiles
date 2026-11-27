@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # dockergui.py — the Docker panel as a GTK window (Tokyo Night, plain). Workspace 9's app
 # (config/hypr/workspaces.conf); tiled, so running it again just brings it up.
-# `dockergui.py --dokploy` is the Dokploy window (class sami.dokploy), opened with it on workspace 9:
-# the same window for Dokploy's own containers and the apps it deployed, its on / off switch in the
-# header and what it's doing (dokployctl). The Docker window leaves those containers out.
+# The Dokploy window (class sami.dokploy) opens with it on workspace 9, in the same process (gtkkit's
+# WindowsApp; `dockergui.py --dokploy` brings it up, or back): the same window for Dokploy's own containers
+# and the apps it deployed, its on / off switch in the header and what it's doing (dokployctl). The Docker
+# window leaves those containers out.
 #
 #   tabs   Containers · Images · Volumes · Networks (1-4)
 #   header Docker itself on / off (systemctl, allowed without a password by system/root-setup.sh)
@@ -23,7 +24,7 @@ import json, os, re, shlex, subprocess, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dockerlogs
 import dockerpanel as dp
-from gtkkit import (Gdk, GLib, Gtk, Pango, View, box, button, clear, hypr_socket, label, recolor, run, scrolled,
+from gtkkit import (Gdk, GLib, Gtk, Pango, View, box, button, clear, hypr_socket, label, recolor, run_windows, scrolled,
                     wrap_box)
 
 TAB_NAMES = {"containers": "Containers", "images": "Images", "volumes": "Volumes", "networks": "Networks",
@@ -1565,8 +1566,9 @@ def make(dokploy=False):
 
 
 def main():
-    dokploy = "--dokploy" in sys.argv[1:]
-    run(make(dokploy), "sami.dokploy" if dokploy else "sami.docker", (1280, 720), toggle=False)
+    # both windows in one process (one Python + GTK instead of two); each keeps its own model, since a
+    # model holds its window's tab, selection and log stream
+    run_windows({"": (Docker, "sami.docker", (1280, 720)), "--dokploy": (Dokploy, "sami.dokploy", (1280, 720))})
 
 
 if __name__ == "__main__":

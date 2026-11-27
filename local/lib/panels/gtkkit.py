@@ -843,6 +843,8 @@ class ViewHost:
     def check_shown(self):
         import json
         self.check_queued = False
+        if not self.win:   # closed since it was queued (AppWindow)
+            return False
         try:
             mons = json.loads(hypr_socket("j/monitors") or "[]")
             if self.me is None:   # the client list only when this window moved: a workspace switch
@@ -1002,7 +1004,97 @@ def collect():
     return True
 
 
-def run(view, app_id, size=(900, 560), toggle=True):
+class AppWindow(ViewHost):
+    """One of a WindowsApp's windows: a workspace app's (toggle=False), with its own window class. Closed
+    while another of the app's is open, it's only hidden, its view paused, and shown again as it was (a
+    view's model runs threads for good: a new one per reopen would leave the old ones running)."""
+    toggle = False
+
+    def __init__(self, app, make, app_id, size):
+        self.app, self.make, self.app_id, self.size = app, make, app_id, size
+        self.win = self.view = None
+        self.hidden = False
+
+    def open(self):
+        if self.win and self.hidden:   # back as it was
+            self.hidden = False
+            self.win.present()
+            if self.unrealized:   # that ended its event watch (hypr_events): a new one
+                self.watch_shown()
+            # the view resumes once Hyprland lists the window again (check_shown: shown, paused here)
+            self.unrealized, self.shown, self.me = False, False, None
+            GLib.timeout_add(150, self.check_shown)
+            return
+        if self.win:
+            self.win.present()
+            return
+        self.view = self.make()
+        self.view.host = self
+        self.build_window(self.app, self.size)
+        # its own class (window rules, workspaces.conf), though one process: the toplevel's app id, set on
+        # map too, as GTK sets the application's again then (on realize alone it stayed sami.docker)
+        self.win.connect("realize", self.set_app_id)
+        self.win.connect("map", self.set_app_id)
+        self.win.connect("close-request", self.closed)
+        self.unrealized = False
+        self.win.connect("unrealize", lambda *_: setattr(self, "unrealized", True))
+        self.win.present()
+        self.watch_shown()
+
+    def set_app_id(self, win):
+        gi.require_version("GdkWayland", "4.0")
+        from gi.repository import GdkWayland
+        surface = win.get_surface()
+        if isinstance(surface, GdkWayland.WaylandToplevel):
+            surface.set_application_id(self.app_id)
+
+    def closed(self, win):
+        if not any(w.win and not w.hidden for w in self.app.windows.values() if w is not self):
+            self.app.quit()   # the last one: the process ends
+            return False
+        self.hidden = True
+        win.set_visible(False)
+        self.shown = False
+        self.arm_timer()
+        self.view.shown_changed(False)
+        return True
+
+    def check_shown(self):
+        if self.hidden:   # not in Hyprland's list at all: stays paused
+            self.check_queued = False
+            return False
+        return super().check_shown()
+
+
+class WindowsApp(Gtk.Application):
+    """Several workspace apps in one process (Docker and Dokploy: one Python and GTK instead of two).
+    windows: {flag: (make, app id, size)}; the first run opens them all, a later `<file> --flag` brings up
+    (or reopens) that one, `<file>` alone the first. The process ends with its last window."""
+
+    def __init__(self, windows):
+        first = next(iter(windows.values()))
+        super().__init__(application_id=first[1], flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.windows = {flag: AppWindow(self, *w) for flag, w in windows.items()}
+        self.started = False
+
+    def do_command_line(self, cmdline):
+        if not self.started:
+            self.started = True
+            install_css(next(iter(self.windows.values())).make.css)
+            # in their order, a moment apart, so the workspace lists them in it (wsgroups did the same
+            # with two processes)
+            self.hold()   # no window yet: the app would end before the first opens
+            wins = list(self.windows.values())
+            for i, w in enumerate(wins):
+                GLib.timeout_add(i * 300, lambda w=w, last=w is wins[-1]: w.open() or (last and self.release()) or False)
+            return 0
+        args = cmdline.get_arguments()[1:]
+        flag = next((a for a in args if a in self.windows), next(iter(self.windows)))
+        self.windows[flag].open()
+        return 0
+
+
+def main_loop_gc():
     # Python's cyclic garbage collector runs on whichever thread happens to allocate, and the panels do
     # their slow work (git, docker, nvidia-smi) in threads: a closed popup's widgets (a cycle through
     # their own signal handlers) were once collected on a git thread, and GTK, which is main-thread
@@ -1011,4 +1103,14 @@ def run(view, app_id, size=(900, 560), toggle=True):
     # idle panels busy); plain reference counting still frees the rest.
     gc.disable()
     GLib.timeout_add_seconds(30, collect)
+
+
+def run(view, app_id, size=(900, 560), toggle=True):
+    main_loop_gc()
     PanelApp(view, app_id, size, toggle).run([])
+
+
+def run_windows(windows):
+    """WindowsApp: {flag: (make, app id, size)}, e.g. {"": (Docker, "sami.docker", …), "--dokploy": …}."""
+    main_loop_gc()
+    WindowsApp(windows).run(sys.argv)

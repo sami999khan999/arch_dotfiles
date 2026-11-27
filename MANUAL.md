@@ -1707,8 +1707,9 @@ moved off the installer's port 3000, which dev servers want).
   kept in `~/.local/state/dokploy/stopped.json` for `up`. `dokployctl stop | start | restart <app>` does one
   app deployed as a Swarm service: stopped = scaled to 0 (its replicas remembered for Start), and `up`
   leaves an app stopped this way stopped.
-- **The Dokploy window** (`dockergui.py --dokploy`, class `sami.dokploy`, on workspace 9 beside Docker and
-  opened with it) is the Docker panel's window for Dokploy alone: the apps it deployed (the **Apps** tab),
+- **The Dokploy window** (class `sami.dokploy`, on workspace 9 beside Docker and opened with it, in the same
+  process: one Python and GTK for both, `WindowsApp` in `gtkkit.py`; closed while Docker is open it's only
+  hidden, and `dockergui.py --dokploy` or the header button brings it back) is the Docker panel's window for Dokploy alone: the apps it deployed (the **Apps** tab),
   with the same search, filter, logs, shell and panes. Its own containers (the dashboard, its Postgres,
   Traefik) aren't listed: the header switches Dokploy. While Dokploy is off the window is only a card in the
   middle: "Dokploy is off", its dashboard, version, apps, data and boot setting, and **Start Dokploy**

@@ -1134,10 +1134,13 @@ unpins a popup for the while, as Hyprland won't make a pinned window fullscreen)
 Documents also hide their header and hints there.
 A click anywhere outside a text field (a search box…) leaves it, so the panel's keys work again
 (`leave_text` in `gtkkit.py`; Projects goes back to its list).
-While a popup is open the whole screen behind it is blurred and darkened, the bar too (a see-through,
-darkened full-screen window under it; the bar is on the bottom layer, under windows, so it's covered as well that Hyprland blurs like every window, so panels and windows have
-the same blur, set in one place: Settings → Appearance → Blur; `Backdrop` in `gtkkit.py`,
-`panels-backdrop` in `modules/windowrules.lua`); a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
+While a popup is open the whole screen behind it is blurred and darkened, the bar too: a full-screen
+window under it shows a still picture of the screen taken as the popup opens (`grim`), blurred once, with
+the windows' blur strength and colour (Settings → Appearance → Blur), so panels and windows look the same.
+A still picture, not the live screen: Hyprland re-blurring the whole screen whenever something behind
+redrew (a web page) dropped frames. If the picture can't be taken, the backdrop is see-through and
+Hyprland blurs it live (`Backdrop` in `gtkkit.py`, `panels-backdrop` in `modules/windowrules.lua`; the bar
+is on the bottom layer, under windows, so it's covered as well); a click there closes the popup. The popup stays on the workspace it opened on: switch away and back
 and it's still there over its backdrop (it's pinned above the backdrop, so that click can't cover it,
 and unpinned while another workspace shows). Settings → Appearance → Panels: on / off, darkness, and Panel opacity
 (how solid the panel's own background is: lower shows more of the blur behind it; the blur is

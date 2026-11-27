@@ -173,9 +173,9 @@ hl.window_rule({ match = { tag = "floating-window", title = "^(wiremix)$" }, siz
 hl.window_rule({ match = { class = ".*" }, opacity = "0.97 0.97" })
 hl.window_rule({ match = { class = "^(zoom|vlc|mpv|imv|panels\\.images|panels\\.videos|panels\\.documents|org\\.kde\\.kdenlive|com\\.obsproject\\.Studio|steam_app.*|gamescope)$" }, opacity = "1 1" })
 
--- The backdrop behind a GUI popup (gtkkit.py, System Settings → Appearance → Panels): a see-through,
--- darkened window over the whole screen, blurred by Hyprland like every window (one blur for windows
--- and panels: Appearance → Blur). Focusable: with follow_mouse = 2 hovering doesn't take the focus, and
+-- The backdrop behind a GUI popup (gtkkit.py, System Settings → Appearance → Panels): a window over the
+-- whole screen showing a still picture of it, blurred and darkened by GTK with the windows' blur settings
+-- (Appearance → Blur); see-through and blurred by Hyprland only if that picture couldn't be taken. Focusable: with follow_mouse = 2 hovering doesn't take the focus, and
 -- a click must land on it (it closes the popup). Not tagged floating-window (that one centres and
 -- sizes the panels).
 hl.window_rule({

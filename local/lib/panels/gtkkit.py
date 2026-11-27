@@ -624,8 +624,9 @@ class Backdrop(Gtk.Widget):
         if not blur["enabled"]:
             return False
         self.picture = texture
-        # Hyprland's dual-Kawase blur spreads about size × 2^passes px; GTK's radius is close to that halved
-        self.radius = int(blur["size"]) * 2 ** int(blur["passes"]) / 2
+        # Hyprland's dual-Kawase blur spreads about size × 2^passes px; GTK's radius is twice that to look
+        # as soft (at size 1 × 4 passes, half that left the text behind readable)
+        self.radius = int(blur["size"]) * 2 ** int(blur["passes"]) * 2
         # and its colour: contrast around mid-grey, then the brightness (Hyprland's blur shaders)
         k, c = float(blur["brightness"]), float(blur["contrast"])
         self.matrix = Graphene.Matrix().init_from_float([k * c, 0, 0, 0, 0, k * c, 0, 0, 0, 0, k * c, 0, 0, 0, 0, 1])
